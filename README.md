@@ -8,10 +8,15 @@ tar -xvf buildroot-2024.08.tar.gz
 
 ## Build
 git clone https://github.com/F5OEO/tezuka_fw
+
 cd tezuka_fw
+
 source sourceme.first
+
 in your buildroot folder :
+
 make zynq_pluto_universal_defconfig
+
 make
 
 ## Result
