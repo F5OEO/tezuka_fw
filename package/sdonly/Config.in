@@ -1,0 +1,14 @@
+config BR2_PACKAGE_SDONLY
+	bool "SD Environment"
+	select BR2_PACKAGE_GNURADIO
+	select BR2_PACKAGE_PYTHON3
+	
+
+	#select BR2_PACKAGE_GNURADIO_PYTHON 
+	#select BR2_PACKAGE_NODEJS
+	#select BR2_PACKAGE_NODEJS_NPM
+	
+	help
+	  "PlutoPlus SD Environment"
+
+

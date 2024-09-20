@@ -1,0 +1,148 @@
+#!/bin/sh
+#
+# Start the network....
+#
+
+# Debian ifupdown needs the /run/network lock directory
+
+source /etc/device_config
+
+create_system_files () {
+
+	UDHCPD_CONF=/etc/udhcpd.conf
+	CONF=/opt/config.txt
+	IFAC=/etc/network/interfaces
+
+	HOSTNAME=`fw_printenv -n hostname 2> /dev/null || cat /etc/hostname`
+	echo $HOSTNAME > /etc/hostname
+
+	IPADDR=`fw_printenv -n ipaddr 2> /dev/null || echo 192.168.2.1`
+	IPADDR_HOST=`fw_printenv -n ipaddr_host 2> /dev/null || echo 192.168.2.10`
+	NETMASK=`fw_printenv -n netmask 2> /dev/null || echo 255.255.255.0`
+
+	ETH_IPADDR=`fw_printenv -n ipaddr_eth 2> /dev/null`
+	ETH_NETMASK=`fw_printenv -n netmask_eth 2> /dev/null || echo 255.255.255.0`
+
+	WLAN_SSID=`fw_printenv -n ssid_wlan 2> /dev/null`
+	WLAN_PWD=`fw_printenv -n pwd_wlan 2> /dev/null`
+	WLAN_IPADDR=`fw_printenv -n ipaddr_wlan 2> /dev/null`
+
+	XO_CORRECTION=`fw_printenv -n xo_correction 2> /dev/null`
+	UDC_HANDLE_SUSPEND=`fw_printenv -n udc_handle_suspend 2> /dev/null || echo 0`
+	USB_ETH_MODE=`fw_printenv -n usb_ethernet_mode 2> /dev/null || echo rndis`
+
+	### /etc/udhcpd.conf ###
+	echo "start $IPADDR_HOST" > $UDHCPD_CONF
+	echo "end $IPADDR_HOST" >> $UDHCPD_CONF
+	echo "interface usb0" >> $UDHCPD_CONF
+	echo "option subnet $NETMASK" >> $UDHCPD_CONF
+
+	### /etc/network/interfaces ###
+	echo -e "auto lo\n""iface lo inet loopback\n" > $IFAC
+	echo -e "auto usb0\n""iface usb0 inet static" >> $IFAC
+	echo -e "\taddress $IPADDR\n""\tnetmask $NETMASK\n" >> $IFAC
+	echo -e "auto usb1\n""iface usb1 inet dhcp\n" >> $IFAC
+
+	echo -e "auto eth0" >> $IFAC
+	if [ -n "$ETH_IPADDR" ]
+	then
+		echo -e "iface eth0 inet static" >> $IFAC
+		echo -e "\taddress $ETH_IPADDR\n""\tnetmask $ETH_NETMASK\n" >> $IFAC
+	else
+		echo -e "iface eth0 inet dhcp\n" >> $IFAC
+	fi
+
+	### /etc/wpa.conf ###
+	if [ -n "$WLAN_SSID" ]
+	then
+		if [ -n "$WLAN_PWD" ]
+		then
+			wpa_passphrase "$WLAN_SSID" "$WLAN_PWD" > /etc/wpa.conf
+		else
+			echo "network={" > /etc/wpa.conf
+			echo "    ssid=\"$WLAN_SSID\"" >> /etc/wpa.conf
+			echo "    key_mgmt=NONE" >> /etc/wpa.conf
+			echo "}" >> /etc/wpa.conf
+		fi
+
+		echo -e "auto wlan0" >> $IFAC
+
+		if [ -n "$WLAN_IPADDR" ]
+		then
+			echo -e "iface wlan0 inet static" >> $IFAC
+			echo -e "\taddress $WLAN_IPADDR\n""\tnetmask 255.255.255.0" >> $IFAC
+		else
+			echo -e "iface wlan0 inet dhcp" >> $IFAC
+		fi
+		echo -e "\twpa-conf /etc/wpa.conf\n" >> $IFAC
+	fi
+
+	### /opt/config.txt ###
+	echo "# $(cat /sys/firmware/devicetree/base/model | tr / -)"$'\r' > $CONF
+	echo "# Device Configuration File"$'\r' >> $CONF
+	echo "#   1. Open with an Editor"$'\r' >> $CONF
+	echo "#   2. Edit this file"$'\r' >> $CONF
+	echo "#   3. Save this file on the device USB drive"$'\r' >> $CONF
+	echo "#   4. Eject the device USB Drive"$'\r' >> $CONF
+	echo "# Doc: https://wiki.analog.com/university/tools/pluto/users/customizing"$'\r' >> $CONF
+	echo ""$'\r'>> $CONF
+	echo "[NETWORK]"$'\r' >> $CONF
+	echo "hostname = $HOSTNAME"$'\r' >> $CONF
+	echo "ipaddr = $IPADDR"$'\r' >> $CONF
+	echo "ipaddr_host = $IPADDR_HOST"$'\r' >> $CONF
+	echo "netmask = $NETMASK"$'\r' >> $CONF
+	echo ""$'\r'>> $CONF
+	echo "[WLAN]"$'\r' >> $CONF
+	echo "ssid_wlan = $WLAN_SSID"$'\r' >> $CONF
+	echo "pwd_wlan = $WLAN_PWD"$'\r' >> $CONF
+	echo "ipaddr_wlan = $WLAN_IPADDR"$'\r' >> $CONF
+	echo ""$'\r'>> $CONF
+	echo "[USB_ETHERNET]"$'\r' >> $CONF
+	echo "ipaddr_eth = $ETH_IPADDR"$'\r' >> $CONF
+	echo "netmask_eth = $ETH_NETMASK"$'\r' >> $CONF
+	echo ""$'\r'>> $CONF
+	echo "[SYSTEM]"$'\r' >> $CONF
+	echo "xo_correction = $XO_CORRECTION"$'\r' >> $CONF
+	echo "udc_handle_suspend = $UDC_HANDLE_SUSPEND"$'\r' >> $CONF
+	echo "# USB Communication Device Class Compatibility Mode [rndis|ncm|ecm]"$'\r' >> $CONF
+	echo "usb_ethernet_mode = $USB_ETH_MODE"$'\r' >> $CONF
+	echo ""$'\r'>> $CONF
+	echo "[ACTIONS]"$'\r' >> $CONF
+	echo "diagnostic_report = 0"$'\r' >> $CONF
+	echo "dfu = 0"$'\r' >> $CONF
+	echo "reset = 0"$'\r' >> $CONF
+	echo "calibrate = 0"$'\r' >> $CONF
+	echo ""$'\r'>> $CONF
+
+	### /www/index.html ###
+
+	sed -i -e "s/#IP#/$IPADDR/g" -e "s/#HOSTIP#/$IPADDR_HOST/g" -e "s/#NETMASK#/$NETMASK/g" -e "s/#HOSTNAME#/$HOSTNAME/g" -e "s/#SSID_WLAN#/$WLAN_SSID/g" -e "s/#IPADDR_WLAN#/$WLAN_IPADDR/g" -e "s/#IPADDR_ETH#/$ETH_IPADDR/g" -e "s/#NETMASK_ETH#/$ETH_NETMASK/g" /www/index.html
+
+	}
+
+mkdir -p /run/network
+
+case "$1" in
+  start)
+	create_system_files
+	printf "Starting network: "
+	/bin/hostname -F /etc/hostname
+	/sbin/ifup -a 2>&1 | logger
+	[ $? = 0 ] && echo "OK" || echo "FAIL"
+	;;
+  stop)
+	printf "Stopping network: "
+	/sbin/ifdown -a
+	[ $? = 0 ] && echo "OK" || echo "FAIL"
+	;;
+  restart|reload)
+	"$0" stop
+	"$0" start
+	;;
+  *)
+	echo "Usage: $0 {start|stop|restart}"
+	exit 1
+esac
+
+exit $?
+

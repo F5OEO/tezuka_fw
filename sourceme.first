@@ -1,0 +1,8 @@
+ABSOLUTE_PATH=$(cd `dirname "${BASH_SOURCE[0]}"` && pwd)
+unset LD_LIBRARY_PATH
+
+# Add this directory only if not already added to avoid problem
+# with Buildroot
+if [ -z "$(echo $BR2_EXTERNAL | grep $ABSOLUTE_PATH)" ]; then
+	export BR2_EXTERNAL=$ABSOLUTE_PATH:$BR2_EXTERNAL
+fi

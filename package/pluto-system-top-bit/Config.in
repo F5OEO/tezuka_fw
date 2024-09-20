@@ -1,0 +1,6 @@
+config BR2_PACKAGE_PLUTOPLUS_SYSTEM_TOP_BIT
+	bool "plutoplus default system_top.bit"
+	help
+	  PlutoPlusSDR default sytem_top.bit
+
+

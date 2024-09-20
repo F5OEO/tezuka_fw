@@ -1,0 +1,5 @@
+device-fw v0.29-1-g2e94
+hdl 2018_r1-1-gd79ca2
+buildroot v0.20-8405-g04dce
+linux xcomm_zynq-2013-04-19-320193-g2398d50
+u-boot-xlnx v0.20-PlutoSDR-10-gf5f001
