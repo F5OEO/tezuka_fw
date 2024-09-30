@@ -1,0 +1,7 @@
+config BR2_PACKAGE_MAIA_KMOD
+	bool "maia_kmod module"
+    depends on BR2_LINUX_KERNEL
+	help
+	  MaiaSDR kernel module
+
+
