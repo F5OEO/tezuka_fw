@@ -247,6 +247,11 @@
 
 		adi,rx-rf-port-input-select = <0>; /* (RX1A_N &  RX1A_P) and (RX2A_N & RX2A_P) enabled; balanced */
 		
+		/*
+			In R1T1 choose RX1 or RX2 : should be select by u-boot
+		*/
+
+		adi,1rx-1tx-mode-use-rx-num = <1>;
 
 		/* adi,tx-rf-port-input-select:
 		 * 0	TX1A, TX2A
