@@ -30,6 +30,7 @@ create_system_files () {
 	XO_CORRECTION=`fw_printenv -n xo_correction 2> /dev/null`
 	UDC_HANDLE_SUSPEND=`fw_printenv -n udc_handle_suspend 2> /dev/null || echo 0`
 	USB_ETH_MODE=`fw_printenv -n usb_ethernet_mode 2> /dev/null || echo rndis`
+	LNB_POWER=`fw_printenv -n lnb_power 2> /dev/null || echo off`
 
 	### /etc/udhcpd.conf ###
 	echo "start $IPADDR_HOST" > $UDHCPD_CONF
@@ -113,7 +114,9 @@ create_system_files () {
 	echo "reset = 0"$'\r' >> $CONF
 	echo "calibrate = 0"$'\r' >> $CONF
 	echo ""$'\r'>> $CONF
-
+	echo "[TEZUKA]"$'\r' >> $CONF
+	echo "lnb_power = $LNB_POWER"$'\r' >> $CONF
+	echo ""$'\r'>> $CONF
 	### /www/index.html ###
 
 	sed -i -e "s/#IP#/$IPADDR/g" -e "s/#HOSTIP#/$IPADDR_HOST/g" -e "s/#NETMASK#/$NETMASK/g" -e "s/#HOSTNAME#/$HOSTNAME/g" -e "s/#SSID_WLAN#/$WLAN_SSID/g" -e "s/#IPADDR_WLAN#/$WLAN_IPADDR/g" -e "s/#IPADDR_ETH#/$ETH_IPADDR/g" -e "s/#NETMASK_ETH#/$ETH_NETMASK/g" /www/index.html
