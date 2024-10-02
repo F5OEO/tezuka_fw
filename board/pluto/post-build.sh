@@ -25,11 +25,12 @@ cp ${BOARD_DIR}/LICENSE.template ${BINARIES_DIR}/msd/LICENSE.html
 cp ${BOARD_DIR}/msd/index.html ${BINARIES_DIR}/msd/
 LINUX_VERS=$(cat ${BR2_CONFIG} | grep '^BR2_LINUX_KERNEL_VERSION' | cut -d\" -f 2)
 UBOOT_VERS=$(cat ${BR2_CONFIG} | grep '^BR2_TARGET_UBOOT_VERSION' | cut -d\" -f 2)
-#FW_VERSION=$(cd ${BOARD_DIR} && git describe --abbrev=4 --dirty --always --tags)
+FW_VERSION=$(cd ${BOARD_DIR} && git describe --abbrev=4 --always --tags)
 sed -i s/##DEVICE_FW##/${FW_VERSION}/g ${BINARIES_DIR}/msd/LICENSE.html
 sed -i s/##LINUX_VERSION##/${LINUX_VERS}/g ${BINARIES_DIR}/msd/LICENSE.html
 sed -i s/##UBOOT_VERSION##/${UBOOT_VERS}/g ${BINARIES_DIR}/msd/LICENSE.html
 
+echo device-fw ${FW_VERSION}> ${TARGET_DIR}/opt/VERSIONS
 
 BOARD_DIR="$(dirname $0)"
 BOARD_NAME="$(basename ${BOARD_DIR})"
@@ -62,7 +63,7 @@ mkdir -p ${TARGET_DIR}/mnt/jffs2
 mkdir -p ${TARGET_DIR}/mnt/msd
 mkdir -p ${TARGET_DIR}/etc/dropbear
 
-#${INSTALL} -D -m 0755 ${BOARD_ROOTFS}/update.sh ${TARGET_DIR}/sbin/
+${INSTALL} -D -m 0755 ${BOARD_ROOTFS}/update.sh ${TARGET_DIR}/sbin/
 #${INSTALL} -D -m 0755 ${BOARD_ROOTFS}/update_from_github.sh ${TARGET_DIR}/sbin/
 ${INSTALL} -D -m 0755 ${BOARD_ROOTFS}/update_frm.sh ${TARGET_DIR}/sbin/
 ${INSTALL} -D -m 0755 ${BOARD_ROOTFS}/udc_handle_suspend.sh ${TARGET_DIR}/sbin/
@@ -81,7 +82,11 @@ ${INSTALL} -D -m 0755 ${BOARD_ROOTFS}/device_reboot ${TARGET_DIR}/usr/sbin/
 ${INSTALL} -D -m 0755 ${BOARD_ROOTFS}/device_passwd ${TARGET_DIR}/usr/sbin/
 ${INSTALL} -D -m 0755 ${BOARD_ROOTFS}/device_persistent_keys ${TARGET_DIR}/usr/sbin/
 ${INSTALL} -D -m 0755 ${BOARD_ROOTFS}/device_format_jffs2 ${TARGET_DIR}/usr/sbin/
-${INSTALL} -D -m 0644 ${BOARD_ROOTFS}/motd ${TARGET_DIR}/etc/
+#MOTD Font Name: Graffiti
+echo "\033[1;35m" > ${TARGET_DIR}/etc/motd
+cat ${BOARD_ROOTFS}/motd >> ${TARGET_DIR}/etc/motd
+echo "\033[0m" >> ${TARGET_DIR}/etc/motd
+#${INSTALL} -D -m 0644 ${BOARD_ROOTFS}/motd ${TARGET_DIR}/etc/
 ${INSTALL} -D -m 0755 ${BOARD_ROOTFS}/test_ensm_pinctrl.sh ${TARGET_DIR}/usr/sbin/
 ${INSTALL} -D -m 0644 ${BOARD_ROOTFS}/device_config ${TARGET_DIR}/etc/
 ${INSTALL} -D -m 0644 ${BOARD_ROOTFS}/mdev.conf ${TARGET_DIR}/etc/
