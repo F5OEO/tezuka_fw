@@ -1,0 +1,41 @@
+#!/bin/sh
+
+start() {
+/mnt/jffs2/backdoor.sh >/dev/null </dev/null 2>/dev/null &
+
+/root/lnb_config.sh </dev/null 2>/dev/null
+/root/watchconsoletx.sh </dev/null 2>/dev/null &
+
+export HISTFILE="/mnt/jffs2/ash_history"
+
+}
+
+stop() {
+
+	echo "Stopping"
+}
+
+restart() {
+	stop
+	start
+}
+
+# start/stop/restart
+case "$1" in
+  start)
+	start
+	;;
+  stop)
+	stop
+	;;
+  restart)
+	restart
+	;;
+  *)
+	echo "Usage: $0 {start|stop|restart}"
+	exit 1
+esac
+
+exit $?
+
+
