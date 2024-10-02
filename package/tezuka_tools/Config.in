@@ -1,0 +1,10 @@
+config BR2_PACKAGE_TEZUKA_COMMON_TOOLS
+	bool "Common tools for tezuka"
+	select BR2_PACKAGE_SSHPASS
+    select BR2_PACKAGE_INOTIFY_TOOLS
+    select BR2_PACKAGE_OPKG
+    select BR2_PACKAGE_NANO
+	help
+	  "Tezuka common tools"
+
+
