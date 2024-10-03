@@ -1,0 +1,6 @@
+config BR2_PACKAGE_PLUTO_FPGA
+	bool "FPGA Synthesis of pluto system_top.bit"
+	help
+	  FPGA Synthesis of pluto system_top.bit
+
+
