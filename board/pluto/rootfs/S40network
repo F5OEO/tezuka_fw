@@ -31,7 +31,8 @@ create_system_files () {
 	UDC_HANDLE_SUSPEND=`fw_printenv -n udc_handle_suspend 2> /dev/null || echo 0`
 	USB_ETH_MODE=`fw_printenv -n usb_ethernet_mode 2> /dev/null || echo rndis`
 	LNB_POWER=`fw_printenv -n lnb_power 2> /dev/null || echo off`
-
+	REFCLK_SOURCE=`fw_printenv -n refclk_source 2>/dev/null || echo internal`
+	MAXCPUS=`fw_printenv -n maxcpus 2> /dev/null || echo 2`
 	### /etc/udhcpd.conf ###
 	echo "start $IPADDR_HOST" > $UDHCPD_CONF
 	echo "end $IPADDR_HOST" >> $UDHCPD_CONF
@@ -116,6 +117,8 @@ create_system_files () {
 	echo ""$'\r'>> $CONF
 	echo "[TEZUKA]"$'\r' >> $CONF
 	echo "lnb_power = $LNB_POWER"$'\r' >> $CONF
+	echo "refclk_source = $REFCLK_SOURCE"$'\r' >> $CONF
+	echo "maxcpus = $MAXCPUS"$'\r' >> $CONF
 	echo ""$'\r'>> $CONF
 	### /www/index.html ###
 
