@@ -7,15 +7,21 @@
 # Lamableu
 #
 #################
+adphys="$(cat /sys/bus/iio/devices/iio:device0/name)"
 
+        if [ "$adphys" = "ad9361-phy" ] ; then
+                #Manual GPIO
+                echo 0x26 0x10 > /sys/kernel/debug/iio/iio:device0/direct_reg_access
+                echo 0x27 > /sys/kernel/debug/iio/iio:device0/direct_reg_access
+                actual=$(cat  /sys/kernel/debug/iio/iio:device0/direct_reg_access | grep -o '0x[0-9a-fA-F]\+')
+        else
+                #Manual GPIO
+                echo 0x26 0x10 > /sys/kernel/debug/iio/iio:device1/direct_reg_access
+                echo 0x27 > /sys/kernel/debug/iio/iio:device1/direct_reg_access
+                actual=$(cat  /sys/kernel/debug/iio/iio:device1/direct_reg_access | grep -o '0x[0-9a-fA-F]\+')
+        fi
 
-actual=$(iio_attr -s -u local: -D ad9361-phy direct_reg_access | grep -o '0x[0-9a-fA-F]\+')
-echo "Read actual config: ${actual}"
-
-#if [ $# -ne 1 ]; then
-#    echo "Usage: $0 {off|13V|18V}"
-#    exit 1
-#fi
+echo "Read actual config: ${actual}" >> /tmp/lnb.txt
 
 # Convert parameter to corresponding value
 case $(fw_printenv -n lnb_power) in
@@ -33,7 +39,7 @@ case $(fw_printenv -n lnb_power) in
 
         ;;
     *)
-        echo "Invalid parameter. Use one of: off, 13V, 18V"
+        echo "Invalid parameter. Use one of: off, 13V, 18V" >> /tmp/lnb.txt
         exit 1
         ;;
 esac
@@ -42,7 +48,7 @@ esac
 
 CURRENT_VALUE=$actual
 if [ -z "$CURRENT_VALUE" ]; then
-    echo "Failed to retrieve the current register value."
+    echo "Failed to retrieve the current register value." >> /tmp/lnb.txt
     exit 1
 fi
 
@@ -60,24 +66,15 @@ RESULT_VALUE=$((CURRENT_VALUE_CLEARED | PARAM_VALUE))
 RESULT_VALUE_HEX=$(printf "0x%X" $RESULT_VALUE)
 
 
-adphys="$(cat /sys/bus/iio/devices/iio:device0/name)"
-
-        if [ "$adphys" = "ad9361-phy" ] ; then
-                #Manual GPIO
-                echo 0x26 0x10 > /sys/kernel/debug/iio/iio:device0/direct_reg_access
-        else
-                #Manual GPIO
-                echo 0x26 0x10 > /sys/kernel/debug/iio/iio:device1/direct_reg_access
-        fi
-
-
+    #Sleep in order to have manual gpio
+    sleep 0.5
     if [ "$adphys" = "ad9361-phy" ] ; then
         echo 0x27 $RESULT_VALUE_HEX > /sys/kernel/debug/iio/iio:device0/direct_reg_access
-        #echo "Command executed: echo 0x27 $RESULT_VALUE_HEX > /sys/kernel/debug/iio/iio:device0/direct_reg_access"
+        echo "Command executed: echo 0x27 $RESULT_VALUE_HEX > /sys/kernel/debug/iio/iio:device0/direct_reg_access" >> /tmp/lnb.txt
 
     else
         echo 0x27 $RESULT_VALUE_HEX > /sys/kernel/debug/iio/iio:device1/direct_reg_access
-        #echo "Command executed: echo 0x27 $RESULT_VALUE_HEX > /sys/kernel/debug/iio/iio:device1/direct_reg_access"
+        echo "Command executed: echo 0x27 $RESULT_VALUE_HEX > /sys/kernel/debug/iio/iio:device1/direct_reg_access" >> /tmp/lnb.txt
 
     fi
 

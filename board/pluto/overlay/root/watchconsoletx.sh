@@ -7,10 +7,18 @@ ptton()
 {
     #PTT on GPIO 0  (GPIO 1 should be not touched)
         # Get the current register value
-        CURRENT_VALUE=$(iio_attr -u local: -D ad9361-phy direct_reg_access | grep -o '0x[0-9a-fA-F]\+')
+        if [ "$adphys" = "ad9361-phy" ] ; then
 
+                echo 0x27 > /sys/kernel/debug/iio/iio:device0/direct_reg_access
+                CURRENT_VALUE=$(cat  /sys/kernel/debug/iio/iio:device0/direct_reg_access | grep -o '0x[0-9a-fA-F]\+')
+        else
+
+                echo 0x27 > /sys/kernel/debug/iio/iio:device1/direct_reg_access
+                CURRENT_VALUE=$(cat  /sys/kernel/debug/iio/iio:device1/direct_reg_access | grep -o '0x[0-9a-fA-F]\+')
+        fi
+        
         if [ -z "$CURRENT_VALUE" ]; then
-                echo "Failed to retrieve the current register value."
+                echo "Failed to retrieve the current register value." >> /tmp/watch.txt
                 exit 1
         fi
 
@@ -37,7 +45,7 @@ ptton()
     fi
 
     echo 1 > /sys/class/gpio/gpio906/value
-    echo "$(date) watchconsoleTX PTT_ON" >> /tmp/lnb.txt
+    
 
 
 
@@ -46,10 +54,19 @@ ptton()
 pttoff()
 {
     # Get the current register value
-        CURRENT_VALUE=$(iio_attr -u local: -D ad9361-phy direct_reg_access | grep -o '0x[0-9a-fA-F]\+')
+               if [ "$adphys" = "ad9361-phy" ] ; then
+
+                echo 0x27 > /sys/kernel/debug/iio/iio:device0/direct_reg_access
+                CURRENT_VALUE=$(cat  /sys/kernel/debug/iio/iio:device0/direct_reg_access | grep -o '0x[0-9a-fA-F]\+')
+        else
+
+                echo 0x27 > /sys/kernel/debug/iio/iio:device1/direct_reg_access
+                CURRENT_VALUE=$(cat  /sys/kernel/debug/iio/iio:device1/direct_reg_access | grep -o '0x[0-9a-fA-F]\+')
+        fi
+
 
         if [ -z "$CURRENT_VALUE" ]; then
-                echo "Failed to retrieve the current register value."
+                 echo "Failed to retrieve the current register value." >> /tmp/watch.txt
                 exit 1
         fi
 
