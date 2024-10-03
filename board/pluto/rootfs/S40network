@@ -33,6 +33,9 @@ create_system_files () {
 	LNB_POWER=`fw_printenv -n lnb_power 2> /dev/null || echo off`
 	REFCLK_SOURCE=`fw_printenv -n refclk_source 2>/dev/null || echo internal`
 	MAXCPUS=`fw_printenv -n maxcpus 2> /dev/null || echo 2`
+	ATTR_NAME=`fw_printenv -n attr_name 2> /dev/null || echo compatible`
+	ATTR_VAL=`fw_printenv -n attr_val 2> /dev/null || echo ad9361`
+	MODE=`fw_printenv -n mode 2> /dev/null || echo 1r1t`
 	### /etc/udhcpd.conf ###
 	echo "start $IPADDR_HOST" > $UDHCPD_CONF
 	echo "end $IPADDR_HOST" >> $UDHCPD_CONF
@@ -119,6 +122,9 @@ create_system_files () {
 	echo "lnb_power = $LNB_POWER"$'\r' >> $CONF
 	echo "refclk_source = $REFCLK_SOURCE"$'\r' >> $CONF
 	echo "maxcpus = $MAXCPUS"$'\r' >> $CONF
+	echo "attr_name = $ATTR_NAME"$'\r' >> $CONF
+	echo "attr_val = $ATTR_VAL"$'\r' >> $CONF
+	echo "mode = $MODE"$'\r' >> $CONF
 	echo ""$'\r'>> $CONF
 	### /www/index.html ###
 

@@ -104,6 +104,9 @@ process_ini() {
 		echo "netmask_eth $netmask_eth" >> /opt/fw_set.tmp
 		echo "lnb_power $lnb_power" >> /opt/fw_set.tmp
 		echo "maxcpus $maxcpus" >> /opt/fw_set.tmp
+		echo "attr_name $attr_name" >> /opt/fw_set.tmp
+		echo "attr_val $attr_val" >> /opt/fw_set.tmp
+		echo "mode $mode" >> /opt/fw_set.tmp
 		fw_setenv -s /opt/fw_set.tmp
 		rm /opt/fw_set.tmp
 		flash_indication_off
