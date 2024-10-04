@@ -22,6 +22,7 @@ create_system_files () {
 
 	ETH_IPADDR=`fw_printenv -n ipaddr_eth 2> /dev/null`
 	ETH_NETMASK=`fw_printenv -n netmask_eth 2> /dev/null || echo 255.255.255.0`
+	ETH_GW=`fw_printenv -n gateway_eth 2> /dev/null` 
 
 	WLAN_SSID=`fw_printenv -n ssid_wlan 2> /dev/null`
 	WLAN_PWD=`fw_printenv -n pwd_wlan 2> /dev/null`
@@ -53,6 +54,9 @@ create_system_files () {
 	then
 		echo -e "iface eth0 inet static" >> $IFAC
 		echo -e "\taddress $ETH_IPADDR\n""\tnetmask $ETH_NETMASK\n" >> $IFAC
+		if [ -n "$ETH_GW" ]; then
+			echo -e "\tgateway $ETH_GW\n" >> $IFAC
+		fi	
 	else
 		echo -e "iface eth0 inet dhcp\n" >> $IFAC
 	fi
@@ -105,6 +109,7 @@ create_system_files () {
 	echo "[USB_ETHERNET]"$'\r' >> $CONF
 	echo "ipaddr_eth = $ETH_IPADDR"$'\r' >> $CONF
 	echo "netmask_eth = $ETH_NETMASK"$'\r' >> $CONF
+	echo "gateway_eth = $ETH_GW"$'\r' >> $CONF
 	echo ""$'\r'>> $CONF
 	echo "[SYSTEM]"$'\r' >> $CONF
 	echo "xo_correction = $XO_CORRECTION"$'\r' >> $CONF
@@ -125,6 +130,7 @@ create_system_files () {
 	echo "attr_name = $ATTR_NAME"$'\r' >> $CONF
 	echo "attr_val = $ATTR_VAL"$'\r' >> $CONF
 	echo "mode = $MODE"$'\r' >> $CONF
+	
 	echo ""$'\r'>> $CONF
 	### /www/index.html ###
 
