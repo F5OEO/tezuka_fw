@@ -1,0 +1,8 @@
+config BR2_PACKAGE_SDR_USB_GADGET
+        bool "sdr_usb_gadget"
+        select BR2_PACKAGE_LIBIIO
+        select BR2_PACKAGE_LIBAIO
+        help
+          Low latency SDR streaming gadget. Transferring IIO buffer
+          objects via USB BULK transfers as fast as possible.
+
