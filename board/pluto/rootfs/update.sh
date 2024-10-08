@@ -108,7 +108,8 @@ process_ini() {
 		echo "attr_val $attr_val" >> /opt/fw_set.tmp
 		echo "mode $mode" >> /opt/fw_set.tmp
 		echo "gateway_eth $gateway_eth" >> /opt/fw_set.tmp
-		
+		echo "audio_mode $audio_mode" >> /opt/fw_set.tmp
+
 		fw_setenv -s /opt/fw_set.tmp
 		rm /opt/fw_set.tmp
 		flash_indication_off

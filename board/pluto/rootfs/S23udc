@@ -7,6 +7,7 @@ GADGET=$CONFIGFS/composite_gadget
 IIOD_OPTS="-D -n $ENDPOINTS -F /dev/iio_ffs"
 UDC_HANDLE_SUSPEND=`fw_printenv -n udc_handle_suspend 2> /dev/null || echo 0`
 USB_ETH_MODE=`fw_printenv -n usb_ethernet_mode 2> /dev/null || echo rndis`
+AUDIO_MODE=`fw_printenv -n audio_mode 2> /dev/null || echo off`
 
 if [ "$USB_ETH_MODE" == "ncm" ]
 then
@@ -88,6 +89,12 @@ case "$1" in
 	mkdir -p $GADGET/functions/acm.usb0
 	mkdir -p $GADGET/functions/$USB_NET_FUNCTION
 	mkdir -p $GADGET/functions/mass_storage.0
+	if [ "$AUDIO_MODE" == "on" ]
+	then
+	mkdir -p $GADGET/functions/uac2.usb0
+	#mkdir -p $GADGET/functions/uac2.usb1
+	
+	fi
 
 #	echo /opt/vfat.img > $GADGET/functions/mass_storage.0/lun.0/file
 	echo Y > $GADGET/functions/mass_storage.0/lun.0/removable
@@ -101,20 +108,36 @@ case "$1" in
 	mkdir -p $GADGET/configs/c.1
 	mkdir -p $GADGET/configs/c.1/strings/0x409
 	echo "RNDIS/MSD/ACM/IIOUSBD" > $GADGET/configs/c.1/strings/0x409/configuration
+	echo 500 > $GADGET/configs/c.1/MaxPower
+	
+if [ "$AUDIO_MODE" == "on" ]
+	then
+	
+	echo "1" > $GADGET/functions/uac2.usb0/c_chmask
+	echo "1" > $GADGET/functions/uac2.usb0/p_chmask
+	echo "48000" > $GADGET/functions/uac2.usb0/c_srate
+	echo "48000" > $GADGET/functions/uac2.usb0/p_srate
+	echo "2" > $GADGET/functions/uac2.usb0/c_ssize
+	echo "2" > $GADGET/functions/uac2.usb0/p_ssize
 
-	# In case the M2k is powered via the Power USB, advertise low power on the DATA USB
-	if [ "$TARGET" == "m2k" ]; then
-		echo 905 > /sys/class/gpio/export
-		[ "`cat /sys/class/gpio/gpio905/value`" == "1" ] && echo 4 > $GADGET/configs/c.1/MaxPower || echo 500 > $GADGET/configs/c.1/MaxPower
-	else
-		echo 500 > $GADGET/configs/c.1/MaxPower
+	#echo "1" > $GADGET/functions/uac2.usb1/c_chmask
+	#echo "1" > $GADGET/functions/uac2.usb1/p_chmask
+	#echo "22050" > $GADGET/functions/uac2.usb1/c_srate
+	#echo "22050" > $GADGET/functions/uac2.usb1/p_srate
+	#echo "2" > $GADGET/functions/uac2.usb1/c_ssize
+	#echo "2" > $GADGET/functions/uac2.usb1/p_ssize
 	fi
 
 	ln -s $GADGET/functions/$USB_NET_FUNCTION $GADGET/configs/c.1
 	ln -s $GADGET/functions/mass_storage.0 $GADGET/configs/c.1
 	ln -s $GADGET/functions/acm.usb0 $GADGET/configs/c.1
 	ln -s $GADGET/functions/ffs.iio_ffs $GADGET/configs/c.1/ffs.iio_ffs
-
+	if [ "$AUDIO_MODE" == "on" ]
+	then
+	ln -s $GADGET/functions/uac2.usb0 $GADGET/configs/c.1
+	#ln -s $GADGET/functions/uac2.usb1 $GADGET/configs/c.1
+	fi
+	
 	mkdir -p /dev/iio_ffs
 	mount iio_ffs -t functionfs /dev/iio_ffs 2> /dev/null
 	start-stop-daemon -S -b -q -m -p /var/run/iiod.pid -x /usr/bin/chrt -- -r 99 /usr/bin/taskset -c 1 /usr/sbin/iiod $IIOD_OPTS	
@@ -145,6 +168,12 @@ case "$1" in
 	rm $GADGET/configs/c.1/acm.usb0
 	rm $GADGET/configs/c.1/ffs.iio_ffs
 
+	if [ "$AUDIO_MODE" == "on" ]
+	then
+	
+	rm $GADGET/configs/c.1/uac2.usb0
+	#rm $GADGET/functions/uac2.usb1
+	fi
 	rmdir $GADGET/strings/0x409
 	rmdir $GADGET/configs/c.1/strings/0x409
 	rmdir $GADGET/configs/c.1

@@ -4,6 +4,9 @@ config BR2_PACKAGE_TEZUKA_COMMON_TOOLS
     select BR2_PACKAGE_INOTIFY_TOOLS
     select BR2_PACKAGE_OPKG
     select BR2_PACKAGE_NANO
+	select BR2_PACKAGE_ALSA_UTILS
+	select BR2_PACKAGE_ALSA_UTILS_APLAY
+
 	help
 	  "Tezuka common tools"
 

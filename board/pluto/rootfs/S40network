@@ -37,6 +37,7 @@ create_system_files () {
 	ATTR_NAME=`fw_printenv -n attr_name 2> /dev/null || echo compatible`
 	ATTR_VAL=`fw_printenv -n attr_val 2> /dev/null || echo ad9361`
 	MODE=`fw_printenv -n mode 2> /dev/null || echo 1r1t`
+	AUDIO_MODE=`fw_printenv -n audio_mode 2> /dev/null || echo off`
 	### /etc/udhcpd.conf ###
 	echo "start $IPADDR_HOST" > $UDHCPD_CONF
 	echo "end $IPADDR_HOST" >> $UDHCPD_CONF
@@ -130,7 +131,7 @@ create_system_files () {
 	echo "attr_name = $ATTR_NAME"$'\r' >> $CONF
 	echo "attr_val = $ATTR_VAL"$'\r' >> $CONF
 	echo "mode = $MODE"$'\r' >> $CONF
-	
+	echo "audio_mode = $AUDIO_MODE"$'\r' >> $CONF
 	echo ""$'\r'>> $CONF
 	### /www/index.html ###
 
