@@ -41,7 +41,9 @@ mkdir -p $SDIMGDIR
 touch 	$SDIMGDIR/boot.bif
 cp $BIN_DIR/u-boot $SDIMGDIR/u-boot.elf
 cp $BIN_DIR/system_top.bit $SDIMGDIR/
-cp $BOARD_DIR/bitstream/fsbl.elf $SDIMGDIR/
+#SHOULD BE WARNING WHEN BUILDING COMPLETE FPGA
+cp $BOARD_DIR/bitstream/fsbl.elf $BIN_DIR
+cp $BIN_DIR/fsbl.elf $SDIMGDIR/
 echo "img : {[bootloader] $SDIMGDIR/fsbl.elf  $SDIMGDIR/system_top.bit  $SDIMGDIR/u-boot.elf}" >  $SDIMGDIR/boot.bif
 bootgen -image $SDIMGDIR/boot.bif -w -o i $SDIMGDIR/BOOT.bin
 rm $SDIMGDIR/fsbl.elf  $SDIMGDIR/system_top.bit  $SDIMGDIR/u-boot.elf $SDIMGDIR/boot.bif
