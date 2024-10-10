@@ -109,11 +109,14 @@ process_ini() {
 		echo "mode $mode" >> /opt/fw_set.tmp
 		echo "gateway_eth $gateway_eth" >> /opt/fw_set.tmp
 		echo "audio_mode $audio_mode" >> /opt/fw_set.tmp
-
+		echo "rf_input $rf_input" >> /opt/fw_set.tmp
 		fw_setenv -s /opt/fw_set.tmp
 		rm /opt/fw_set.tmp
 		flash_indication_off
 		touch /mnt/msd/SUCCESS_ENV_UPDATE
+		#switch RF input
+		echo "Switching to rfinput $RF_INPUT" 
+		/root/switch_rfinput.sh $rf_input
 	else
 		touch /mnt/msd/FAILED_INVALID_UBOOT_ENV
 	fi
