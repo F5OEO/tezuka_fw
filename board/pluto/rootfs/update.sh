@@ -116,10 +116,13 @@ process_ini() {
 		flash_indication_off
 		touch /mnt/msd/SUCCESS_ENV_UPDATE
 		#switch RF input
-		echo "Switching to rfinput $RF_INPUT" 
+		echo "Switching to rfinput $rf_input" 
 		/root/switch_rfinput.sh $rf_input
-		echo "Switching to rfoutput $RF_INPUT" 
+		echo "Switching to rfoutput $rf_outputT" 
 		/root/switch_rfoutput.sh $rf_output
+		#Switch LNB
+		echo "Update lnb $lnb_power" 
+		/root/lnb_config.sh
 	else
 		touch /mnt/msd/FAILED_INVALID_UBOOT_ENV
 	fi

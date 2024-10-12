@@ -45,7 +45,7 @@ ptton()
     fi
 
     echo 1 > /sys/class/gpio/gpio906/value
-    
+    echo "$(date) watchconsoleTX PTT_ON" >> /tmp/lnb.txt    
 
 
 
