@@ -1,0 +1,6 @@
+config BR2_PACKAGE_FUTURESDR
+	bool "futuresdr"
+		help
+	  FutureSDR
+
+
