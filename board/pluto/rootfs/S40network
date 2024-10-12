@@ -39,6 +39,7 @@ create_system_files () {
 	MODE=`fw_printenv -n mode 2> /dev/null || echo 1r1t`
 	AUDIO_MODE=`fw_printenv -n audio_mode 2> /dev/null || echo off`
 	RF_INPUT=`fw_printenv -n rf_input 2> /dev/null || echo rx1`
+	RF_OUTPUT=`fw_printenv -n rf_output 2> /dev/null || echo tx1`
 	### /etc/udhcpd.conf ###
 	echo "start $IPADDR_HOST" > $UDHCPD_CONF
 	echo "end $IPADDR_HOST" >> $UDHCPD_CONF
@@ -91,6 +92,9 @@ create_system_files () {
 	#switch RF input
 	echo "Switching to rfinput $RF_INPUT" 
 	/root/switch_rfinput.sh $RF_INPUT
+	#switch RF input
+	echo "Switching to rfoutput $RF_OUTPUT" 
+	/root/switch_rfoutput.sh $RF_OUTPUT
 
 	### /opt/config.txt ###
 	echo "# $(cat /sys/firmware/devicetree/base/model | tr / -)"$'\r' > $CONF
@@ -138,6 +142,7 @@ create_system_files () {
 	echo "mode = $MODE"$'\r' >> $CONF
 	echo "audio_mode = $AUDIO_MODE"$'\r' >> $CONF
 	echo "rf_input = $RF_INPUT"$'\r' >> $CONF
+	echo "rf_output = $RF_OUTPUT"$'\r' >> $CONF
 	echo ""$'\r'>> $CONF
 	### /www/index.html ###
 
