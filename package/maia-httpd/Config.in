@@ -1,6 +1,7 @@
 config BR2_PACKAGE_MAIA_HTTPD
 	bool "maia_httpd"
-		
+	depends on BR2_PACKAGE_HOST_RUSTC_TARGET_ARCH_SUPPORTS
+	select BR2_PACKAGE_HOST_RUSTC
 	help
 	  MaiaSDR httpd server
 
