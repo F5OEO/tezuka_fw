@@ -1,0 +1,21 @@
+#!/bin/sh
+#
+# Load maia-sdr kernel module
+#
+kernel_version=`uname -r`
+case "$1" in
+  start)
+	echo -n "Loading maia-sdr.ko: "
+	insmod /lib/modules/$kernel_version/extra/maia-sdr.ko
+	[ $? = 0 ] && echo "OK" || echo "FAIL"
+	;;
+  stop)
+	;;
+  restart|reload)
+	;;
+  *)
+	echo "Usage: $0 {start|stop|restart}"
+	exit 1
+esac
+
+exit $?

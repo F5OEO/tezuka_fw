@@ -1,0 +1,6 @@
+config BR2_PACKAGE_PLUTOMAIA_SYSTEM_TOP_BIT
+	bool "maia system_top.bit"
+	help
+	  PlutoSDR maiasdr sytem_top.bit
+
+

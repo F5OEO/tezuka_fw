@@ -1,0 +1,65 @@
+/*
+ * ZYNQ Pluto SDR (Z7010/AD9363) - Maia SDR
+ *
+ * Copyright (C) 2022 Daniel Estevez <daniel@destevez.net>
+ *
+ * Licensed under the GPL-2.
+*/
+
+&fpga_axi {
+        /delete-node/ i2c@41600000;
+        /delete-node/ dma@7c400000;
+        /delete-node/ dma@7c420000;
+        /delete-node/ mwipcore@43c00000;
+
+        cf-ad9361-lpc@79020000 {
+                /delete-property/ dmas;
+                /delete-property/ dma-names;
+                /delete-property/ adi,axi-decimation-core-available;
+        };
+
+        cf-ad9361-dds-core-lpc@79024000 {
+                /delete-property/ dmas;
+                /delete-property/ dma-names;
+                /delete-property/ adi,axi-interpolation-core-available;
+        };
+
+        maia_sdr: maia-sdr@7C400000 {
+                compatible = "uio_pdrv_genirq";
+                reg = <0x7c400000 0x1000>;
+                clocks = <&clkc 15>;
+                interrupt-parent = <&intc>;
+                interrupts = <0 57 4>;
+        };
+};
+
+/ {
+        reserved-memory {
+                #address-cells = <1>;
+                #size-cells = <1>;
+                ranges;
+
+                maia_sdr_spectrometer: maia_sdr_spectrometer@1a000000 {
+                        no-map;
+                        reg = <0x1a000000 0x40000>;
+                        label = "maia_sdr_spectrometer";
+                };
+
+                maia_sdr_recording: maia_sdr_recording@01000000 {
+                        no-map;
+                        reg = <0x01000000 0x19000000>;
+                        label = "maia_sdr_recording";
+                };
+        };
+
+        maia-sdr-recording {
+                compatible = "maia-sdr,recording";
+                memory-region = <&maia_sdr_recording>;
+        };
+
+        maia-sdr-spectrometer {
+                compatible = "maia-sdr,rxbuffer";
+                memory-region = <&maia_sdr_spectrometer>;
+                buffer-size = <0x8000>;
+        };
+};

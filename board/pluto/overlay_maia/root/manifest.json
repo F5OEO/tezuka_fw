@@ -1,0 +1,28 @@
+{
+    "short_name": "Maia SDR",
+    "name": "Maia SDR",
+    "icons": [
+        {
+            "src:": "/maia-icon-32x32.png",
+            "type": "image/png",
+            "sizes": "32x32"
+        },
+        {
+            "src:": "/maia-icon-128x128.png",
+            "type": "image/png",
+            "sizes": "128x128"
+        },
+        {
+            "src:": "/maia-icon-180x180.png",
+            "type": "image/png",
+            "sizes": "180x180"
+        },
+        {
+            "src:": "/maia-icon-192x192.png",
+            "type": "image/png",
+            "sizes": "129x192"
+        }
+    ],
+    "start_url": "./index.html",
+    "display": "standalone"
+}

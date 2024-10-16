@@ -1,0 +1,33 @@
+{
+  "name": "maia-wasm",
+  "type": "module",
+  "collaborators": [
+    "Daniel Estevez <daniel@destevez.net>"
+  ],
+  "description": "Maia SDR WASM frontend",
+  "version": "0.6.0",
+  "license": "MIT OR Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/maia-sdr/maia-sdr/"
+  },
+  "files": [
+    "maia_wasm_bg.wasm",
+    "maia_wasm.js",
+    "maia_wasm.d.ts",
+    "LICENSE-APACHE",
+    "LICENSE-MIT"
+  ],
+  "main": "maia_wasm.js",
+  "homepage": "https://maia-sdr.org/",
+  "types": "maia_wasm.d.ts",
+  "sideEffects": [
+    "./snippets/*"
+  ],
+  "keywords": [
+    "SDR",
+    "FPGA",
+    "wasm",
+    "WebGL2"
+  ]
+}
