@@ -7,7 +7,7 @@
 WASM_PACK_VERSION = v0.13.0
 WASM_PACK_SITE = https://github.com/rustwasm/wasm-pack.git
 WASM_PACK_SITE_METHOD = git
-
+WASM_PACK_DEPENDENCIES = rust-wasm
 
 define WASM_PACK_BUILD_CMDS
 $(shell bash -c "PATH="$(HOST_DIR)/bin:$(PATH)" && cd $(WASM_PACK_SRCDIR) && \
