@@ -1,0 +1,6 @@
+config BR2_PACKAGE_PLUTOMAIA_IIO_SYSTEM_TOP_BIT
+	bool "plutomaia-iiosystem_top.bit"
+	help
+	  PlutoMaia-iio default sytem_top.bit
+
+

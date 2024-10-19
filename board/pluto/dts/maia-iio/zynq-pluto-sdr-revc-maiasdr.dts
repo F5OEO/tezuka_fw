@@ -1,0 +1,15 @@
+/*
+ * ZYNQ Pluto SDR (Z7010/AD9363) - Maia SDR
+ *
+ * Copyright (C) 2022-2024 Daniel Estevez <daniel@destevez.net>
+ *
+ * Licensed under the GPL-2.
+*/
+/dts-v1/;
+#include "zynq-pluto-sdr-revc.dts"
+#include "zynq-pluto-sdr-maiasdr.dtsi"
+
+&amba {
+        /delete-node/ spi@7C430000;
+
+};

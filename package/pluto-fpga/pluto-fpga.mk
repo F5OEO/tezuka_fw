@@ -19,11 +19,14 @@ HAVE_VIVADO= $(shell bash -c "source $(VIVADO_SETTINGS) > /dev/null 2>&1 && viva
 
 define PLUTO_FPGA_BUILD_CMDS
 	$(shell bash -c "source $(VIVADO_SETTINGS) && make -s -C $(@D)/projects/pluto 1> /dev/null")
+#	$(shell bash -c "echo img:{[bootloader] $^ } > $(BINARIES_DIR)/boot.bif")
+#	$(shell bash -c "source $(VIVADO_SETTINGS) && make -s -C $(@D)/projects/pluto 1> /dev/null")
+
 endef
 
 define PLUTO_FPGA_INSTALL_IMAGES_CMDS
-	$(UNZIP) -o $(@D)/projects/pluto/pluto.sdk/system_top.xsa system_top.bit -d $(@D)
-	cp $(@D)/system_top.bit $(BINARIES_DIR)
+	$(UNZIP) -f -o $(@D)/projects/pluto/pluto.sdk/system_top.xsa system_top.bit -d $(@D)
+	cp -f $(@D)/system_top.bit $(BINARIES_DIR)
 endef
 
 

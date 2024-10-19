@@ -7,29 +7,15 @@
 */
 
 &fpga_axi {
-        /delete-node/ i2c@41600000;
-        /delete-node/ dma@7c400000;
-        /delete-node/ dma@7c420000;
+       
         /delete-node/ mwipcore@43c00000;
 
-        cf-ad9361-lpc@79020000 {
-                /delete-property/ dmas;
-                /delete-property/ dma-names;
-                /delete-property/ adi,axi-decimation-core-available;
-        };
-
-        cf-ad9361-dds-core-lpc@79024000 {
-                /delete-property/ dmas;
-                /delete-property/ dma-names;
-                /delete-property/ adi,axi-interpolation-core-available;
-        };
-
-        maia_sdr: maia-sdr@7C400000 {
+        maia_sdr: maia-sdr@7C460000 {
                 compatible = "uio_pdrv_genirq";
-                reg = <0x7c400000 0x1000>;
+                reg = <0x7c460000 0x1000>;
                 clocks = <&clkc 15>;
                 interrupt-parent = <&intc>;
-                interrupts = <0 57 4>;
+                interrupts = <0 55 IRQ_TYPE_LEVEL_HIGH>;
         };
 };
 
