@@ -40,6 +40,10 @@ create_system_files () {
 	AUDIO_MODE=`fw_printenv -n audio_mode 2> /dev/null || echo off`
 	RF_INPUT=`fw_printenv -n rf_input 2> /dev/null || echo rx1`
 	RF_OUTPUT=`fw_printenv -n rf_output 2> /dev/null || echo tx1`
+	SERIAL_FORCE=`fw_printenv -n serial_force 2> /dev/null || echo off`
+	CALLSIGN=`fw_printenv -n callsign 2> /dev/null || echo NOCALL`
+	LOCATOR=`fw_printenv -n locator 2> /dev/null || echo NOLOCATOR`
+
 	### /etc/udhcpd.conf ###
 	echo "start $IPADDR_HOST" > $UDHCPD_CONF
 	echo "end $IPADDR_HOST" >> $UDHCPD_CONF
@@ -134,6 +138,8 @@ create_system_files () {
 	echo "calibrate = 0"$'\r' >> $CONF
 	echo ""$'\r'>> $CONF
 	echo "[TEZUKA]"$'\r' >> $CONF
+	echo "callsign = $CALLSIGN"$'\r' >> $CONF
+	echo "locator = $LOCATOR"$'\r' >> $CONF
 	echo "lnb_power = $LNB_POWER"$'\r' >> $CONF
 	echo "refclk_source = $REFCLK_SOURCE"$'\r' >> $CONF
 	echo "maxcpus = $MAXCPUS"$'\r' >> $CONF
@@ -143,6 +149,7 @@ create_system_files () {
 	echo "audio_mode = $AUDIO_MODE"$'\r' >> $CONF
 	echo "rf_input = $RF_INPUT"$'\r' >> $CONF
 	echo "rf_output = $RF_OUTPUT"$'\r' >> $CONF
+	echo "serial_force = $SERIAL_FORCE"$'\r' >> $CONF
 	echo ""$'\r'>> $CONF
 	### /www/index.html ###
 

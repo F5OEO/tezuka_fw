@@ -9,6 +9,7 @@ UDC_HANDLE_SUSPEND=`fw_printenv -n udc_handle_suspend 2> /dev/null || echo 0`
 USB_ETH_MODE=`fw_printenv -n usb_ethernet_mode 2> /dev/null || echo rndis`
 AUDIO_MODE=`fw_printenv -n audio_mode 2> /dev/null || echo off`
 
+SERIAL_FORCE=`fw_printenv -n serial_force 2> /dev/null || echo off`
 if [ "$USB_ETH_MODE" == "ncm" ]
 then
 	USB_NET_FUNCTION=ncm.usb0
@@ -69,8 +70,14 @@ case "$1" in
 	model=`cat /sys/firmware/devicetree/base/model | tr / -`
 	model_variant=`dmesg | grep m25p80 | grep Kbytes | cut -d ' ' -f 3`
 
+	if [ "$SERIAL_FORCE" == "off" ]; then
+
 	serial=`dmesg | grep SPI-NOR-UniqueID`
 	serial=${serial#*SPI-NOR-UniqueID }
+
+	else
+		serial="$SERIAL_FORCE"
+	fi
 
 	create_iiod_context_attributes "$model" "$serial" "$model_variant"
 
