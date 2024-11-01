@@ -33,7 +33,7 @@ sed -i s/##DEVICE_FW##/${FW_VERSION}/g ${BINARIES_DIR}/msd/LICENSE.html
 sed -i s/##LINUX_VERSION##/${LINUX_VERS}/g ${BINARIES_DIR}/msd/LICENSE.html
 sed -i s/##UBOOT_VERSION##/${UBOOT_VERS}/g ${BINARIES_DIR}/msd/LICENSE.html
 
-echo device-fw ${FW_VERSION}> ${TARGET_DIR}/opt/VERSIONS
+echo device-fw tezuka-${FW_VERSION}> ${TARGET_DIR}/opt/VERSIONS
 
 BOARD_DIR="$(dirname $0)"
 BOARD_NAME="$(basename ${BOARD_DIR})"

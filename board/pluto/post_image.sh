@@ -16,6 +16,7 @@ echo "generating the pluto.frm"
 md5sum $BIN_DIR/pluto.itb | cut -d ' ' -f 1 > $BIN_DIR/pluto.md5
 cat $BIN_DIR/pluto.itb  $BIN_DIR/pluto.md5 > $BIN_DIR/pluto.frm
 
+cp $BIN_DIR/pluto.itb $BIN_DIR/plutocopy.itb
 echo "generating pluto.dfu"
 $dfu_suffix -a $BIN_DIR/pluto.itb -v $DEVICE_VID -p $DEVICE_PID
 mv $BIN_DIR/pluto.itb $BIN_DIR/pluto.dfu

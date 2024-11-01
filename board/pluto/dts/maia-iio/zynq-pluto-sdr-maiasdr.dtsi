@@ -7,10 +7,9 @@
 */
 
 &fpga_axi {
-       
+      /delete-node/ i2c@41600000;
         /delete-node/ mwipcore@43c00000;
-
-        maia_sdr: maia-sdr@7C460000 {
+        maia_sdr: maia-sdr@7c460000 {
                 compatible = "uio_pdrv_genirq";
                 reg = <0x7c460000 0x1000>;
                 clocks = <&clkc 15>;
@@ -25,15 +24,15 @@
                 #size-cells = <1>;
                 ranges;
 
-                maia_sdr_spectrometer: maia_sdr_spectrometer@1a000000 {
+                maia_sdr_spectrometer: maia_sdr_spectrometer@16000000 {
                         no-map;
-                        reg = <0x1a000000 0x40000>;
+                        reg = <0x16000000 0x40000>;
                         label = "maia_sdr_spectrometer";
                 };
 
-                maia_sdr_recording: maia_sdr_recording@1000000 {
+                maia_sdr_recording: maia_sdr_recording@6000000 {
                         no-map;
-                        reg = <0x01000000 0x10000000>;
+                        reg = <0x6000000 0x10000000>;
                         label = "maia_sdr_recording";
                 };
         };
