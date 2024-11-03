@@ -19,6 +19,8 @@ sed -i '/hostname/a\
 
 sed -i -e '/::sysinit:\/bin\/hostname -F \/etc\/hostname/d' ${TARGET_DIR}/etc/inittab
 
+grep -q mtd2 ${TARGET_DIR}/etc/fstab || echo "mtd2 /mnt/jffs2 jffs2 rw,noatime 0 0" >> ${TARGET_DIR}/etc/fstab
+
 # Prepare LICENSE.html
 if [ ! -e ${BINARIES_DIR}/msd ]; then
 	mkdir ${BINARIES_DIR}/msd
