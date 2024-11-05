@@ -57,20 +57,25 @@ jobs:
       run: |
         source sourceme.first
         cd  buildroot-2024.08
-        make plutoplus_maiasdr_defconfig && make
-
+        make plutoplus_maiasdr_defconfig && make && mv /home/runner/work/tezuka-fw/tezuka-fw/buildroot-2024.08/output/images/tezuka.zip /home/runner/work/tezuka-fw/plutoplus_maiasdr.zip
+        make clean
+        make pluto_maiasdr_defconfig && make && mv /home/runner/work/tezuka-fw/tezuka-fw/buildroot-2024.08/output/images/tezuka.zip /home/runner/work/tezuka-fw/pluto_maiasdr.zip
+        
     - if: ${{ steps.cache-toolchain.outputs.cache-hit == 'true' }}
       name: Build Tezuka from cache
       run: |
         source sourceme.first
         cd  buildroot-2024.08
-        make plutoplus_maiasdr_defconfig && make
-
+        make plutoplus_maiasdr_defconfig && make && mv /home/runner/work/tezuka-fw/tezuka-fw/buildroot-2024.08/output/images/tezuka.zip /home/runner/work/tezuka-fw/plutoplus_maiasdr.zip
+        make clean
+        make pluto_maiasdr_defconfig && make && mv /home/runner/work/tezuka-fw/tezuka-fw/buildroot-2024.08/output/images/tezuka.zip /home/runner/work/tezuka-fw/pluto_maiasdr.zip
+        
     - uses: "marvinpinto/action-automatic-releases@latest"
       with:
         repo_token: "${{ secrets.GITHUB_TOKEN }}"
-        automatic_release_tag: PlutoDVB2_${{ inputs.version }}
+        automatic_release_tag: Tezuka_${{ inputs.version }}
         title: Release ${{ inputs.version }}
         prerelease: false
         files: |
-            /home/runner/work/tezuka-fw/tezuka-fw/buildroot-2024.08/output/images/**.zip
+            /home/runner/work/tezuka-fw/**.zip
+            
