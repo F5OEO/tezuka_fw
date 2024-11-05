@@ -18,7 +18,7 @@ on:
 env:
   VERSION: ${{ inputs.version }}
 
-run-name: Build tezuka-fw run for tag - Tezuka_${{ inputs.version }}
+run-name: Build tezuka_fw run for tag - Tezuka_${{ inputs.version }}
 jobs:
   build-x86_64:
     # runs-on: self-hosted
@@ -49,7 +49,7 @@ jobs:
       id: cache-toolchain
       uses: actions/cache@v4
       with:
-        path: /home/runner/work/tezuka-fw/tezuka-fw/buildroot-2024.08
+        path: /home/runner/work/tezuka_fw/tezuka_fw/buildroot-2024.08
         key: fw-cache-toolchain
         
     - if: ${{ steps.cache-toolchain.outputs.cache-hit != 'true' }}
@@ -57,18 +57,18 @@ jobs:
       run: |
         source sourceme.first
         cd  buildroot-2024.08
-        make plutoplus_maiasdr_defconfig && make && mv /home/runner/work/tezuka-fw/tezuka-fw/buildroot-2024.08/output/images/tezuka.zip /home/runner/work/tezuka-fw/plutoplus_maiasdr.zip
+        make plutoplus_maiasdr_defconfig && make && mv /home/runner/work/tezuka_fw/tezuka_fw/buildroot-2024.08/output/images/tezuka.zip /home/runner/work/tezuka_fw/plutoplus_maiasdr.zip
         make clean
-        make pluto_maiasdr_defconfig && make && mv /home/runner/work/tezuka-fw/tezuka-fw/buildroot-2024.08/output/images/tezuka.zip /home/runner/work/tezuka-fw/pluto_maiasdr.zip
+        make pluto_maiasdr_defconfig && make && mv /home/runner/work/tezuka_fw/tezuka_fw/buildroot-2024.08/output/images/tezuka.zip /home/runner/work/tezuka_fw/pluto_maiasdr.zip
         
     - if: ${{ steps.cache-toolchain.outputs.cache-hit == 'true' }}
       name: Build Tezuka from cache
       run: |
         source sourceme.first
         cd  buildroot-2024.08
-        make plutoplus_maiasdr_defconfig && make && mv /home/runner/work/tezuka-fw/tezuka-fw/buildroot-2024.08/output/images/tezuka.zip /home/runner/work/tezuka-fw/plutoplus_maiasdr.zip
+        make plutoplus_maiasdr_defconfig && make && mv /home/runner/work/tezuka_fw/tezuka_fw/buildroot-2024.08/output/images/tezuka.zip /home/runner/work/tezuka_fw/plutoplus_maiasdr.zip
         make clean
-        make pluto_maiasdr_defconfig && make && mv /home/runner/work/tezuka-fw/tezuka-fw/buildroot-2024.08/output/images/tezuka.zip /home/runner/work/tezuka-fw/pluto_maiasdr.zip
+        make pluto_maiasdr_defconfig && make && mv /home/runner/work/tezuka_fw/tezuka_fw/buildroot-2024.08/output/images/tezuka.zip /home/runner/work/tezuka_fw/pluto_maiasdr.zip
         
     - uses: "marvinpinto/action-automatic-releases@latest"
       with:
@@ -77,5 +77,5 @@ jobs:
         title: Release ${{ inputs.version }}
         prerelease: false
         files: |
-            /home/runner/work/tezuka-fw/**.zip
+            /home/runner/work/tezuka_fw/**.zip
             
