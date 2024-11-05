@@ -21,4 +21,4 @@ echo "generating pluto.dfu"
 $dfu_suffix -a $BIN_DIR/pluto.itb -v $DEVICE_VID -p $DEVICE_PID
 mv $BIN_DIR/pluto.itb $BIN_DIR/pluto.dfu
 
-#rm -f $BIN_DIR/pluto.its $BIN_DIR/*.md5
+cd $BIN_DIR && zip tezuka.zip boot.dfu boot.frm pluto.frm pluto.dfu sdimg/*
