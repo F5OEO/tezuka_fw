@@ -52,3 +52,4 @@ cp $BIN_DIR/pluto.dfu $SDIMGDIR/uImage
 cp $BIN_DIR/zynq-plutoplus.dtb $SDIMGDIR/devicetree.dtb
 cp $BOARD_DIR/uboot-env.txt $SDIMGDIR/
 
+cd $BIN_DIR && zip tezuka.zip boot.dfu boot.frm pluto.frm pluto.dfu sdimg/*
