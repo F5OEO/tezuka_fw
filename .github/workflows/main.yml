@@ -1,0 +1,76 @@
+on:
+  workflow_dispatch:
+    inputs:
+      logLevel:
+        description: 'Log level'
+        required: true
+        default: 'warning'
+        type: choice
+        options:
+        - info
+        - warning
+        - debug
+      version:
+        description: 'Provide release tag, eg. 0.5.4'
+        type: string
+        required: true
+    
+env:
+  VERSION: ${{ inputs.version }}
+
+run-name: Build tezuka-fw run for tag - Tezuka_${{ inputs.version }}
+jobs:
+  build-x86_64:
+    # runs-on: self-hosted
+    runs-on: ubuntu-latest
+    # environment: plutosdr-fw-ci
+    permissions: write-all
+    
+    steps:
+    - uses: actions/checkout@v4.1.1
+      with:
+        clean: false
+        submodules: recursive
+
+    - name: Install dependencies
+      shell: bash
+      run: |
+        sudo apt-get update -q -y
+        sudo apt-get install -y make gcc g++ python3 python3-dev python3-pip \
+           python3-pytest python3-numpy python3-scipy iverilog wget curl \
+           default-jre libxrender-dev libxtst-dev libtinfo5 \
+           libgtk2.0-0 git \
+           zip unzip dfu-util fakeroot u-boot-tools device-tree-compiler mtools \
+           bison flex libncurses5-dev libssl-dev bc cpio rsync cmake \
+           libgtk-3-0 xz-utils libgmp-dev libmpc-dev bootgen-xlnx
+           wget https://buildroot.org/downloads/buildroot-2024.08.tar.gz && tar -xvf buildroot-2024.08.tar.gz
+      
+    - name: Cache toolchain
+      id: cache-toolchain
+      uses: actions/cache@v4
+      with:
+        path: /home/runner/work/tezuka-fw/tezuka-fw/buildroot-2024.08
+        key: fw-cache-toolchain
+        
+    - if: ${{ steps.cache-toolchain.outputs.cache-hit != 'true' }}
+      name: Build Tezuka first build
+      run: |
+        source sourceme.first
+        cd  buildroot-2024.08.tar.gz
+        make plutoplus_maiasdr_defconfig && make
+
+    - if: ${{ steps.cache-toolchain.outputs.cache-hit == 'true' }}
+      name: Build Tezuka from cache
+      run: |
+        source sourceme.first
+        cd  buildroot-2024.08.tar.gz
+        make plutoplus_maiasdr_defconfig && make
+
+    - uses: "marvinpinto/action-automatic-releases@latest"
+      with:
+        repo_token: "${{ secrets.GITHUB_TOKEN }}"
+        automatic_release_tag: PlutoDVB2_${{ inputs.version }}
+        title: Release ${{ inputs.version }}
+        prerelease: false
+        files: |
+            /home/runner/work/tezuka-fw/tezuka-fw/buildroot-2024.08/output/images/**.zip
