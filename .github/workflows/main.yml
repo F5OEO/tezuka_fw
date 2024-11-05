@@ -56,14 +56,14 @@ jobs:
       name: Build Tezuka first build
       run: |
         source sourceme.first
-        cd  buildroot-2024.08.tar.gz
+        cd  buildroot-2024.08
         make plutoplus_maiasdr_defconfig && make
 
     - if: ${{ steps.cache-toolchain.outputs.cache-hit == 'true' }}
       name: Build Tezuka from cache
       run: |
         source sourceme.first
-        cd  buildroot-2024.08.tar.gz
+        cd  buildroot-2024.08
         make plutoplus_maiasdr_defconfig && make
 
     - uses: "marvinpinto/action-automatic-releases@latest"
