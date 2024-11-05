@@ -18,15 +18,15 @@ inotifywait -e modify /sys/bus/iio/devices/iio:device1/out_altvoltage0_RX_LO_fre
 rxfrequency=$(cat /sys/bus/iio/devices/iio:device1/out_altvoltage0_RX_LO_frequency)
 fi
 
-echo "FreqRX $rxfrequency"
+#echo "FreqRX $rxfrequency"
 
 if [ "$lnb_mode" = "auto" ] ; then
 
         if [ "$rxfrequency" -le "740500000" ] ; then
-        echo "QO100 Narrow Band"
+#        echo "QO100 Narrow Band"
         $(/root/switch_lnb.sh 13V)
         else
-        echo "QO100 Wide Band"
+#        echo "QO100 Wide Band"
         $(/root/switch_lnb.sh 18V)
         fi
 fi
