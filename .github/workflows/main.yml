@@ -43,21 +43,24 @@ jobs:
            zip unzip dfu-util fakeroot u-boot-tools device-tree-compiler mtools \
            bison flex libncurses5-dev libssl-dev bc cpio rsync cmake \
            libgtk-3-0 xz-utils libgmp-dev libmpc-dev bootgen-xlnx
-           wget https://buildroot.org/downloads/buildroot-2024.08.tar.gz && tar -xvf buildroot-2024.08.tar.gz
+           
       
     - name: Cache toolchain
       id: cache-toolchain
       uses: actions/cache@v4
       with:
-        path: /home/runner/work/tezuka_fw/tezuka_fw/buildroot-2024.08
+        path: /${{runner.workspace}}/build/buildroot-2024.08
         key: fw-cache-toolchain
         
     - if: ${{ steps.cache-toolchain.outputs.cache-hit != 'true' }}
       name: Build Tezuka first build
       run: |
         source sourceme.first
-        cd  buildroot-2024.08
-        make plutoplus_maiasdr_defconfig && make && mv /home/runner/work/tezuka_fw/tezuka_fw/buildroot-2024.08/output/images/tezuka.zip /home/runner/work/tezuka_fw/plutoplus_maiasdr.zip
+        # mkdir ${{runner.workspace}}/build && cd ${{runner.workspace}}/build
+        # wget https://buildroot.org/downloads/buildroot-2024.08.tar.gz && tar -xvf buildroot-2024.08.tar.gz
+       
+        cd  ${{runner.workspace}}/build/buildroot-2024.08
+        make plutoplus_maiasdr_defconfig && make && mv ${{runner.workspace}}/build/buildroot-2024.08/output/images/tezuka.zip ${{runner.workspace}}/build/plutoplus_maiasdr.zip
         # make clean
         # make pluto_maiasdr_defconfig && make && mv /home/runner/work/tezuka_fw/tezuka_fw/buildroot-2024.08/output/images/tezuka.zip /home/runner/work/tezuka_fw/pluto_maiasdr.zip
         
@@ -65,8 +68,11 @@ jobs:
       name: Build Tezuka from cache
       run: |
         source sourceme.first
-        cd  buildroot-2024.08
-        make plutoplus_maiasdr_defconfig && make && mv /home/runner/work/tezuka_fw/tezuka_fw/buildroot-2024.08/output/images/tezuka.zip /home/runner/work/tezuka_fw/plutoplus_maiasdr.zip
+        mkdir ${{runner.workspace}}/build && cd ${{runner.workspace}}/build
+        wget https://buildroot.org/downloads/buildroot-2024.08.tar.gz && tar -xvf buildroot-2024.08.tar.gz
+       
+        cd  ${{runner.workspace}}/build/buildroot-2024.08
+        make plutoplus_maiasdr_defconfig && make && mv ${{runner.workspace}}/build/buildroot-2024.08/output/images/tezuka.zip ${{runner.workspace}}/build/plutoplus_maiasdr.zip
         # make clean
         # make pluto_maiasdr_defconfig && make && mv /home/runner/work/tezuka_fw/tezuka_fw/buildroot-2024.08/output/images/tezuka.zip /home/runner/work/tezuka_fw/pluto_maiasdr.zip
         
@@ -77,5 +83,5 @@ jobs:
         title: Release ${{ inputs.version }}
         prerelease: true
         files: |
-            /home/runner/work/tezuka_fw/**.zip
+            ${{runner.workspace}}/build/**.zip
             
