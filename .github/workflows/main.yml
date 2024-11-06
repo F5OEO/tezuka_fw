@@ -56,8 +56,8 @@ jobs:
       name: Build Tezuka first build
       run: |
         source sourceme.first
-        # mkdir ${{runner.workspace}}/build && cd ${{runner.workspace}}/build
-        # wget https://buildroot.org/downloads/buildroot-2024.08.tar.gz && tar -xvf buildroot-2024.08.tar.gz
+        mkdir ${{runner.workspace}}/build && cd ${{runner.workspace}}/build
+        wget https://buildroot.org/downloads/buildroot-2024.08.tar.gz && tar -xvf buildroot-2024.08.tar.gz
        
         cd  ${{runner.workspace}}/build/buildroot-2024.08
         make plutoplus_maiasdr_defconfig && make && mv ${{runner.workspace}}/build/buildroot-2024.08/output/images/tezuka.zip ${{runner.workspace}}/build/plutoplus_maiasdr.zip
@@ -68,8 +68,8 @@ jobs:
       name: Build Tezuka from cache
       run: |
         source sourceme.first
-        mkdir ${{runner.workspace}}/build && cd ${{runner.workspace}}/build
-        wget https://buildroot.org/downloads/buildroot-2024.08.tar.gz && tar -xvf buildroot-2024.08.tar.gz
+        # mkdir ${{runner.workspace}}/build && cd ${{runner.workspace}}/build
+        # wget https://buildroot.org/downloads/buildroot-2024.08.tar.gz && tar -xvf buildroot-2024.08.tar.gz
        
         cd  ${{runner.workspace}}/build/buildroot-2024.08
         make plutoplus_maiasdr_defconfig && make && mv ${{runner.workspace}}/build/buildroot-2024.08/output/images/tezuka.zip ${{runner.workspace}}/build/plutoplus_maiasdr.zip
