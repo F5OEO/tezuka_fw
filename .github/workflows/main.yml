@@ -14,6 +14,9 @@ on:
         description: 'Provide release tag, eg. 0.5.4'
         type: string
         required: true
+        
+permissions:
+  contents: write
     
 env:
   VERSION: ${{ inputs.version }}
