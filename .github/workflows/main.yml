@@ -87,7 +87,7 @@ jobs:
     - name: Create Archive
       run: >
         mkdir tezuka_all && 
-        mv plutoplus_maiasdr.zip tezuka_all/  
+        mv ${{runner.workspace}}/build/plutoplus_maiasdr.zip tezuka_all/  
         
         
     - uses: actions/upload-artifact@v4
