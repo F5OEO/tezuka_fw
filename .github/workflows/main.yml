@@ -105,5 +105,5 @@ jobs:
             uses: actions/download-artifact@v4
 
           - name: Update Nightly
-            run: gh release upload ${{ inputs.version }} tezuka_all/* -R ${{github.repository}} --clobber
+            run: gh release create ${{ inputs.version }} tezuka_all/* -R ${{github.repository}} --generate-notes
  
