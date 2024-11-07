@@ -17,6 +17,7 @@ on:
     
 env:
   VERSION: ${{ inputs.version }}
+  GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
 run-name: Build tezuka_fw run for tag - Tezuka_${{ inputs.version }}
 jobs:
