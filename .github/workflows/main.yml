@@ -76,6 +76,12 @@ jobs:
         # make clean
         # make pluto_maiasdr_defconfig && make && mv /home/runner/work/tezuka_fw/tezuka_fw/buildroot-2024.08/output/images/tezuka.zip /home/runner/work/tezuka_fw/pluto_maiasdr.zip
     
+    - name: Save zip Archive
+      uses: actions/upload-artifact@v4
+      with:
+          name: tezuka_fw
+          path: ${{runner.workspace}}/build/*.zip
+
   create_full_archive:
     needs: ['build-x86_64']
     runs-on: ubuntu-latest
@@ -87,7 +93,7 @@ jobs:
     - name: Create Archive
       run: >
         mkdir tezuka_all && 
-        mv ${{runner.workspace}}/build/plutoplus_maiasdr.zip tezuka_all/  
+        mv tezuka_fw/*.zip tezuka_all/  
         
         
     - uses: actions/upload-artifact@v4
