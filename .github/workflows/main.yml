@@ -57,7 +57,7 @@ jobs:
         wget https://buildroot.org/downloads/buildroot-2024.08.tar.gz && tar -xvf buildroot-2024.08.tar.gz
        
         cd  ${{runner.workspace}}/build/buildroot-2024.08
-        make pluto_original_defconfig && make && mv ${{runner.workspace}}/build/buildroot-2024.08/output/images/tezuka.zip ${{runner.workspace}}/build/ pluto_original.zip
+        make pluto_original_defconfig && make && mv ${{runner.workspace}}/build/buildroot-2024.08/output/images/tezuka.zip ${{runner.workspace}}/build/pluto_original.zip
         make linux-dirclean
         make plutoplus_original_defconfig && make && mv ${{runner.workspace}}/build/buildroot-2024.08/output/images/tezuka.zip ${{runner.workspace}}/build/plutoplus_original.zip
         make linux-dirclean
