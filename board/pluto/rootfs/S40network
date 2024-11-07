@@ -10,9 +10,10 @@ source /etc/device_config
 create_system_files () {
 
 	UDHCPD_CONF=/etc/udhcpd.conf
+	UDHCPDWAN_CONF=/etc/udhcpdwan.conf
 	CONF=/opt/config.txt
 	IFAC=/etc/network/interfaces
-
+	HOSTAPD=/etc/hostapd.conf
 	HOSTNAME=`fw_printenv -n hostname 2> /dev/null || cat /etc/hostname`
 	echo $HOSTNAME > /etc/hostname
 
@@ -50,6 +51,13 @@ create_system_files () {
 	echo "interface usb0" >> $UDHCPD_CONF
 	echo "option subnet $NETMASK" >> $UDHCPD_CONF
 
+	### /etc/udhcpdwan.conf ###
+	echo "start 192.168.3.10" > $UDHCPDWAN_CONF
+	echo "end 192.168.3.100" >> $UDHCPDWAN_CONF
+	echo "interface wlan0" >> $UDHCPDWAN_CONF
+	echo "option subnet 255.255.255.0" >> $UDHCPDWAN_CONF
+	echo "pidfile /var/run/udhcpdwan.pid" >> $UDHCPDWAN_CONF
+
 	### /etc/network/interfaces ###
 	echo -e "auto lo\n""iface lo inet loopback\n" > $IFAC
 	echo -e "auto usb0\n""iface usb0 inet static" >> $IFAC
@@ -71,26 +79,43 @@ create_system_files () {
 	### /etc/wpa.conf ###
 	if [ -n "$WLAN_SSID" ]
 	then
-		if [ -n "$WLAN_PWD" ]
-		then
-			wpa_passphrase "$WLAN_SSID" "$WLAN_PWD" > /etc/wpa.conf
-		else
-			echo "network={" > /etc/wpa.conf
-			echo "    ssid=\"$WLAN_SSID\"" >> /etc/wpa.conf
-			echo "    key_mgmt=NONE" >> /etc/wpa.conf
-			echo "}" >> /etc/wpa.conf
-		fi
+        if [ "$WLAN_SSID" == "AP" ]; then
+    # We are in access point mode
+        echo -e "auto wlan0\n" >> $IFAC
+        echo -e "iface wlan0 inet static\n" >>$IFAC
+        echo -e "address 192.168.3.1\n" >>$IFAC
+        echo -e "netmask 255.255.255.0\n" >>$IFAC
 
-		echo -e "auto wlan0" >> $IFAC
+		#Make hostapd
+		echo -e "interface=wlan0\n" > $HOSTAPD
+		echo -e "driver=nl80211\n" >> $HOSTAPD
+		echo -e "ssid=PlutoAP\n" >> $HOSTAPD
+		echo -e "hw_mode=g\n" >> $HOSTAPD
+		echo -e "channel=11\n" >> $HOSTAPD
 
-		if [ -n "$WLAN_IPADDR" ]
-		then
-			echo -e "iface wlan0 inet static" >> $IFAC
-			echo -e "\taddress $WLAN_IPADDR\n""\tnetmask 255.255.255.0" >> $IFAC
-		else
-			echo -e "iface wlan0 inet dhcp" >> $IFAC
-		fi
-		echo -e "\twpa-conf /etc/wpa.conf\n" >> $IFAC
+		hostapd -B /etc/hostapd.conf
+        else
+		    if [ -n "$WLAN_PWD" ]
+		    then
+			    wpa_passphrase $WLAN_SSID $WLAN_PWD > /etc/wpa.conf
+		    else
+			    echo "network={" > /etc/wpa.conf
+			    echo "    ssid=\"$WLAN_SSID\"" >> /etc/wpa.conf
+			    echo "    key_mgmt=NONE" >> /etc/wpa.conf
+			    echo "}" >> /etc/wpa.conf
+		    fi
+
+		    echo -e "auto wlan0" >> $IFAC
+
+		    if [ -n "$WLAN_IPADDR" ]
+		    then
+			    echo -e "iface wlan0 inet static" >> $IFAC
+			    echo -e "\taddress $WLAN_IPADDR\n""\tnetmask 255.255.255.0" >> $IFAC
+		    else
+			    echo -e "iface wlan0 inet dhcp" >> $IFAC
+		    fi
+		    echo -e "\twpa-conf /etc/wpa.conf\n" >> $IFAC
+        fi
 	fi
 
 	#switch RF input
