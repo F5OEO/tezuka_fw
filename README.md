@@ -1,23 +1,23 @@
 ![tezuka banner](/doc/tezuka.png)
 # About tezuka_fw 
-**tezuka** (name referenced to pluto) aims to be Universal Zynq/AD9363 firmware builder for plutosdr board and other boards: PlutoSDR, Pluto+, AntSDR (e200). Other targets could be added (ZynqSDR,LibreSDR..)
+**tezuka** (name referenced to [pluto](https://en.wikipedia.org/wiki/Pluto:_Urasawa_x_Tezuka)) aims to be Universal Zynq/AD9363 firmware builder for plutosdr board and other boards: PlutoSDR, Pluto+, AntSDR (e200). Other targets could be added (ZynqSDR,LibreSDR..)
 
 # Why not an Analog Device firmware ?
 ADI launch PlutoSDR as a learning platform and it is ! But for since firmware 0.38, it is mainly focused on supporting $$$phaser product https://wiki.analog.com/resources/eval/user-guides/circuits-from-the-lab/cn0566
 
 Even this is a very smart product, the price is out of most of hobbists and hamradio people (around 2500 Euros).
 
-Target of **tezuka** firmware is to maximize functionnalities of the board and integrate interesting projects on multi-target boards.
+Target of **tezuka** firmware is to **maximize functionnalities** of the board and integrate interesting projects on multi-target boards.
 
 It could encourage people to make new firmware more easily without to fork and clone large submodules.
 
 # New features
 - Frequencies extension : **47.5Mhz**-6Ghz
 - Switch **RX1/RX2 , TX1/TX2** seamlessly
-- Complex 8bit mode to extend streaming bandwidth with host (**14Mhz** stable bandwidth through usb)
-- Audio gadget to be recognized as a soundcard (stop need of **virtual cable** mess)
-- USB boot support
-- SD boot support
+- Complex **8bit mode** to extend streaming bandwidth with host (**14Mhz** stable bandwidth through usb)
+- Audio gadget to be recognized as a soundcard (**virtual cable** not needed anymore)
+- USB boot support ( allows heavy package like GnuRadio to be embedded)
+- SD boot support - same as above but on SD capable plateform (pluto+, anstdr)
 
 # Installing
  - Download your selected configuration on https://github.com/F5OEO/tezuka_fw/releases
