@@ -3,7 +3,7 @@
 **tezuka** (name referenced to [pluto](https://en.wikipedia.org/wiki/Pluto:_Urasawa_x_Tezuka)) aims to be Universal Zynq/AD9363 firmware builder for plutosdr board and other boards: PlutoSDR, Pluto+, AntSDR (e200). Other targets could be added (ZynqSDR,LibreSDR..)
 
 # Why not an Analog Device firmware ?
-ADI launch PlutoSDR as a learning platform and it is ! But for since firmware 0.38, it is mainly focused on supporting $$$phaser product https://wiki.analog.com/resources/eval/user-guides/circuits-from-the-lab/cn0566
+ADI launch PlutoSDR as a learning platform and it is ! But since 2 years, updates are mainly focused on supporting $$$phaser product https://wiki.analog.com/resources/eval/user-guides/circuits-from-the-lab/cn0566
 
 Even this is a very smart product, the price is out of most of hobbists and hamradio people (around 2500 Euros).
 
