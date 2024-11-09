@@ -20,8 +20,11 @@ It could encourage people to make new firmware more easily without to fork and c
 - SD boot support - same as above but on SD capable plateform (pluto+, anstdr)
 
 # Installing
- - Download your selected configuration on https://github.com/F5OEO/tezuka_fw/releases
- - Unzip it and paste pluto.frm to pluto drive (detailed update procedure https://wiki.analog.com/university/tools/pluto/users/firmware)
+- In release section (https://github.com/F5OEO/tezuka_fw/releases)
+- Choose your right firmware depending on hardware and software, depending on name.
+- Firmware with name maia is referenced to https://maia-sdr.org/ amazing project which is included with a **normal** behavior regarding to third party softwares.
+- Download your selected configuration on https://github.com/F5OEO/tezuka_fw/releases
+- Unzip it and paste pluto.frm to pluto drive (detailed update procedure https://wiki.analog.com/university/tools/pluto/users/firmware)
 
 # Configuring
 A soon as firmware is updated, you could see a usb drive with parameters in config.txt (orginal parameters are described at (https://wiki.analog.com/university/tools/pluto/users/customizing)
@@ -32,11 +35,6 @@ A soon as firmware is updated, you could see a usb drive with parameters in conf
 - Soapy based software(https://github.com/F5OEO/SoapyPlutoPAPR)
 
 Other great SDR software could use soon new features (SDRConsomle, SDRAngel...), stay tuned !
-
-# Firmwares available
-- In release section (https://github.com/F5OEO/tezuka_fw/releases)
-- Choose your right firmware depending on hardware and software, depending on name.
-- Firmware with name maia is referenced to https://maia-sdr.org/ amazing project which is included with a **normal** behavior regarding to third party softwares.
 
 # For developpers
 ## Building from source (linux debian based)
