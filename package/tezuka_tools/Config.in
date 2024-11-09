@@ -6,6 +6,7 @@ config BR2_PACKAGE_TEZUKA_COMMON_TOOLS
     select BR2_PACKAGE_NANO
 	select BR2_PACKAGE_ALSA_UTILS
 	select BR2_PACKAGE_ALSA_UTILS_APLAY
+	select BR2_PACKAGE_HOSTAPD
 
 	help
 	  "Tezuka common tools"
