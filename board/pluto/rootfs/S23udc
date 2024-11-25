@@ -8,7 +8,7 @@ IIOD_OPTS="-D -n $ENDPOINTS -F /dev/iio_ffs"
 UDC_HANDLE_SUSPEND=`fw_printenv -n udc_handle_suspend 2> /dev/null || echo 0`
 USB_ETH_MODE=`fw_printenv -n usb_ethernet_mode 2> /dev/null || echo rndis`
 AUDIO_MODE=`fw_printenv -n audio_mode 2> /dev/null || echo off`
-
+NB_CORE=`nproc 2> /dev/null || 1` 
 SERIAL_FORCE=`fw_printenv -n serial_force 2> /dev/null || echo off`
 if [ "$USB_ETH_MODE" == "ncm" ]
 then
@@ -159,8 +159,12 @@ if [ "$AUDIO_MODE" == "on" ]
 	
 	mkdir -p /dev/iio_ffs
 	mount iio_ffs -t functionfs /dev/iio_ffs 2> /dev/null
-	#start-stop-daemon -S -b -q -m -p /var/run/iiod.pid -x /usr/bin/chrt -- -r 99 /usr/bin/taskset -c 1 /usr/sbin/iiod $IIOD_OPTS	
-	start-stop-daemon -S -b -q -m -p /var/run/iiod.pid -x  /usr/sbin/iiod  -- $IIOD_OPTS
+	if [ "$NB_CORE" == "2" ]
+	then
+		start-stop-daemon -S -b -q -m -p /var/run/iiod.pid -x /usr/bin/chrt -- -r 99 /usr/bin/taskset -c 1 /usr/sbin/iiod $IIOD_OPTS
+	else	
+		start-stop-daemon -S -b -q -m -p /var/run/iiod.pid -x  /usr/sbin/iiod  -- $IIOD_OPTS
+	fi	
 	sleep 0.2
 
 	echo ci_hdrc.0 > $GADGET/UDC
@@ -191,7 +195,7 @@ if [ "$AUDIO_MODE" == "on" ]
 	then
 	
 	rm $GADGET/configs/c.1/uac2.usb0
-	rm $GADGET/configs/c.1/hid.usb0
+	rm $GADGET/configs/c.1/hid.keyboard
 	#rm $GADGET/functions/uac2.usb1
 	fi
 	rmdir $GADGET/strings/0x409
