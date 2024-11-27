@@ -52,6 +52,6 @@ $mkimage -A arm -T ramdisk -C gzip -d $SDIMGDIR/ramdisk.image.gz $SDIMGDIR/uramd
 rm $SDIMGDIR/ramdisk.image.gz
 cp $BIN_DIR/pluto.dfu $SDIMGDIR/uImage
 cp $BIN_DIR/zynq-e200.dtb $SDIMGDIR/devicetree.dtb
-cp $BOARD_DIR/uboot-env.txt $SDIMGDIR/
+cp $BOARD_DIR/uboot-env.txt $SDIMGDIR/uEnv.txt
 
 cd $BIN_DIR && zip tezuka.zip boot.dfu boot.frm pluto.frm pluto.dfu sdimg/*
