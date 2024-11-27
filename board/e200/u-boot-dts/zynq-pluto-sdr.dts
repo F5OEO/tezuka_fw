@@ -1,9 +1,7 @@
 /*
- * Pluto+ SDR board DTS
+ * Analog Devices Inc. Pluto SDR board DTS
  *
  * Copyright (C) 2015-2018 Analog Devices Inc.
- * Copyright (C) 2021 Howard Su
- * Copyright (C) 2023 Daniel Estevez <daniel@destevez.net>
  *
  * SPDX-License-Identifier:	GPL-2.0+
  */
@@ -11,14 +9,13 @@
 #include "zynq-7000.dtsi"
 
 / {
-	model = "Zynq Pluto+ Board";
+	model = "Analog Devices E200 board";
 	compatible = "xlnx,zynq-7000";
 
 	aliases {
 		ethernet0 = &gem0;
-		serial0 = &uart1;
+		serial0 = &uart0;
 		spi0 = &qspi;
-                mmc0 = &sdhci0;
 	};
 
 	memory {
@@ -28,19 +25,14 @@
 
 	chosen {
 		bootargs = "earlyprintk";
-		linux,stdout-path = &uart1;
-		stdout-path = &uart1;
+		linux,stdout-path = &uart0;
+		stdout-path = &uart0;
 	};
 
 	usb_phy0: phy0 {
 		compatible = "usb-nop-xceiv";
 		#phy-cells = <0>;
 	};
-};
-
-&sdhci0 {
-	u-boot,dm-pre-reloc;
-	status = "okay";
 };
 
 &qspi {
@@ -74,7 +66,7 @@
 	};
 };
 
-&uart1 {
+&uart0 {
 	status = "okay";
 };
 
@@ -84,13 +76,30 @@
 	usb-phy = <&usb_phy0>;
 };
 
-&gem0 {
-        status = "okay";
-        pinctrl-names = "default";
-        phy-mode = "rgmii-id";
-        phy-handle = <&ethernet_phy>;
-        ethernet_phy: ethernet-phy@1 {
-                reg = <1>;
-                device_type = "ethernet_phy";
-        };
+&sdhci0 {
+	u-boot,dm-pre-reloc;
+	status = "okay";
 };
+
+&gem0 {
+	status = "okay";
+
+	phy-handle = <&phy0>;
+	phy-mode = "rgmii-rxid";
+
+	phy0: phy@0 {
+		device_type = "ethernet-phy";
+		reg = <0x0>;
+		// marvell,reg-init = <3 16 0xff00 0x1e 3 17 0xfff0 0x00>;
+	};
+
+	gmiitorgmii: gmiitorgmii@8 {
+		compatible = "xlnx,gmii-to-rgmii-1.0";
+		reg = <0x8>;
+		phy-handle = <&phy0>;
+	};
+
+};
+
+	
+
