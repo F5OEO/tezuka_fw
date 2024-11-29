@@ -11,6 +11,7 @@ create_system_files () {
 
 	UDHCPD_CONF=/etc/udhcpd.conf
 	UDHCPDWAN_CONF=/etc/udhcpdwan.conf
+	UDHCPDLAN_CONF=/etc/udhcpdlan.conf
 	CONF=/opt/config.txt
 	IFAC=/etc/network/interfaces
 	HOSTAPD=/etc/hostapd.conf
@@ -58,6 +59,13 @@ create_system_files () {
 	echo "option subnet 255.255.255.0" >> $UDHCPDWAN_CONF
 	echo "pidfile /var/run/udhcpdwan.pid" >> $UDHCPDWAN_CONF
 
+	### /etc/udhcpdlan.conf ###
+	echo "start 192.168.4.10" > $UDHCPDLAN_CONF
+	echo "end 192.168.4.100" >> $UDHCPDLAN_CONF
+	echo "interface eth0" >> $UDHCPDLAN_CONF
+	echo "option subnet 255.255.255.0" >> $UDHCPDLAN_CONF
+	echo "pidfile /var/run/udhcpdlan.pid" >> $UDHCPDLAN_CONF
+
 	### /etc/network/interfaces ###
 	echo -e "auto lo\n""iface lo inet loopback\n" > $IFAC
 	echo -e "auto usb0\n""iface usb0 inet static" >> $IFAC
@@ -67,10 +75,16 @@ create_system_files () {
 	echo -e "auto eth0" >> $IFAC
 	if [ -n "$ETH_IPADDR" ]
 	then
-		echo -e "iface eth0 inet static" >> $IFAC
-		echo -e "\taddress $ETH_IPADDR\n""\tnetmask $ETH_NETMASK\n" >> $IFAC
-		if [ -n "$ETH_GW" ]; then
-			echo -e "\tgateway $ETH_GW\n" >> $IFAC
+		if [ "$ETH_IPADDR" == "AP" ]; then
+			echo -e "iface eth0 inet static\n" >>$IFAC
+			echo -e "address 192.168.4.1\n" >>$IFAC
+			echo -e "netmask 255.255.255.0\n" >>$IFAC
+		else
+			echo -e "iface eth0 inet static" >> $IFAC
+			echo -e "\taddress $ETH_IPADDR\n""\tnetmask $ETH_NETMASK\n" >> $IFAC
+			if [ -n "$ETH_GW" ]; then
+				echo -e "\tgateway $ETH_GW\n" >> $IFAC
+			fi	
 		fi	
 	else
 		echo -e "iface eth0 inet dhcp\n" >> $IFAC
