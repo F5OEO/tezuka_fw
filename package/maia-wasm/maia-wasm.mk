@@ -4,7 +4,7 @@
 #
 ################################################################################
 
-MAIA_WASM_VERSION = 0.9.0
+MAIA_WASM_VERSION = 0.10.0
 MAIA_WASM_SOURCE = maia-sdr-$(MAIA_WASM_VERSION).tar.gz
 MAIA_WASM_SITE = https://github.com/maia-sdr/maia-sdr/archive/refs/tags/v$(MAIA_WASM_VERSION)
 MAIA_WASM_DEPENDENCIES = rust-wasm wasm-pack 
