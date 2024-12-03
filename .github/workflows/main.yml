@@ -46,7 +46,7 @@ jobs:
            libgtk2.0-0 git \
            zip unzip dfu-util fakeroot u-boot-tools device-tree-compiler mtools \
            bison flex libncurses5-dev libssl-dev bc cpio rsync cmake \
-           libgtk-3-0 xz-utils libgmp-dev libmpc-dev bootgen-xlnx
+           libgtk-3-0 xz-utils libgmp-dev libmpc-dev bootgen-xlnx libclang-dev
            
       
            
