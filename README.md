@@ -49,7 +49,7 @@ tar -xvf buildroot-2024.08.tar.gz
 ```
 source sourceme.first
 cd buildroot-2024.08
-make zynq_pluto_original_defconfig && make
+make pluto_maiasdr_defconfig && make
 ```
 ### Result
 All materials are in buildroot/output/images
