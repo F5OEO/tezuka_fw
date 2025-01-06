@@ -4,9 +4,9 @@
 #
 ################################################################################
 
-MAIA_HTTPD_VERSION = 0.10.0
-MAIA_HTTPD_SOURCE = maia-sdr-$(MAIA_HTTPD_VERSION).tar.gz
-MAIA_HTTPD_SITE = https://github.com/maia-sdr/maia-sdr/archive/refs/tags/v$(MAIA_HTTPD_VERSION)
+MAIA_HTTPD_VERSION = main
+MAIA_HTTPD_SITE = https://github.com/F5OEO/maia-sdr.git
+MAIA_HTTPD_SITE_METHOD = git
 MAIA_HTTPD_DEPENDENCIES = host-openssl
 MAIA_HTTPD_CONF_OPTS += -DWITH_SSL=system
 
