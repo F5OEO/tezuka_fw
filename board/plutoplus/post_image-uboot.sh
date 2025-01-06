@@ -44,12 +44,14 @@ cp $BIN_DIR/system_top.bit $SDIMGDIR/
 cp $BOARD_DIR/bitstream/fsbl.elf $SDIMGDIR/
 echo "img : {[bootloader] $SDIMGDIR/fsbl.elf  $SDIMGDIR/system_top.bit  $SDIMGDIR/u-boot.elf}" >  $SDIMGDIR/boot.bif
 bootgen -image $SDIMGDIR/boot.bif -w -o i $SDIMGDIR/BOOT.bin
-rm $SDIMGDIR/fsbl.elf  $SDIMGDIR/system_top.bit  $SDIMGDIR/u-boot.elf $SDIMGDIR/boot.bif
+#rm $SDIMGDIR/fsbl.elf  $SDIMGDIR/system_top.bit  $SDIMGDIR/u-boot.elf $SDIMGDIR/boot.bif
 cp $BIN_DIR/rootfs.cpio.gz $SDIMGDIR/ramdisk.image.gz
 $mkimage -A arm -T ramdisk -C gzip -d $SDIMGDIR/ramdisk.image.gz $SDIMGDIR/uramdisk.image.gz
 rm $SDIMGDIR/ramdisk.image.gz
 cp $BIN_DIR/pluto.dfu $SDIMGDIR/uImage
-cp $BIN_DIR/zynq-plutoplus.dtb $SDIMGDIR/devicetree.dtb
-cp $BOARD_DIR/uboot-env.txt $SDIMGDIR/
+#cp $BIN_DIR/zynq-plutoplus.dtb $SDIMGDIR/devicetree.dtb
+cp $BIN_DIR/plutoplus.dtb $SDIMGDIR/devicetree.dtb
+
+cp $BOARD_DIR/uboot-env.txt $SDIMGDIR/uEnv.txt
 
 cd $BIN_DIR && zip tezuka.zip boot.dfu boot.frm pluto.frm pluto.dfu sdimg/*

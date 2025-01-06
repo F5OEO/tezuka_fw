@@ -17,7 +17,7 @@
 
 		fdt@1 {
 			description = "zynq-pluto-sdr";
-			data = /incbin/("zynq-maiaplutoplus.dtb");
+			data = /incbin/("plutoplus.dtb");
 			type = "flat_dt";
 			arch = "arm";
 			compression = "none";
