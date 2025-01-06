@@ -1,0 +1,5 @@
+config BR2_PACKAGE_HAMLIB
+        bool "hamlib"
+        help
+          Hamlib et rigctl
+

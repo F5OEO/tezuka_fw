@@ -1,0 +1,9 @@
+config BR2_PACKAGE_SOAPYPLUTOSDR
+	bool "soapyplutosdr"
+	depends on BR2_TOOLCHAIN_HAS_THREADS
+	select BR2_PACKAGE_LIBIIO
+	select BR2_PACKAGE_LIBAD9361_IIO
+	select BR2_PACKAGE_SOAPYPLUTOSDR
+	help
+	  Soapy SDR plugin for PlutoSDR-Tezuka
+	  https://github.com/pothosware/SoapyPlutoSDR
