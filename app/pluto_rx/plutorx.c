@@ -138,9 +138,12 @@ int main(int argc, char **argv)
     bool outnetwork = false;
     bool out_cs8=false;
     size_t buf_request=0;
+    char type[30]="";
+
+    bool perf=false;
     while (1)
     {
-        a = getopt(argc, argv, "hn:o:b:");
+        a = getopt(argc, argv, "hn:o:b:pt:");
 
         if (a == -1)
         {
@@ -169,6 +172,13 @@ int main(int argc, char **argv)
         case 'b':
             buf_request = atoi(optarg);
             break;
+        case 'p':
+            perf = true;
+            break;
+        case 't':
+            strcpy(type,optarg);
+            break;
+            
         case -1:
             break;
         case '?':
@@ -197,12 +207,52 @@ int main(int argc, char **argv)
     signal(SIGQUIT, signal_handler);
     signal(SIGPIPE, signal_handler);
 
-    // IIO Init
     struct iio_context *ctx = NULL;
+    //IIO Scan 
+    struct iio_scan_context *scan_ctx = iio_create_scan_context("local:usb:ip", 0);
+    struct iio_context_info **info;
+    ssize_t ret = iio_scan_context_get_info_list(scan_ctx, &info);
     
+    if (ret > 0)
+    {
+        for(int contextidx=0;contextidx<ret;contextidx++)
+        {
+            // Get dev info
+            const char *dev_id = iio_context_info_get_uri(info[contextidx]);
+            fprintf(stderr,"Discovered : %s\n",dev_id);
+            if(strlen(type)>0)
+            {
+                //fprintf(stderr,"Comp %s %s\n",type,dev_id);
+                if (strncmp(type,dev_id,strlen(type))==0)
+                {
+                    ctx=iio_create_context_from_uri(dev_id);
+                    //ctx=iio_create_context_from_uri("ip:10.0.0.52");
+                    fprintf(stderr,"Using %s \n",dev_id);
+                }    
+            }   
+            else
+            if(ctx==NULL)
+            {
+                fprintf(stderr,"Using %s \n",dev_id);
+                ctx=iio_create_context_from_uri(dev_id);
+            }    
+
+        }
+    }
+        
+    iio_scan_context_destroy(scan_ctx);
+    if(ctx==NULL)
+    {
+        fprintf(stderr,"Error : No plutosdr found ! Exiting");
+        exit(1);
+    }    
+    // IIO Init
+    
+    /*
 	ctx = iio_create_local_context();
     if(ctx==NULL)
         ctx=iio_create_network_context("10.0.0.52");
+    */    
     struct iio_device *dev =  iio_context_find_device(ctx, "ad9361-phy");
     struct iio_device *rx = iio_context_find_device(ctx, "cf-ad9361-lpc");
     struct iio_channel *chnI = iio_device_get_channel(rx, 0);
@@ -218,15 +268,21 @@ int main(int argc, char **argv)
     
     unsigned int kernel_buffer_cnt=1;
     long long SampleRate;
-    iio_channel_attr_read_longlong(iio_device_find_channel(dev,"voltage0",false),"sampling_frequency",&SampleRate);
-    // Get a 100 ms buffer    
+    //#define SAMPLE_MINI 25000000/12
+    #define SAMPLE_MINI 18000000
+    #define SAMPLE_MAX 64000000
     #define MAX_BUFF_SIZE 8000000LL
     #define MAX_TOTAL_SIZE 64000000LL
     #define MAX_CNT 64
+   
+    iio_channel_attr_read_longlong(iio_device_find_channel(dev,"voltage0",false),"sampling_frequency",&SampleRate);
+   
+    // Get a 100 ms buffer    
+   
     if(buf_request>0)
         blockSize=buf_request;
     else
-        blockSize = SampleRate/4LL; 
+    blockSize = SampleRate/8LL; 
     blockSize=(blockSize>>2)<<2;
     if(blockSize>MAX_BUFF_SIZE) blockSize=MAX_BUFF_SIZE;
     kernel_buffer_cnt=MAX_TOTAL_SIZE/(blockSize*2);
@@ -243,30 +299,30 @@ int main(int argc, char **argv)
     }
     
    
-    
-    if (out_cs8)
-    {
-        
-    }
-    else
-    ;
-    
-
     fprintf(stderr, "Start receiving\n");
     uint32_t val;
     char *RxBuffer = NULL;
+    iio_device_reg_read(rx, 0x80000088, &val);
+    iio_device_reg_write(rx, 0x80000088, val);
+    size_t BlockRead=0;
+    size_t ErrorRead=0;
+
+    if(!perf)
+    {
+        
 
         while (want_quit == 0)
         {
             size_t Size = iio_buffer_refill(rxbuf);
-            /*
-            iio_device_reg_read(dev, 0x80000088, &val);
+            
+            iio_device_reg_read(rx, 0x80000088, &val);
             if (val & 4)
             {
-                fprintf(stderr,"PlutoSDR underflow!\n");
-                iio_device_reg_write(dev, 0x80000088, val);
+                //fprintf(stderr,"PlutoSDR underflow!\n");
+                fprintf(stderr,"!");fflush(stderr);
+                iio_device_reg_write(rx, 0x80000088, val);
             }
-            */
+            
             if (outnetwork)
             {
 
@@ -276,10 +332,52 @@ int main(int argc, char **argv)
             }
             else
             {
-                fwrite((char*)iio_buffer_first(rxbuf, chnI),1, Size, stdout);
+               
+                     fwrite((char*)iio_buffer_first(rxbuf, chnI),1, Size, stdout);
             }
     
         }
+    }
+    else
+    {
+         size_t ErrorRead=0;
+         size_t step=250000;
+        
+        for(SampleRate=out_cs8?SAMPLE_MINI*2:SAMPLE_MINI;(SampleRate<SAMPLE_MAX)&&(ErrorRead==0);SampleRate+=step)
+        {
+            iio_channel_attr_write_longlong(iio_device_find_channel(dev,"voltage0",false),"sampling_frequency",SampleRate); 
+            if(rxbuf!=NULL) iio_buffer_destroy(rxbuf);
+            blockSize = SampleRate/8LL; 
+            blockSize=(blockSize>>2)<<2;
+            if(blockSize>MAX_BUFF_SIZE) blockSize=MAX_BUFF_SIZE;
+            kernel_buffer_cnt=MAX_TOTAL_SIZE/(blockSize);
+            if(kernel_buffer_cnt>MAX_CNT) kernel_buffer_cnt=MAX_CNT;
+            iio_device_set_kernel_buffers_count(dev, kernel_buffer_cnt);
+            struct iio_buffer *rxbuf = iio_device_create_buffer(rx, blockSize, false); //2 because driver think it is 16bit 
+            fprintf(stderr,"Using %d buffers of %ld bytes\n",kernel_buffer_cnt,blockSize);
 
+           fprintf(stderr,"Trying sampleRate %lld\n",SampleRate);
+            iio_device_reg_read(rx, 0x80000088, &val);
+            iio_device_reg_write(rx, 0x80000088, val);
+            for(size_t Read=0;(Read<20)&&(ErrorRead==0);Read++)
+            {
+                if (want_quit == 1) return 0;
+                size_t Size = iio_buffer_refill(rxbuf);
+                
+                iio_device_reg_read(rx, 0x80000088, &val);
+                if (val & 4)
+                {
+                    //fprintf(stderr,"PlutoSDR underflow!\n");
+                    ErrorRead++;
+                    
+                    iio_device_reg_write(rx, 0x80000088, val);
+                    break;
+                }
+                
+            }
+            if(ErrorRead) break;
+        }
+        fprintf(stderr,"Sample Max=%lld\n",SampleRate-step);
+    }
     return 0;
 }
