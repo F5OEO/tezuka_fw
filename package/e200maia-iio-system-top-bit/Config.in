@@ -1,6 +1,0 @@
-config BR2_PACKAGE_E200_MAIA_IIO_SYSTEM_TOP_BIT
-	bool "e200maia-iiosystem-top.bit"
-	help
-	  Anstdr e200 Maia-iio sytem_top.bit
-
-
