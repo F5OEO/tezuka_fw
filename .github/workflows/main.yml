@@ -57,13 +57,13 @@ jobs:
         wget https://buildroot.org/downloads/buildroot-2024.08.tar.gz && tar -xvf buildroot-2024.08.tar.gz
        
         cd  ${{runner.workspace}}/build/buildroot-2024.08
-        make pluto_original_defconfig && make && mv ${{runner.workspace}}/build/buildroot-2024.08/output/images/tezuka.zip ${{runner.workspace}}/build/pluto_original.zip
-        make linux-dirclean
-        make plutoplus_original_defconfig && make && mv ${{runner.workspace}}/build/buildroot-2024.08/output/images/tezuka.zip ${{runner.workspace}}/build/plutoplus_original.zip
-        make linux-dirclean
-        make pluto_maiasdr_defconfig && make && mv ${{runner.workspace}}/build/buildroot-2024.08/output/images/tezuka.zip ${{runner.workspace}}/build/pluto_maiasdr.zip
-        make linux-dirclean
-        make plutoplus_maiasdr_defconfig && make && mv ${{runner.workspace}}/build/buildroot-2024.08/output/images/tezuka.zip ${{runner.workspace}}/build/plutoplus_maiasdr.zip
+        make pluto_maiasdr_defconfig && make && mv ${{runner.workspace}}/build/buildroot-2024.08/output/images/tezuka.zip ${{runner.workspace}}/build/pluto.zip
+        rm -rf ${{runner.workspace}}/build/buildroot-2024.08/output/images
+        make plutoplus_maiasdr_defconfig && make uboot-reconfigure && make linux-reconfigure && make && mv ${{runner.workspace}}/build/buildroot-2024.08/output/images/tezuka.zip ${{runner.workspace}}/build/plutoplus.zip
+        rm -rf ${{runner.workspace}}/build/buildroot-2024.08/output/images
+        make e200_maiasdr_defconfig && make uboot-reconfigure && make linux-reconfigure && make && mv ${{runner.workspace}}/build/buildroot-2024.08/output/images/tezuka.zip ${{runner.workspace}}/build/antsdr_e200.zip
+        rm -rf ${{runner.workspace}}/build/buildroot-2024.08/output/images
+        make libre_maiasdr_defconfig && make uboot-reconfigure && make linux-reconfigure && make && mv ${{runner.workspace}}/build/buildroot-2024.08/output/images/tezuka.zip ${{runner.workspace}}/build/libresdr.zip
        
     - name: Save zip Archive
       uses: actions/upload-artifact@v4
