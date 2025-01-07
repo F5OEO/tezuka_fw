@@ -12,14 +12,24 @@ start() {
 		
 	else
 		
-		echo "Nothing to do"
+		echo "Info : No nfs to mount"
+	fi
+	SD_FILE="/dev/mmcblk0p1"
+
+	if [ -e "$SD_FILE" ]; then
+   		echo "Mounting SD on /mnt/sd"
+		mount $SD_FILE /mnt/sd
 	fi
 }
 
 stop() {
 
-	umount /remote
+	
 	echo "Stopping NFS"
+	umount /mnt/nfs
+	echo "Stopping SD"
+	umount /mnt/sd
+	
 }
 
 restart() {
