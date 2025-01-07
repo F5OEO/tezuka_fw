@@ -45,7 +45,8 @@ create_system_files () {
 	SERIAL_FORCE=`fw_printenv -n serial_force 2> /dev/null || echo off`
 	CALLSIGN=`fw_printenv -n callsign 2> /dev/null || echo NOCALL`
 	LOCATOR=`fw_printenv -n locator 2> /dev/null || echo NOLOCATOR`
-
+	NFS_SERVER=`fw_printenv -n nfs_server 2> /dev/null`
+	
 	### /etc/udhcpd.conf ###
 	echo "start $IPADDR_HOST" > $UDHCPD_CONF
 	echo "end $IPADDR_HOST" >> $UDHCPD_CONF
@@ -189,6 +190,7 @@ create_system_files () {
 	echo "rf_input = $RF_INPUT"$'\r' >> $CONF
 	echo "rf_output = $RF_OUTPUT"$'\r' >> $CONF
 	echo "serial_force = $SERIAL_FORCE"$'\r' >> $CONF
+	echo "nfs_server = $NFS_SERVER"$'\r' >> $CONF
 	echo ""$'\r'>> $CONF
 	### /www/index.html ###
 

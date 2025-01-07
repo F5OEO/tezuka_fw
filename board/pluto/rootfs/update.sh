@@ -114,6 +114,7 @@ process_ini() {
 		echo "serial_force $serial_force" >> /opt/fw_set.tmp
 		echo "callsign $callsign" >> /opt/fw_set.tmp
 		echo "locator $locator" >> /opt/fw_set.tmp
+		echo "nfs_server $nfs_server" >> /opt/fw_set.tmp
 		fw_setenv -s /opt/fw_set.tmp
 		rm /opt/fw_set.tmp
 		flash_indication_off

@@ -1,0 +1,49 @@
+#!/bin/sh
+nfs_server=`fw_printenv -n nfs_server 2> /dev/null`
+
+start() {
+   if [[ -n $nfs_server ]]
+	then
+		
+		echo "mounting NFS volume : $nfs_server on /mnt/nfs"		
+		mkdir -p /mnt/nfs
+		mount -o nolock -t nfs $nfs_server /mnt/nfs
+		#ex:   fw_setenv  nfs_server "192.168.2.10:/home/linuxdev/prog"
+		
+	else
+		
+		echo "Nothing to do"
+	fi
+}
+
+stop() {
+
+	umount /remote
+	echo "Stopping NFS"
+}
+
+restart() {
+	stop
+	start
+}
+
+# start/stop/restart
+case "$1" in
+  start)
+	start
+	;;
+  stop)
+	stop
+	;;
+  restart)
+	restart
+	;;
+  *)
+	echo "Usage: $0 {start|stop|restart}"
+	exit 1
+esac
+
+exit $?
+
+
+

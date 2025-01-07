@@ -66,6 +66,8 @@ mkdir -p ${TARGET_DIR}/www/img
 mkdir -p ${TARGET_DIR}/etc/wpa_supplicant/
 mkdir -p ${TARGET_DIR}/mnt/jffs2
 mkdir -p ${TARGET_DIR}/mnt/msd
+mkdir -p ${TARGET_DIR}/mnt/nfs
+mkdir -p ${TARGET_DIR}/mnt/sd
 mkdir -p ${TARGET_DIR}/etc/dropbear
 
 ${INSTALL} -D -m 0755 ${BOARD_ROOTFS}/update.sh ${TARGET_DIR}/sbin/
