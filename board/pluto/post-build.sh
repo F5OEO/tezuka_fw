@@ -78,10 +78,12 @@ ${INSTALL} -D -m 0755 ${BOARD_ROOTFS}/S10mdev ${TARGET_DIR}/etc/init.d/
 ${INSTALL} -D -m 0755 ${BOARD_ROOTFS}/S15watchdog ${TARGET_DIR}/etc/init.d/
 ${INSTALL} -D -m 0755 ${BOARD_ROOTFS}/S20urandom ${TARGET_DIR}/etc/init.d/
 ${INSTALL} -D -m 0755 ${BOARD_ROOTFS}/S21misc ${TARGET_DIR}/etc/init.d/
+${INSTALL} -D -m 0755 ${BOARD_ROOTFS}/S22serial ${TARGET_DIR}/etc/init.d/
 ${INSTALL} -D -m 0755 ${BOARD_ROOTFS}/S23udc ${TARGET_DIR}/etc/init.d/
 ${INSTALL} -D -m 0755 ${BOARD_ROOTFS}/S40network ${TARGET_DIR}/etc/init.d/
 ${INSTALL} -D -m 0755 ${BOARD_ROOTFS}/S41network ${TARGET_DIR}/etc/init.d/
 ${INSTALL} -D -m 0755 ${BOARD_ROOTFS}/S45msd ${TARGET_DIR}/etc/init.d/
+${INSTALL} -D -m 0755 ${BOARD_ROOTFS}/S55hostkeys ${TARGET_DIR}/etc/init.d/
 ${INSTALL} -D -m 0755 ${BOARD_ROOTFS}/S98autostart ${TARGET_DIR}/etc/init.d/
 ${INSTALL} -D -m 0644 ${BOARD_ROOTFS}/fw_env.config ${TARGET_DIR}/etc/
 #${INSTALL} -D -m 0644 ${BOARD_ROOTFS}/VERSIONS ${TARGET_DIR}/opt/
