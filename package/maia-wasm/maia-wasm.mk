@@ -5,7 +5,7 @@
 ################################################################################
 
 
-MAIA_WASM_VERSION = sweep
+MAIA_WASM_VERSION = main
 MAIA_WASM_SITE = https://github.com/F5OEO/maia-sdr.git
 MAIA_WASM_SITE_METHOD = git
 MAIA_WASM_DEPENDENCIES = rust-wasm wasm-pack 
