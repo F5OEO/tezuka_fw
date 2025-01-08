@@ -10,6 +10,7 @@ USB_ETH_MODE=`fw_printenv -n usb_ethernet_mode 2> /dev/null || echo rndis`
 AUDIO_MODE=`fw_printenv -n audio_mode 2> /dev/null || echo off`
 NB_CORE=`nproc 2> /dev/null || 1` 
 SERIAL_FORCE=`fw_printenv -n serial_force 2> /dev/null || echo off`
+FORCE_MODEL=`fw_printenv -n force_model 2> /dev/null || echo off`
 if [ "$USB_ETH_MODE" == "ncm" ]
 then
 	USB_NET_FUNCTION=ncm.usb0
@@ -67,8 +68,15 @@ case "$1" in
 
 	mkdir -p $GADGET
 
+	if [ "$FORCE_MODEL" == "off" ]; then
+
 	model=`cat /sys/firmware/devicetree/base/model | tr / -`
 	model_variant=`dmesg | grep m25p80 | grep Kbytes | cut -d ' ' -f 3`
+
+	else
+		model=$FORCE_MODEL
+		model_variant=2
+	fi	
 
 	if [ "$SERIAL_FORCE" == "off" ]; then
 
