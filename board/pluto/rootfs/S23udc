@@ -5,12 +5,15 @@ source /etc/device_config
 CONFIGFS=/sys/kernel/config/usb_gadget
 GADGET=$CONFIGFS/composite_gadget
 IIOD_OPTS="-D -n $ENDPOINTS -F /dev/iio_ffs"
-UDC_HANDLE_SUSPEND=`fw_printenv -n udc_handle_suspend 2> /dev/null || echo 0`
-USB_ETH_MODE=`fw_printenv -n usb_ethernet_mode 2> /dev/null || echo rndis`
-AUDIO_MODE=`fw_printenv -n audio_mode 2> /dev/null || echo off`
-NB_CORE=`nproc 2> /dev/null || 1` 
-SERIAL_FORCE=`fw_printenv -n serial_force 2> /dev/null || echo off`
-FORCE_MODEL=`fw_printenv -n force_model 2> /dev/null || echo off`
+UDC_HANDLE_SUSPEND=`fw_printenv -n udc_handle_suspend 2> /dev/null || echo 0 | tr -cd '[a-zA-Z0-9]._-'`
+USB_ETH_MODE=`fw_printenv -n usb_ethernet_mode 2> /dev/null || echo rndis | tr -cd '[a-zA-Z0-9]._-'`
+AUDIO_MODE=`fw_printenv -n audio_mode 2> /dev/null || echo off | tr -cd '[a-zA-Z0-9]._-'`
+NB_CORE=`nproc 2> /dev/null || 1`
+#serial should be set in /etc/serial
+ETCSERIAL=`cat /etc/serial | tr -cd '[a-zA-Z0-9]._-'`
+[[ "$ETCSERIAL" == "" ]] && ETCSERIAL="tezukafw" && echo -n "Serial missing in /etc/serial. Using serial: tezukafw "
+FORCE_MODEL=`fw_printenv -n force_model 2> /dev/null || echo off | tr -cd '[a-zA-Z0-9]._-'`
+DISABLE_CONSOLE=`fw_printenv -n disable_gadget_console 2> /dev/null || echo off | tr -cd '[a-zA-Z0-9]._-'`
 if [ "$USB_ETH_MODE" == "ncm" ]
 then
 	USB_NET_FUNCTION=ncm.usb0
@@ -78,18 +81,10 @@ case "$1" in
 		model_variant=2
 	fi	
 
-	if [ "$SERIAL_FORCE" == "off" ]; then
-
-	serial=`dmesg | grep SPI-NOR-UniqueID`
-	serial=${serial#*SPI-NOR-UniqueID }
-
-	else
-		serial="$SERIAL_FORCE"
-	fi
+	serial=${ETCSERIAL}
 
 	create_iiod_context_attributes "$model" "$serial" "$model_variant"
 
-	echo $serial > /etc/serial
 	sha1=`echo $serial | sha1sum`
 
 	echo 0x0456 > $GADGET/idVendor
@@ -176,6 +171,13 @@ if [ "$AUDIO_MODE" == "on" ]
 	sleep 0.2
 
 	echo ci_hdrc.0 > $GADGET/UDC
+
+	if [ "$DISABLE_CONSOLE" == "off" ]
+	    then
+		GS_PORT_NUMBER=`cat $GADGET/configs/c.1/acm.usb0/port_num`
+		GS_PORT_DEVICE="ttyGS${GS_PORT_NUMBER}"
+		grep -q ^${GS_PORT_DEVICE} /etc/inittab || ( echo "${GS_PORT_DEVICE}::respawn:/sbin/getty -L ${GS_PORT_DEVICE} 0 vt100 # USB_GADGET_SERIAL_CONSOLE" >> /etc/inittab && kill -1 1 )
+	fi
 	
 	[ $? = 0 ] && echo "OK" || echo "FAIL"
 

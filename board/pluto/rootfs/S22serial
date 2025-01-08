@@ -1,0 +1,36 @@
+#! /bin/sh
+
+case "$1" in
+	start|"")
+		echo -n "Setting serial number: "
+		SERIAL_FORCE=`fw_printenv -n serial_force 2> /dev/null || echo off`
+		SERIAL_NOR=`dmesg | grep SPI-NOR-UniqueID |  tr -cd '[a-zA-Z0-9]._-'`
+		cat /proc/mounts | grep -q mtd2 || echo "JFFS2 filesystem not mounted, use device_format_jffs2 command to setup your partition"
+		# Check or save generated serial (unique id)
+		[[ ! -f /mnt/jffs2/serial.txt ]] && dd if=/dev/urandom bs=1 count=10 2>/dev/null | base32 > /mnt/jffs2/serial.txt && echo -n "New serial number generated: `cat /mnt/jffs2/serial.txt` "
+		# Set serial number from jffs2
+		[[ -f /mnt/jffs2/serial.txt ]] && serial=`cat /mnt/jffs2/serial.txt | tr -cd '[a-zA-Z0-9]._-'` && echo -n "Serial number found in jffs2: ${serial} "
+		# Check for serial number override on sd card
+		[[ -f /mnt/sd/serial.txt ]] && serial=`cat /mnt/sd/serial.txt | tr -cd '[a-zA-Z0-9]._-'` && echo -n "Serial number override from sd: ${serial} "
+		if [ "$SERIAL_FORCE" == "off" ]; then
+		    if [ "$SERIAL_NOR" == "" ]; then
+			serial=${serial:-tezukafw}
+			echo -n "$serial" > /etc/serial
+		    else
+			serial=`echo -n "$SERIAL_NOR" | tr -cd '[a-zA-Z0-9]._-'` && echo -n "Serial number override from SPI-NOR-UniqueID: ${serial} "
+		    fi
+		else
+			serial=`echo -n "$SERIAL_FORCE" | tr -cd '[a-zA-Z0-9]._-'` && echo -n "Serial number override from env serial_force : ${serial} "
+		fi
+		[[ "${serial}" == "tezukafw" ]] && echo "Something went wrong, serial set 'tezukafw' "
+		echo -n "$serial" > /etc/serial
+		[ $? = 0 ] && echo "OK" || echo "FAIL"
+		;;
+	stop)
+
+		;;
+	*)
+		echo "Usage: $0 {start|stop}" >&2
+		exit 1
+		;;
+esac
