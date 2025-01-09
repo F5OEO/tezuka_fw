@@ -15,7 +15,7 @@ create_system_files () {
 	CONF=/opt/config.txt
 	IFAC=/etc/network/interfaces
 	HOSTAPD=/etc/hostapd.conf
-	HOSTNAME=`fw_printenv -n hostname 2> /dev/null || cat /etc/hostname | tr -cd '[a-zA-Z0-9]._-'`
+	HOSTNAME=`fw_printenv -n hostname 2> /dev/null || cat /etc/hostname | tr -cd '[a-zA-Z0-9 \\/]._-'`
 	echo $HOSTNAME > /etc/hostname
 	SERIAL=`cat /etc/serial | tr -cd '[a-zA-Z0-9]._-'`
 	[[ "$SERIAL" == "" ]] && SERIAL="tezukafw" && echo -n "Serial missing in /etc/serial. Using serial for eth0 mac: tezukafw "
@@ -30,7 +30,7 @@ create_system_files () {
 	sha1=`echo ${SERIAL} | sha1sum`
 	ETH_MAC=`echo -n 00:60:88; echo $sha1 | dd bs=1 count=6 2>/dev/null | hexdump -v -e '/1 ":%01c""%c"'`
 
-	WLAN_SSID=`fw_printenv -n ssid_wlan 2> /dev/null | tr -cd '[a-zA-Z0-9]._-'`
+	WLAN_SSID=`fw_printenv -n ssid_wlan 2> /dev/null | tr -cd '[a-zA-Z0-9 \\/]._-'`
 	WLAN_PWD=`fw_printenv -n pwd_wlan 2> /dev/null | tr -cd '[a-zA-Z0-9]._-'`
 	WLAN_IPADDR=`fw_printenv -n ipaddr_wlan 2> /dev/null | tr -cd '[a-zA-Z0-9]._-'`
 
@@ -46,11 +46,11 @@ create_system_files () {
 	AUDIO_MODE=`fw_printenv -n audio_mode 2> /dev/null || echo off | tr -cd '[a-zA-Z0-9]._-'`
 	RF_INPUT=`fw_printenv -n rf_input 2> /dev/null || echo rx1 | tr -cd '[a-zA-Z0-9]._-'`
 	RF_OUTPUT=`fw_printenv -n rf_output 2> /dev/null || echo tx1 | tr -cd '[a-zA-Z0-9]._-'`
-	SERIAL_FORCE=`fw_printenv -n serial_force 2> /dev/null || echo off | tr -cd '[a-zA-Z0-9]._-'`
-	CALLSIGN=`fw_printenv -n callsign 2> /dev/null || echo NOCALL | tr -cd '[a-zA-Z0-9]._-'`
+	SERIAL_FORCE=`fw_printenv -n serial_force 2> /dev/null || echo off | tr -cd '[a-zA-Z0-9 \\/]._-'`
+	CALLSIGN=`fw_printenv -n callsign 2> /dev/null || echo NOCALL | tr -cd '[a-zA-Z0-9 \\/]._-'`
 	LOCATOR=`fw_printenv -n locator 2> /dev/null || echo NOLOCATOR | tr -cd '[a-zA-Z0-9]._-'`
-	NFS_SERVER=`fw_printenv -n nfs_server 2> /dev/null | tr -cd '[a-zA-Z0-9]._-'`
-	FORCE_MODEL=`fw_printenv -n force_model 2> /dev/null || echo off | tr -cd '[a-zA-Z0-9]._-'`
+	NFS_SERVER=`fw_printenv -n nfs_server 2> /dev/null | tr -cd '[a-zA-Z0-9 \\/]._-'`
+	FORCE_MODEL=`fw_printenv -n force_model 2> /dev/null || echo off | tr -cd '[a-zA-Z0-9 \\/]._-'`
 
 	### /etc/udhcpd.conf ###
 	echo "start $IPADDR_HOST" > $UDHCPD_CONF
