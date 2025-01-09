@@ -15,7 +15,6 @@ case "$1" in
 		if [ "$SERIAL_FORCE" == "off" ]; then
 		    if [ "$SERIAL_NOR" == "" ]; then
 			serial=${serial:-tezukafw}
-			echo -n "$serial" > /etc/serial
 		    else
 			serial=`echo -n "$SERIAL_NOR" | tr -cd '[a-zA-Z0-9]._-'` && echo -n "Serial number override from SPI-NOR-UniqueID: ${serial} "
 		    fi
