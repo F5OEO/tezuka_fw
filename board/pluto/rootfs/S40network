@@ -15,38 +15,42 @@ create_system_files () {
 	CONF=/opt/config.txt
 	IFAC=/etc/network/interfaces
 	HOSTAPD=/etc/hostapd.conf
-	HOSTNAME=`fw_printenv -n hostname 2> /dev/null || cat /etc/hostname`
+	HOSTNAME=`fw_printenv -n hostname 2> /dev/null || cat /etc/hostname | tr -cd '[a-zA-Z0-9]._-'`
 	echo $HOSTNAME > /etc/hostname
+	SERIAL=`cat /etc/serial | tr -cd '[a-zA-Z0-9]._-'`
+	[[ "$SERIAL" == "" ]] && SERIAL="tezukafw" && echo -n "Serial missing in /etc/serial. Using serial for eth0 mac: tezukafw "
 
-	IPADDR=`fw_printenv -n ipaddr 2> /dev/null || echo 192.168.2.1`
-	IPADDR_HOST=`fw_printenv -n ipaddr_host 2> /dev/null || echo 192.168.2.10`
-	NETMASK=`fw_printenv -n netmask 2> /dev/null || echo 255.255.255.0`
+	IPADDR=`fw_printenv -n ipaddr 2> /dev/null || echo 192.168.2.1 | tr -cd '[a-zA-Z0-9]._-'`
+	IPADDR_HOST=`fw_printenv -n ipaddr_host 2> /dev/null || echo 192.168.2.10 | tr -cd '[a-zA-Z0-9]._-'`
+	NETMASK=`fw_printenv -n netmask 2> /dev/null || echo 255.255.255.0 | tr -cd '[a-zA-Z0-9]._-'`
 
-	ETH_IPADDR=`fw_printenv -n ipaddr_eth 2> /dev/null`
-	ETH_NETMASK=`fw_printenv -n netmask_eth 2> /dev/null || echo 255.255.255.0`
-	ETH_GW=`fw_printenv -n gateway_eth 2> /dev/null` 
+	ETH_IPADDR=`fw_printenv -n ipaddr_eth 2> /dev/null | tr -cd '[a-zA-Z0-9]._-'`
+	ETH_NETMASK=`fw_printenv -n netmask_eth 2> /dev/null || echo 255.255.255.0 | tr -cd '[a-zA-Z0-9]._-'`
+	ETH_GW=`fw_printenv -n gateway_eth 2> /dev/null | tr -cd '[a-zA-Z0-9]._-'`
+	sha1=`echo ${SERIAL} | sha1sum`
+	ETH_MAC=`echo -n 00:60:88; echo $sha1 | dd bs=1 count=6 2>/dev/null | hexdump -v -e '/1 ":%01c""%c"'`
 
-	WLAN_SSID=`fw_printenv -n ssid_wlan 2> /dev/null`
-	WLAN_PWD=`fw_printenv -n pwd_wlan 2> /dev/null`
-	WLAN_IPADDR=`fw_printenv -n ipaddr_wlan 2> /dev/null`
+	WLAN_SSID=`fw_printenv -n ssid_wlan 2> /dev/null | tr -cd '[a-zA-Z0-9]._-'`
+	WLAN_PWD=`fw_printenv -n pwd_wlan 2> /dev/null | tr -cd '[a-zA-Z0-9]._-'`
+	WLAN_IPADDR=`fw_printenv -n ipaddr_wlan 2> /dev/null | tr -cd '[a-zA-Z0-9]._-'`
 
-	XO_CORRECTION=`fw_printenv -n xo_correction 2> /dev/null`
-	UDC_HANDLE_SUSPEND=`fw_printenv -n udc_handle_suspend 2> /dev/null || echo 0`
-	USB_ETH_MODE=`fw_printenv -n usb_ethernet_mode 2> /dev/null || echo rndis`
-	LNB_POWER=`fw_printenv -n lnb_power 2> /dev/null || echo off`
-	REFCLK_SOURCE=`fw_printenv -n refclk_source 2>/dev/null || echo internal`
-	MAXCPUS=`fw_printenv -n maxcpus 2> /dev/null || echo 2`
-	ATTR_NAME=`fw_printenv -n attr_name 2> /dev/null || echo compatible`
-	ATTR_VAL=`fw_printenv -n attr_val 2> /dev/null || echo ad9361`
-	MODE=`fw_printenv -n mode 2> /dev/null || echo 1r1t`
-	AUDIO_MODE=`fw_printenv -n audio_mode 2> /dev/null || echo off`
-	RF_INPUT=`fw_printenv -n rf_input 2> /dev/null || echo rx1`
-	RF_OUTPUT=`fw_printenv -n rf_output 2> /dev/null || echo tx1`
-	SERIAL_FORCE=`fw_printenv -n serial_force 2> /dev/null || echo off`
-	CALLSIGN=`fw_printenv -n callsign 2> /dev/null || echo NOCALL`
-	LOCATOR=`fw_printenv -n locator 2> /dev/null || echo NOLOCATOR`
-	NFS_SERVER=`fw_printenv -n nfs_server 2> /dev/null`
-	FORCE_MODEL=`fw_printenv -n force_model 2> /dev/null || echo off`
+	XO_CORRECTION=`fw_printenv -n xo_correction 2> /dev/null | tr -cd '[a-zA-Z0-9]._-'`
+	UDC_HANDLE_SUSPEND=`fw_printenv -n udc_handle_suspend 2> /dev/null || echo 0 | tr -cd '[a-zA-Z0-9]._-'`
+	USB_ETH_MODE=`fw_printenv -n usb_ethernet_mode 2> /dev/null || echo rndis | tr -cd '[a-zA-Z0-9]._-'`
+	LNB_POWER=`fw_printenv -n lnb_power 2> /dev/null || echo off | tr -cd '[a-zA-Z0-9]._-'`
+	REFCLK_SOURCE=`fw_printenv -n refclk_source 2>/dev/null || echo internal | tr -cd '[a-zA-Z0-9]._-'`
+	MAXCPUS=`fw_printenv -n maxcpus 2> /dev/null || echo 2 | tr -cd '[a-zA-Z0-9]._-'`
+	ATTR_NAME=`fw_printenv -n attr_name 2> /dev/null || echo compatible | tr -cd '[a-zA-Z0-9]._-'`
+	ATTR_VAL=`fw_printenv -n attr_val 2> /dev/null || echo ad9361 | tr -cd '[a-zA-Z0-9]._-'`
+	MODE=`fw_printenv -n mode 2> /dev/null || echo 1r1t | tr -cd '[a-zA-Z0-9]._-'`
+	AUDIO_MODE=`fw_printenv -n audio_mode 2> /dev/null || echo off | tr -cd '[a-zA-Z0-9]._-'`
+	RF_INPUT=`fw_printenv -n rf_input 2> /dev/null || echo rx1 | tr -cd '[a-zA-Z0-9]._-'`
+	RF_OUTPUT=`fw_printenv -n rf_output 2> /dev/null || echo tx1 | tr -cd '[a-zA-Z0-9]._-'`
+	SERIAL_FORCE=`fw_printenv -n serial_force 2> /dev/null || echo off | tr -cd '[a-zA-Z0-9]._-'`
+	CALLSIGN=`fw_printenv -n callsign 2> /dev/null || echo NOCALL | tr -cd '[a-zA-Z0-9]._-'`
+	LOCATOR=`fw_printenv -n locator 2> /dev/null || echo NOLOCATOR | tr -cd '[a-zA-Z0-9]._-'`
+	NFS_SERVER=`fw_printenv -n nfs_server 2> /dev/null | tr -cd '[a-zA-Z0-9]._-'`
+	FORCE_MODEL=`fw_printenv -n force_model 2> /dev/null || echo off | tr -cd '[a-zA-Z0-9]._-'`
 
 	### /etc/udhcpd.conf ###
 	echo "start $IPADDR_HOST" > $UDHCPD_CONF
@@ -78,18 +82,17 @@ create_system_files () {
 	if [ -n "$ETH_IPADDR" ]
 	then
 		if [ "$ETH_IPADDR" == "AP" ]; then
-			echo -e "iface eth0 inet static\n" >>$IFAC
-			echo -e "address 192.168.4.1\n" >>$IFAC
-			echo -e "netmask 255.255.255.0\n" >>$IFAC
+			echo -e "iface eth0 inet static\n\taddress 192.168.4.1\n\tnetmask 255.255.255.0" >>$IFAC
 		else
-			echo -e "iface eth0 inet static" >> $IFAC
-			echo -e "\taddress $ETH_IPADDR\n""\tnetmask $ETH_NETMASK\n" >> $IFAC
+			echo -e "iface eth0 inet static\n\taddress $ETH_IPADDR\n\tnetmask $ETH_NETMASK" >> $IFAC
 			if [ -n "$ETH_GW" ]; then
-				echo -e "\tgateway $ETH_GW\n" >> $IFAC
-			fi	
+				echo -e "\tgateway $ETH_GW" >> $IFAC
+			fi
 		fi	
+		echo -e "\thwaddress ether $ETH_MAC\n" >> $IFAC
 	else
-		echo -e "iface eth0 inet dhcp\n" >> $IFAC
+		echo -e "iface eth0 inet dhcp" >> $IFAC
+		echo -e "\thwaddress ether $ETH_MAC\n" >> $IFAC
 	fi
 
 	### /etc/wpa.conf ###
@@ -97,10 +100,10 @@ create_system_files () {
 	then
         if [ "$WLAN_SSID" == "AP" ]; then
     # We are in access point mode
-        echo -e "auto wlan0\n" >> $IFAC
-        echo -e "iface wlan0 inet static\n" >>$IFAC
-        echo -e "address 192.168.3.1\n" >>$IFAC
-        echo -e "netmask 255.255.255.0\n" >>$IFAC
+        echo -e "auto wlan0" >> $IFAC
+        echo -e "\tiface wlan0 inet static" >>$IFAC
+        echo -e "\taddress 192.168.3.1" >>$IFAC
+        echo -e "\tnetmask 255.255.255.0" >>$IFAC
 
 		#Make hostapd
 		echo -e "interface=wlan0\n" > $HOSTAPD
@@ -196,7 +199,7 @@ create_system_files () {
 	echo ""$'\r'>> $CONF
 	### /www/index.html ###
 
-	sed -i -e "s/#IP#/$IPADDR/g" -e "s/#HOSTIP#/$IPADDR_HOST/g" -e "s/#NETMASK#/$NETMASK/g" -e "s/#HOSTNAME#/$HOSTNAME/g" -e "s/#SSID_WLAN#/$WLAN_SSID/g" -e "s/#IPADDR_WLAN#/$WLAN_IPADDR/g" -e "s/#IPADDR_ETH#/$ETH_IPADDR/g" -e "s/#NETMASK_ETH#/$ETH_NETMASK/g" /www/index.html
+	sed -i -e "s/#IP#/$IPADDR/g" -e "s/#HOSTIP#/$IPADDR_HOST/g" -e "s/#NETMASK#/$NETMASK/g" -e "s/#HOSTNAME#/$HOSTNAME/g" -e "s/#SSID_WLAN#/$WLAN_SSID/g" -e "s/#IPADDR_WLAN#/$WLAN_IPADDR/g" -e "s/#IPADDR_ETH#/$ETH_IPADDR/g" -e "s/#NETMASK_ETH#/$ETH_NETMASK/g" -e "s/#GW_ETH#/$ETH_GW/g" -e "s/#MAC_ETH#/$ETH_MAC/g" /www/index.html
 
 	}
 
