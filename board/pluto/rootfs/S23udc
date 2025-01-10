@@ -13,7 +13,7 @@ NB_CORE=`nproc 2> /dev/null || 1`
 ETCSERIAL=`cat /etc/serial | tr -cd '[a-zA-Z0-9]._-'`
 [[ "$ETCSERIAL" == "" ]] && ETCSERIAL="tezukafw" && echo -n "Serial missing in /etc/serial. Using serial: tezukafw "
 FORCE_MODEL=`fw_printenv -n force_model 2> /dev/null || echo off | tr -cd '[a-zA-Z0-9]._-'`
-DISABLE_CONSOLE=`fw_printenv -n disable_gadget_console 2> /dev/null || echo off | tr -cd '[a-zA-Z0-9]._-'`
+DISABLE_USB_CONSOLE=`fw_printenv -n disable_usb_console 2> /dev/null || echo off | tr -cd '[a-zA-Z0-9]._-'`
 if [ "$USB_ETH_MODE" == "ncm" ]
 then
 	USB_NET_FUNCTION=ncm.usb0
@@ -172,11 +172,14 @@ if [ "$AUDIO_MODE" == "on" ]
 
 	echo ci_hdrc.0 > $GADGET/UDC
 
-	if [ "$DISABLE_CONSOLE" == "off" ]
-	    then
-		GS_PORT_NUMBER=`cat $GADGET/configs/c.1/acm.usb0/port_num`
-		GS_PORT_DEVICE="ttyGS${GS_PORT_NUMBER}"
-		grep -q ^${GS_PORT_DEVICE} /etc/inittab || ( echo "${GS_PORT_DEVICE}::respawn:/sbin/getty -L ${GS_PORT_DEVICE} 0 vt100 # USB_GADGET_SERIAL_CONSOLE" >> /etc/inittab && kill -1 1 )
+	if [ "$DISABLE_USB_CONSOLE" == "off" ]
+	then
+		echo "Enable console on ttyGS0"
+	
+	else
+
+			echo "Disable console on ttyGS0 : generic serial mode"
+			sed -i '/ttyGS0/d' /etc/inittab && kill -HUP 1
 	fi
 	
 	[ $? = 0 ] && echo "OK" || echo "FAIL"
@@ -213,7 +216,8 @@ if [ "$AUDIO_MODE" == "on" ]
 	rmdir $GADGET/configs/c.1
 
 	rmdir $GADGET/functions/ffs.iio_ffs
-	rmdir $GADGET/functions/acm.usb0
+	#If we delete it and getty is still on ttyGS0: kernel crash
+	#rmdir $GADGET/functions/acm.usb0
 	rmdir $GADGET/functions/$USB_NET_FUNCTION
 	rmdir $GADGET/functions/mass_storage.0
 

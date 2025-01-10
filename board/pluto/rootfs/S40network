@@ -49,9 +49,9 @@ create_system_files () {
 	SERIAL_FORCE=`fw_printenv -n serial_force 2> /dev/null || echo off | tr -cd '[a-zA-Z0-9 \\/]._-'`
 	CALLSIGN=`fw_printenv -n callsign 2> /dev/null || echo NOCALL | tr -cd '[a-zA-Z0-9 \\/]._-'`
 	LOCATOR=`fw_printenv -n locator 2> /dev/null || echo NOLOCATOR | tr -cd '[a-zA-Z0-9]._-'`
-	NFS_SERVER=`fw_printenv -n nfs_server 2> /dev/null | tr -cd '[a-zA-Z0-9 \\/]._-'`
+	NFS_SERVER=`fw_printenv -n nfs_server 2> /dev/null | tr -cd '[a-zA-Z0-9 \\/:]._-'`
 	FORCE_MODEL=`fw_printenv -n force_model 2> /dev/null || echo off | tr -cd '[a-zA-Z0-9 \\/]._-'`
-
+	DISABLE_USB_CONSOLE=`fw_printenv -n disable_usb_console 2> /dev/null || echo off | tr -cd '[a-zA-Z0-9 \\/]._-'`
 	### /etc/udhcpd.conf ###
 	echo "start $IPADDR_HOST" > $UDHCPD_CONF
 	echo "end $IPADDR_HOST" >> $UDHCPD_CONF
@@ -196,6 +196,7 @@ create_system_files () {
 	echo "serial_force = $SERIAL_FORCE"$'\r' >> $CONF
 	echo "nfs_server = $NFS_SERVER"$'\r' >> $CONF
 	echo "force_model = $FORCE_MODEL"$'\r' >> $CONF
+	echo "disable_usb_console = $DISABLE_USB_CONSOLE"$'\r' >> $CONF
 	echo ""$'\r'>> $CONF
 	### /www/index.html ###
 
