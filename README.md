@@ -66,7 +66,7 @@ All materials are in buildroot/output/images
 # Credits
 - Daniel Estévez for incredible maia-sdr project (https://maia-sdr.org/)
 - Gwenhael Goavec-Merou for inspiration https://github.com/oscimp/PlutoSDR
-- Lamableu for helping me with buildroot and introduce me Plutosdr
+- LamaBleu for helping me with buildroot and introduce me Plutosdr
 - https://github.com/hz12opensource/libresdr for overclock and fpga inspiration
 - All the opensource community !
 
