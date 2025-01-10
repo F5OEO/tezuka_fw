@@ -83,6 +83,7 @@ ${INSTALL} -D -m 0755 ${BOARD_ROOTFS}/S23udc ${TARGET_DIR}/etc/init.d/
 ${INSTALL} -D -m 0755 ${BOARD_ROOTFS}/S40network ${TARGET_DIR}/etc/init.d/
 ${INSTALL} -D -m 0755 ${BOARD_ROOTFS}/S41network ${TARGET_DIR}/etc/init.d/
 ${INSTALL} -D -m 0755 ${BOARD_ROOTFS}/S45msd ${TARGET_DIR}/etc/init.d/
+${INSTALL} -D -m 0755 ${BOARD_ROOTFS}/S50avahi-daemon ${TARGET_DIR}/etc/init.d/
 ${INSTALL} -D -m 0755 ${BOARD_ROOTFS}/S55hostkeys ${TARGET_DIR}/etc/init.d/
 ${INSTALL} -D -m 0755 ${BOARD_ROOTFS}/S98autostart ${TARGET_DIR}/etc/init.d/
 ${INSTALL} -D -m 0644 ${BOARD_ROOTFS}/fw_env.config ${TARGET_DIR}/etc/

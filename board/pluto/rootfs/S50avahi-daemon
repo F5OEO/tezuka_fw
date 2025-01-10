@@ -1,0 +1,25 @@
+#!/bin/sh
+#
+# avahi-daemon init script
+name=$(hostname)
+usbname="$name"-usb
+ethname="$name"-eth
+#echo "usb $usbname eth $ethname"
+
+DAEMON=/usr/sbin/avahi-daemon
+case "$1" in
+    start)
+	echo "192.168.2.1 $usbname".local > /etc/avahi/hosts
+	$DAEMON -c || $DAEMON -D
+	;;
+    stop)
+	$DAEMON -c && $DAEMON -k
+	;;
+    reload)
+	$DAEMON -c && $DAEMON -r
+	;;
+    *)
+	echo "Usage: S50avahi-daemon {start|stop|reload}" >&2
+	exit 1
+	;;
+esac
