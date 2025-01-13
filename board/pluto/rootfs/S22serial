@@ -5,6 +5,7 @@ case "$1" in
 		echo -n "Setting serial number: "
 		SERIAL_FORCE=`fw_printenv -n serial_force 2> /dev/null || echo off`
 		SERIAL_NOR=`dmesg | grep SPI-NOR-UniqueID |  tr -cd '[a-zA-Z0-9]._-'`
+		SERIAL_NOR=${SERIAL_NOR#*SPI-NOR-UniqueID }
 		cat /proc/mounts | grep -q mtd2 || echo "JFFS2 filesystem not mounted, use device_format_jffs2 command to setup your partition"
 		# Check or save generated serial (unique id)
 		[[ ! -f /mnt/jffs2/serial.txt ]] && dd if=/dev/urandom bs=1 count=10 2>/dev/null | base32 > /mnt/jffs2/serial.txt && echo -n "New serial number generated: `cat /mnt/jffs2/serial.txt` "
