@@ -26,7 +26,7 @@ run-name: Build tezuka_fw run for tag - Tezuka_${{ inputs.version }}
 jobs:
   build-x86_64:
     # runs-on: self-hosted
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     # environment: plutosdr-fw-ci
     permissions: write-all
     
@@ -73,7 +73,7 @@ jobs:
 
   create_full_archive:
     needs: ['build-x86_64']
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
 
     steps:
     - name: Download All Builds
@@ -92,7 +92,7 @@ jobs:
 
   update_nightly_release:
           needs: [create_full_archive]
-          runs-on: ubuntu-latest
+          runs-on: ubuntu-22.04
         
 
           steps:
