@@ -418,5 +418,11 @@
 		en_agc-gpios = <&gpio0 66 0>;
 		reset-gpios = <&gpio0 67 0>;
 
+		/* Low state GPO */
+		adi,gpo0-inactive-state-high-enable = <0>;
+		adi,gpo1-inactive-state-high-enable = <0>;
+		adi,gpo2-inactive-state-high-enable = <0>;
+		adi,gpo3-inactive-state-high-enable = <0>;
+
 	};
 };
