@@ -46,6 +46,14 @@ cp $BOARD_DIR/bitstream/fsbl.elf $BIN_DIR
 cp $BIN_DIR/fsbl.elf $SDIMGDIR/
 echo "img : {[bootloader] $SDIMGDIR/fsbl.elf  $SDIMGDIR/system_top.bit  $SDIMGDIR/u-boot.elf}" >  $SDIMGDIR/boot.bif
 bootgen -image $SDIMGDIR/boot.bif -w -o i $SDIMGDIR/BOOT.bin
+mkdir -p $SDIMGDIR/overclock
+
+for filename in $BOARD_DIR/bitstream/overclock/*.elf ; do
+echo "img : {[bootloader] $filename  $SDIMGDIR/system_top.bit  $SDIMGDIR/u-boot.elf}" >  $SDIMGDIR/boot.bif    
+NAME=`basename -- "$filename" .elf`
+bootgen -image $SDIMGDIR/boot.bif -w -o i $SDIMGDIR"/overclock/BOOT_"$NAME
+done
+
 rm $SDIMGDIR/fsbl.elf  $SDIMGDIR/system_top.bit  $SDIMGDIR/u-boot.elf $SDIMGDIR/boot.bif
 cp $BIN_DIR/rootfs.cpio.gz $SDIMGDIR/ramdisk.image.gz
 $mkimage -A arm -T ramdisk -C gzip -d $SDIMGDIR/ramdisk.image.gz $SDIMGDIR/uramdisk.image.gz
