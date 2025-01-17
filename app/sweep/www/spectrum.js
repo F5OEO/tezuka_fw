@@ -203,9 +203,15 @@ Spectrum.prototype.updateAxes = function() {
 }
 
 Spectrum.prototype.addData = function(data) {
-    this.databin = new Uint16Array(data);
+    const fspectrum = new Float32Array(data);
+    this.databin = new Uint16Array(fspectrum.length);
+
     //this.databin = new Float32Array(data);
     if (!this.paused) {
+        for (let i = 0; i < fspectrum.length; i++) {
+            // Convertir l'élément en entier non signé 16 bits et le stocker dans le tableau Uint16Array
+            this.databin[i] = Math.log(fspectrum[i])*100;
+        }
         if (this.databin.length != this.wf_size) {
             this.wf_size = this.databin.length;
             this.ctx_wf.canvas.width = this.databin.length;

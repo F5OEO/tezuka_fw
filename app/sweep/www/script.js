@@ -4,7 +4,8 @@ var spectrum, logger, ws;
 
 function connectWebSocket(spectrum) {
 
-    ws = new WebSocket("ws://" + window.location.host + ":7681/waterfall");
+    //ws = new WebSocket("ws://" + window.location.host + ":7681/waterfall");
+    ws = new WebSocket("ws://" + window.location.host + ":8000/waterfall");
     //ws = new WebSocket("ws://10.0.0.105:7681/waterfall");
     spectrum.setWebSocket(ws);
 
