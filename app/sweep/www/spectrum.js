@@ -55,8 +55,9 @@ Spectrum.prototype.addWaterfallRow = function(bins) {
     this.ctx.imageSmoothingEnabled = false;
     var rows = Math.min(this.wf_rows, height - this.spectrumHeight);
     this.ctx.drawImage(this.ctx_wf.canvas,
-        0, 0, this.wf_size, rows,
+        this.xoffset, 0, this.wf_size/this.zoom, rows,
         0, this.spectrumHeight, width, height - this.spectrumHeight);
+        //this.ctx_wf.scale((width*this.zoom) / this.wf_size, 1);    
 }
 
 Spectrum.prototype.drawFFT = function(bins) {
@@ -77,6 +78,10 @@ Spectrum.prototype.drawFFT = function(bins) {
     this.ctx.lineTo(this.wf_size + 1, this.spectrumHeight + 1);
     this.ctx.strokeStyle = "#fefefe";
     this.ctx.stroke();
+    //this.ctx.drawImage(this.ctx.canvas,
+    //    this.xoffset, 0, this.wf_size, this.spectrumHeight + 1,
+    //    0, this.spectrumHeight, width, height - this.spectrumHeight);
+    //this.ctx.scale((width*this.zoom) / this.wf_size, 1);
 }
 
 Spectrum.prototype.drawSpectrum = function(bins) {
@@ -121,8 +126,10 @@ Spectrum.prototype.drawSpectrum = function(bins) {
 
     // Scale for FFT
     this.ctx.save();
-    this.ctx.scale(width / this.wf_size, 1);
-
+   
+    this.ctx.scale((width*this.zoom) / this.wf_size, 1);
+    this.ctx.translate(-this.xoffset, this.yoffset);
+    //this.ctx.setTransform((width*this.zoom) / this.wf_size, 0,0,1,-this.xoffset/this.zoom,0);
     // Draw maxhold
     if (this.maxHold)
         this.drawFFT(this.binsMax);
@@ -186,10 +193,10 @@ Spectrum.prototype.updateAxes = function() {
                 this.ctx_axes.textAlign = "center";
             }
 
-            var freq = this.centerHz + this.spanHz / 10 * (i - 5);
+            var freq = this.centerHz + (this.spanHz/this.zoom)/ 10 * (i - 5);
             if (this.centerHz + this.spanHz > 1e6)
                 freq = freq / 1e6 + "M";
-            else if (this.centerHz + this.spanHz > 1e3)
+            else if (this.centerHz + this.spanHz/this.zoom > 1e3)
                 freq = freq / 1e3 + "k";
             this.ctx_axes.fillText(freq, x + adjust, height - 3);
         }
@@ -204,13 +211,31 @@ Spectrum.prototype.updateAxes = function() {
 
 Spectrum.prototype.addData = function(data) {
     const fspectrum = new Float32Array(data);
-    this.databin = new Uint16Array(fspectrum.length);
-
-    //this.databin = new Float32Array(data);
+    
+    //console.log("Sweep"+fspectrum[0]);
+    if(this.oldsweep==fspectrum[0])
+    {
+        
+        if(this.onsweep!=0)
+            this.databin = new Uint16Array(fspectrum.length);
+        this.onsweep=0;
+    }
+    else
+    {
+        
+        
+        if(this.onsweep!=1)
+            this.databin = new Uint16Array(fspectrum.length*8);
+        this.onsweep=1;
+    }
+    this.oldsweep=fspectrum[0];
+       
+    
+    
     if (!this.paused) {
         for (let i = 0; i < fspectrum.length; i++) {
             // Convertir l'élément en entier non signé 16 bits et le stocker dans le tableau Uint16Array
-            this.databin[i] = Math.log(fspectrum[i])*100;
+            this.databin[i+fspectrum.length*this.oldsweep] = Math.log(fspectrum[i])*100;
         }
         if (this.databin.length != this.wf_size) {
             this.wf_size = this.databin.length;
@@ -219,8 +244,19 @@ Spectrum.prototype.addData = function(data) {
             this.ctx_wf.fillRect(0, 0, this.wf.width, this.wf.height);
             this.imagedata = this.ctx_wf.createImageData(this.databin.length, 1);
         }
-        this.drawSpectrum(this.databin);
-        this.addWaterfallRow(this.databin);
+        if(this.onsweep==0)
+        {
+            this.drawSpectrum(this.databin);
+            this.addWaterfallRow(this.databin);
+        }
+        else
+        {
+            if(this.oldsweep==7)
+            {
+                this.drawSpectrum(this.databin);
+                this.addWaterfallRow(this.databin);
+            }
+        }    
         this.resize();
     }
 }
@@ -486,6 +522,42 @@ Spectrum.prototype.toggleFullscreen = function() {
     }
 }
 
+Spectrum.prototype.zoomin= function()
+{
+    this.spanHz = (this.spanHz *this.zoom);
+    this.zoom = this.zoom+1;
+    this.spanHz = (this.spanHz /this.zoom);
+    
+    
+}
+
+
+Spectrum.prototype.zoomout= function()
+{
+    this.spanHz = (this.spanHz *this.zoom);
+    this.zoom = this.zoom-1;
+    if(this.zoom<1)
+        this.zoom=1;
+    this.spanHz = (this.spanHz /this.zoom);
+    this.resize();
+    
+}
+
+Spectrum.prototype.UpdateXOffset= function(x)
+{
+    
+    this.xoffset+=x;
+    
+}
+
+
+Spectrum.prototype.UpdateYOffset= function(y)
+{
+    
+    this.yoffset+=y;
+    
+}
+
 Spectrum.prototype.onKeypress = function(e) {
 
     switch (e.key) {        
@@ -555,13 +627,51 @@ Spectrum.prototype.onKeypress = function(e) {
         case "d":
             this.downloadWFImage();
             break;
+        case "x":
+            this.zoomin();
+            break;    
+    }
+}
+
+Spectrum.prototype.handleMouseWheel = function(e)
+{
+    if(e.deltaY<0)
+        {
+        this.zoomin();
+        //this.xoffset=e.OffsetX;
+        }
+    if(e.deltaY>0)
+        this.zoomout();
+   
+}
+
+Spectrum.prototype.handleMouseUp = function(e)
+{
+    this.mouseisdown=0;
+}
+
+Spectrum.prototype.handleMouseDown = function(e)
+{
+    this.mouseisdown=1;
+}
+
+Spectrum.prototype.handleMouseMove = function(e)
+{
+    if(this.mouseisdown==1)
+    {
+        this.UpdateXOffset(-(e.movementX*10)/this.zoom);
+        if(e.movementY<0)
+            this.rangeUp();
+        if(e.movementY>0)
+            this.rangeDown();
+        //this.UpdateYOffset(-(e.movementY*10)/this.zoom);
     }
 }
 
 function Spectrum(id, options) {
     // Handle options
-    this.centerHz = (options && options.centerHz) ? options.centerHz : 0;
-    this.spanHz = (options && options.spanHz) ? options.spanHz : 0;
+    this.centerHz = (options && options.centerHz) ? options.centerHz : 258e6;
+    this.spanHz = (options && options.spanHz) ? options.spanHz : 480e6;
     this.gain = (options && options.gain) ? options.gain : 0;
     this.fps = (options && options.fps) ? options.fps : 0;
     this.wf_size = (options && options.wf_size) ? options.wf_size : 0;
@@ -577,8 +687,8 @@ function Spectrum(id, options) {
     // Setup state
     this.paused = false;
     this.fullscreen = false;
-    this.min_db = 3000;
-    this.max_db = 5000;
+    this.min_db = 600;
+    this.max_db = 2500;
     this.spectrumHeight = 0;
     this.tuningStep = 100000;
     this.maxbinval = 0;
@@ -613,4 +723,12 @@ function Spectrum(id, options) {
     this.setAveraging(this.averaging);
     this.updateSpectrumRatio();
     this.resize();
+
+    this.oldsweep =0;
+    this.onsweep=2;
+
+    this.zoom=1;
+    this.mouseisdown=0;
+    this.xoffset=0;
+    this.yoffset=0;
 }

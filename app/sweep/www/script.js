@@ -5,7 +5,8 @@ var spectrum, logger, ws;
 function connectWebSocket(spectrum) {
 
     //ws = new WebSocket("ws://" + window.location.host + ":7681/waterfall");
-    ws = new WebSocket("ws://" + window.location.host + ":8000/waterfall");
+    //ws = new WebSocket("ws://" + window.location.hostname + ":8000/waterfall");
+    ws = new WebSocket("wss://" + window.location.hostname + "/waterfall");
     //ws = new WebSocket("ws://10.0.0.105:7681/waterfall");
     spectrum.setWebSocket(ws);
 
@@ -55,6 +56,39 @@ function connectWebSocket(spectrum) {
     }
 }
 
+function showMIDIMessages(message) {
+    const midiMessagesDiv = document.getElementById('midiMessages');
+    const data = message.data;
+    const midiMessage = `Message MIDI reçu : [${data[0]}, ${data[1]}, ${data[2]}]`;
+    const messageElement = document.createElement('p');
+    messageElement.textContent = midiMessage;
+    midiMessagesDiv.appendChild(messageElement);
+}
+
+// Fonction pour gérer les événements MIDI
+function handleMIDIMessage(event) {
+    showMIDIMessages(event);
+    console.log('Message MIDI reçu :', event.data);
+}
+
+// Fonction pour accéder aux périphériques MIDI
+function accessMIDIDevices(midiAccess) {
+    const midiStatus = document.getElementById('midiStatus');
+    
+
+    // Écouter les événements MIDI pour chaque entrée MIDI
+    const inputs = midiAccess.inputs.values();
+    for (let input = inputs.next(); input && !input.done; input = inputs.next()) {
+        input.value.onmidimessage = handleMIDIMessage;
+    }
+}
+
+// Fonction pour gérer les erreurs lors de l'accès aux périphériques MIDI
+function onMIDIFailure() {
+    const midiStatus = document.getElementById('midiStatus');
+   
+    console.error('Échec de l\'accès aux périphériques MIDI.');
+}
 
 function main() {
 
@@ -72,7 +106,29 @@ function main() {
     window.addEventListener("keydown", function (e) {
         spectrum.onKeypress(e);
     });
+    window.addEventListener('wheel',function (e)  
+    {
+        spectrum.handleMouseWheel(e);
+    });    
+    window.addEventListener('mousedown',function (e)  
+    {
+        spectrum.handleMouseDown(e);
+    });   
+    window.addEventListener('mouseup',function (e)  
+    {
+        spectrum.handleMouseUp(e);
+    });   
+    window.addEventListener('mousemove',function (e)  
+    {
+        spectrum.handleMouseMove(e);
+    });  
 
+   // FIXME : NEED HTTPS !!!!!
+    if (navigator.requestMIDIAccess) {
+        console.log('This browser supports WebMIDI!');
+    } else {
+        console.log('WebMIDI is not supported in this browser.');
+    }
 
 }
 
