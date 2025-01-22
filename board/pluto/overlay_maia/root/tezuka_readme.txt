@@ -1,5 +1,5 @@
-Welcome to Tazuka !
-Welcome to Tazuka !
+Welcome to Tezuka !
+Welcome to Tezuka !
 
 Test your firmware on RAM (before adopting it)
 
