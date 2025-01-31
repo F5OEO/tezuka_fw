@@ -1,0 +1,6 @@
+echo "in ifplugd" 
+if [ "$2" == "up" ]; then
+ /sbin/ifdown $1 -f
+ /sbin/ifup $1
+ 
+fi
