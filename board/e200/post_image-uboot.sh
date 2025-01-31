@@ -13,12 +13,10 @@ GENIMAGE_TMP="${BUILD_DIR}/genimage.tmp"
 
 rm -rf "${GENIMAGE_TMP}"
 
-genimage \
-    --rootpath "${TARGET_DIR}" \
-    --tmppath "${GENIMAGE_TMP}" \
-    --inputpath "${BINARIES_DIR}" \
-    --outputpath "${BINARIES_DIR}" \
-    --config "${GENIMAGE_CFG}"
+cp $BIN_DIR/u-boot $BIN_DIR/u-boot.elf
+echo "img : {[bootloader] $BIN_DIR/fsbl.elf $BIN_DIR/u-boot.elf}" >  $BIN_DIR/boot.bif
+bootgen -image $BIN_DIR/boot.bif -w -o i $BIN_DIR/boot.img
+
 
 echo "generating the boot.frm"
 cat $BIN_DIR/boot.img $BIN_DIR/uboot-env.bin $BOARD_DIR/target_mtd_info.key | \
