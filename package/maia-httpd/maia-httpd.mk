@@ -4,7 +4,7 @@
 #
 ################################################################################
 
-MAIA_HTTPD_VERSION = main
+MAIA_HTTPD_VERSION = sweep
 MAIA_HTTPD_SITE = https://github.com/F5OEO/maia-sdr.git
 MAIA_HTTPD_SITE_METHOD = git
 MAIA_HTTPD_DEPENDENCIES = host-openssl
