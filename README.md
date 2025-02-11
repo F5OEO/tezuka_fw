@@ -51,13 +51,14 @@ If you like this firmware you can help me maintaining it by
 ```
 git clone https://github.com/F5OEO/tezuka_fw
 cd tezuka_fw
-wget https://buildroot.org/downloads/buildroot-2024.08.tar.gz
-tar -xvf buildroot-2024.08.tar.gz
+wget https://buildroot.org/downloads/buildroot-2024.11.1.tar.gz
+
+tar -xvf buildroot-2024.11.1.tar.gz
 ```
 ### Build
 ```
 source sourceme.first
-cd buildroot-2024.08
+cd buildroot-2024.11.1
 make pluto_maiasdr_defconfig && make
 ```
 ### Result
