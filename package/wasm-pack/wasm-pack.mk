@@ -4,7 +4,7 @@
 #
 ################################################################################
 
-WASM_PACK_VERSION = v0.13.0
+WASM_PACK_VERSION = v0.13.1
 WASM_PACK_SITE = https://github.com/rustwasm/wasm-pack.git
 WASM_PACK_SITE_METHOD = git
 WASM_PACK_DEPENDENCIES = rust-wasm
