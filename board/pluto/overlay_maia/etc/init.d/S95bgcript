@@ -6,6 +6,7 @@ start() {
 /root/lnb_config.sh </dev/null 2>/dev/null
 /root/watchconsoletx.sh </dev/null 2>/dev/null &
 /root/watchconsolefreq.sh </dev/null 2>/dev/null &
+/root/mqtt_status.sh </dev/null 2>/dev/null &
 export HISTFILE="/mnt/jffs2/ash_history"
 
 }
