@@ -5,14 +5,15 @@
 ################################################################################
 
 
-MAIA_WASM_VERSION = main
+MAIA_WASM_VERSION = sweep
 MAIA_WASM_SITE = https://github.com/F5OEO/maia-sdr.git
 MAIA_WASM_SITE_METHOD = git
 MAIA_WASM_DEPENDENCIES = rust-wasm wasm-pack 
 define MAIA_WASM_BUILD_CMDS
 
 $(shell bash -c "PATH="$(HOST_DIR)/bin:$(PATH)" && cd $(MAIA_WASM_SRCDIR)/maia-wasm && \
-wasm-pack build --target web")
+$(HOST_DIR)/bin/cargo generate-lockfile && \
+$(HOST_DIR)/bin/wasm-pack build --target web")
 
 endef 
 
