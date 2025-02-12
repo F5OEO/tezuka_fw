@@ -21,11 +21,9 @@ declare -A VMAP=(
   [${folder}out_altvoltage0_RX_LO_powerdown]='rx/active'
 )
 
-
-# based on VMAP, declare rVMAP - so we can search both directions and vVMAP so we can map real values
+# based on VMAP, declare rVMAP
 
 declare -A rVMAP
-declare -A vVMAP
 for K in "${!VMAP[@]}"; do rVMAP[${VMAP[$K]}]=$K; done
 
 # Functions to handle the data
@@ -39,22 +37,30 @@ serial_publish () {
   echo $1 $2
 }
 
-publish () {                                                       
+publish () {
   mqtt_publish $1 $2
   serial_publish $1 $2
-}                                                             
+}
+
+read_file () {
+  if [ -r "$1" ]; then
+    cat "$1"
+  else
+    echo 'n/a'
+  fi
+}
 
 update_data () {
   while read i; do
     k=${VMAP[$i]};
-    v="`cat $i`";
+    v="`read_file $i`";
     publish $k $v;
   done
 }
 
 dump_data () {
-  for K in "${!VMAP[@]}"; do publish ${VMAP[$K]} "`cat $K`"; done
-  publish "main/serial" "`cat /etc/serial`"
+  for K in "${!VMAP[@]}"; do publish ${VMAP[$K]} "`read_file $K`"; done
+  publish "main/serial" "`read_file /etc/serial`"
 }
 
 
