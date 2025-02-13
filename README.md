@@ -11,6 +11,7 @@ Target of **tezuka** firmware is to **maximize features** of the board and integ
 - Audio gadget to be recognized as a soundcard (**virtual cable** not needed anymore)
 - SD boot support : easy update, no risk of flashing, high amount of memory 
 - Include **Maia-sdr** transparently
+- Publish basic information about the current state on local mqtt server
 - Many other (need to be documented)
 
 # Why not Analog Device or firmware ?
