@@ -56,7 +56,7 @@ serial_publish () {
 # Generic publish function
 publish () {
   mqtt_publish "${1}" "${2}"
-  serial_publish "${1}" "${2}"
+#  serial_publish "${1}" "${2}"
 }
 
 # File reader with error handling
@@ -86,13 +86,26 @@ dump_data () {
   publish "main/fw_version" "`grep 'fw_version=' /etc/libiio.ini | sed s,fw_version=,,`"
 }
 
+# Parse data provided on mqtt and execute commands
+parse_cmd () {
+  cmd="${1//cmd\//}"  
+  shift       
+  val="${@}"
+  echo ${val} > ${rVMAP[$cmd]}
+}   
 
 # Watch files and publish information to multiple outputs
 
+# Initial dump of data
 dump_data
 
+# Observer changes in files
 inotifywait --format %w%f -r -q -m -e create -e modify ${folder}* | update_data &
 
+# Watch files and publish information to multiple outputs
+/usr/bin/mosquitto_sub -v -i "tezuka_sub" -t "cmd/#" | while read i; do parse_cmd $i ; done &
+
+# Dump data every 10 seconds
 while true; do
   sleep 10;
   dump_data;
