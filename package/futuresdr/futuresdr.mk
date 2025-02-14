@@ -11,6 +11,7 @@ TOOLCHAIN = $(HOST_DIR)/bin/$(CROSS_COMPILE)gcc
 
 define FUTURESDR_BUILD_CMDS
 $(shell bash -c "PATH="$(HOST_DIR)/bin:$(PATH)" && cd $(FUTURESDR_SRCDIR) && \
+    $(HOST_DIR)/bin/cargo generate-lockfile && \
 	  cargo build --release --target armv7-unknown-linux-gnueabihf \
 	  --config target.armv7-unknown-linux-gnueabihf.linker='"' $(TOOLCHAINS)'"' ")
 endef
