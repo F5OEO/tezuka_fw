@@ -214,7 +214,7 @@ function libiio_url() {
 
 function CheckFrmVersion() {
 	GetDriverurl();
-	var req = jQuery.getJSON("https://api.github.com/repos/analogdevicesinc/plutosdr-fw/releases/latest");
+	var req = jQuery.getJSON("https://https://api.github.com/repos/F5OEO/tezuka_fw/releases/latest");
 	req.fail(function() {
 		document.getElementById('versiontest').innerHTML = "Can't check right now, try manually";
 	});

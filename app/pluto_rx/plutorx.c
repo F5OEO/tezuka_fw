@@ -271,7 +271,7 @@ int main(int argc, char **argv)
     //#define SAMPLE_MINI 25000000/12
     #define SAMPLE_MINI 18000000
     #define SAMPLE_MAX 64000000
-    #define MAX_BUFF_SIZE 8000000LL
+    #define MAX_BUFF_SIZE 8000000LL/2LL
     #define MAX_TOTAL_SIZE 64000000LL
     #define MAX_CNT 64
    
@@ -375,7 +375,11 @@ int main(int argc, char **argv)
                 }
                 
             }
-            if(ErrorRead) break;
+            if(ErrorRead)
+            {
+                 fprintf(stderr,"Underrun detected: exting...\n");
+                  break;
+            }
         }
         fprintf(stderr,"Sample Max=%lld\n",SampleRate-step);
     }
