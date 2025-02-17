@@ -1,5 +1,5 @@
 // URL de l'API REST
-const apiUrl = window.location.host + ":8000/api";
+const apiUrl = "/api";
 
 // Fonction pour appeler l'API REST
 async function fetchData() {
@@ -9,9 +9,11 @@ async function fetchData() {
             method: 'GET', // Méthode HTTP (GET, POST, etc.)
             headers: {
                 'Content-Type': 'application/json' // Type de contenu attendu
-            }
-        });
-
+            
+            },
+            credentials: "include" 
+       
+    });   
         // Vérification de la réponse
         if (!response.ok) {
             throw new Error('Erreur dans la requête API : ' + response.statusText);

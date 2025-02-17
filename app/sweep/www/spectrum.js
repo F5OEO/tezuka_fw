@@ -91,15 +91,53 @@ Spectrum.prototype.drawFFT = function(bins) {
     //this.ctx.scale((width*this.zoom) / this.wf_size, 1);
 }
 
+Spectrum.prototype.drawFFTfosfor = function(bins) {
+    
+    this.ctx.beginPath();
+    this.ctx.moveTo(-1, this.spectrumHeight + 1);
+    for (var i = 0; i < bins.length; i++) {
+        var y = this.spectrumHeight - this.squeeze(bins[i], 0, this.spectrumHeight);
+        if (y > this.spectrumHeight - 1)
+            y = this.spectrumHeight + 1; // Hide underflow
+        if (y < 0)
+            y = 0;
+        if (i == 0)
+            this.ctx.lineTo(-1, y);
+        this.ctx.lineTo(i, y);
+        if (i == bins.length - 1)
+            this.ctx.lineTo(this.wf_size + 1, y);
+    }
+    this.ctx.lineTo(this.wf_size + 1, this.spectrumHeight + 1);
+    this.ctx.strokeStyle = "#fefefe / 1%";
+    //this.ctx.fillStyle = "rgb(255 255 255 / 5%)";
+    this.ctx.stroke();
+}
+
 Spectrum.prototype.drawSpectrum = function(bins) {
     var width = this.ctx.canvas.width;
     var height = this.ctx.canvas.height;
 
     // Fill with black
-    this.ctx.fillStyle = "black";
+    
+       //this.ctx.fillStyle = "black";
+        
+    if(this.fosfor>0)  
+    {  
+        var transparency=(1/(this.fosfor*10));
+        console.log("transparency "+transparency);
+        this.ctx.fillStyle = `rgb(0 0 0 / ${transparency})`;
+        //this.ctx.fillStyle = "rgb(0 0 0 / 10%)";
+        //this.ctx.fillStyle = "rgb(0 0 0 / 0.1)";
+    }    
+    else
+        this.ctx.fillStyle = "rgb(0 0 0 / 1)";
+    
+
     this.ctx.fillRect(0, 0, width, height);
+    
 
     // FFT averaging
+    /*
     if (this.averaging > 0) {
         if (!this.binsAverage || this.binsAverage.length != bins.length) {
             this.binsAverage = Array.from(bins);
@@ -110,7 +148,7 @@ Spectrum.prototype.drawSpectrum = function(bins) {
         }
         bins = this.binsAverage;
     }
-
+    */
     // Max hold
     if (this.maxHold) {
         if (!this.binsMax || this.binsMax.length != bins.length) {
@@ -153,7 +191,8 @@ Spectrum.prototype.drawSpectrum = function(bins) {
         this.doAutoScale(bins);
 
     // Draw FFT bins
-    this.drawFFT(bins);
+    //this.drawFFT(bins);
+    this.drawFFTfosfor(bins);
 
     // Restore scale
     //this.ctx.restore();
@@ -161,6 +200,7 @@ Spectrum.prototype.drawSpectrum = function(bins) {
 
     // Fill scaled path
     this.ctx.fillStyle = this.gradient;
+    
     this.ctx.fill();
 
     // Copy axes from offscreen canvas
@@ -178,7 +218,7 @@ Spectrum.prototype.updateInfo = function(x) {
     this.ctx_InfoFrequency.clearRect(0, 0, width_text, 50+height_text);
 
     // Draw axes
-    this.ctx_InfoFrequency.font = "12px sans-serif";
+    this.ctx_InfoFrequency.font = "36px sans-serif";
     this.ctx_InfoFrequency.fillStyle = "white";
     this.ctx_InfoFrequency.textBaseline = "middle";
 
@@ -186,9 +226,9 @@ Spectrum.prototype.updateInfo = function(x) {
     
     var freq = (((this.Screentobin(x)-this.wf_size/2)/this.wf_size*this.NativeSpan)+this.orginalfreq);
     if (this.centerHz + this.spanHz > 1e6)
-        freq = (freq / 1e6).toFixed(3) + "M";
+        freq = (freq / 1e6).toFixed(3) + "MHz";
     else if (this.centerHz + this.spanHz/this.zoom > 1e3)
-        freq = (freq / 1e3).toFixed(3) + "k";
+        freq = (freq / 1e3).toFixed(3) + "kHz";
     
     this.ctx_InfoFrequency.fillText(freq, x, 50);
     
@@ -311,12 +351,13 @@ Spectrum.prototype.addData = function(data) {
 
 Spectrum.prototype.updateSpectrumRatio = function() {
     this.spectrumHeight = Math.round(this.canvas.height * this.spectrumPercent / 100.0);
-
+    var transparency=(1/(this.fosfor*10));
+    if(this.fosfor==0) transparency=1;
     this.gradient = this.ctx.createLinearGradient(0, 0, 0, this.spectrumHeight);
     for (var i = 0; i < this.colormap.length; i++) {
         var c = this.colormap[this.colormap.length - 1 - i];
         this.gradient.addColorStop(i / this.colormap.length,
-            "rgba(" + c[0] + "," + c[1] + "," + c[2] + ", 1.0)");
+            "rgba(" + c[0] + "," + c[1] + "," + c[2] + "," + transparency);
     }
 }
 
@@ -432,13 +473,17 @@ Spectrum.prototype.setTuningStep = function(num) {
 }
 
 Spectrum.prototype.incrementAveraging = function() {
-    this.setAveraging(this.averaging + 1);
+    //this.setAveraging(this.averaging + 1);
+    this.fosfor+=1;
 }
 
 Spectrum.prototype.decrementAveraging = function() {
-    if (this.averaging > 0) {
+   /* if (this.averaging > 0) {
         this.setAveraging(this.averaging - 1);
     }
+        */
+    if (this.fosfor > 0)  
+        this.fosfor-=1;  
 }
 
 Spectrum.prototype.incrementFrequency = function() { 
@@ -804,6 +849,7 @@ function Spectrum(id, options) {
     // Colors
     this.colorindex = 0;
     this.colormap = colormaps[2];
+    this.fosfor=0;
 
     // Create main canvas and adjust dimensions to match actual
     this.canvas = document.getElementById(id);

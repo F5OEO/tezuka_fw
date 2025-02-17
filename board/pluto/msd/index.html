@@ -11,6 +11,7 @@
 <link rel="shortcut icon" href="img/favicon.ico" type="image/x-icon">
 <!-- Place favicon.ico in the root directory -->
 <link type="text/css" href="./img/style.css" rel="stylesheet">
+
 </head>
 <body>
 <!--[if lte IE 11]>
@@ -19,14 +20,13 @@
 
 <!-- Add your site or application content here -->
 <header id="top">
-<a href="http://www.analog.com">
-<img src="img/ADI_Logo_AWP.png" alt="Analog Devices logo" />
-</a>
 </header>
 
 <nav style="text-align: center;">
-<a class="button" href="#started">Get Started</a>
-<a class="button" href="#framework">Frameworks</a>
+ <script language="JavaScript">
+    document.write('<a class="button" href="' + window.location.protocol + '//' + window.location.hostname + ':8000' + '" </a> ' );
+    </script> Spectrum</a>
+<a class="button" href="#Features">Frameworks</a>
 <div class="dropdown">
 <span><a class="button" href="#firmware">Firmware &dArr;</a></span>
 <div class="dropdown-content">
@@ -54,20 +54,19 @@
 </nav>
 <hr>
 <section>
-<h1>Welcome to the <strong>ADALM-PLUTO</strong> Active Learning Module</h1>
-<a href="http://www.analog.com/education"><img src="./img/prof_blue.png" alt="ADI Professor" style="float:left" /></a>
-<p style="margin-bottom:0em;">Thank you for purchasing the <a href="http://www.analog.com/plutosdr">ADALM-PLUTO</a> Active Learning Module (PlutoSDR). The easy-to-use PlutoSDR helps introduce the fundamentals of software-defined radio (SDR), radio frequency (RF), and wireless communications to everyone. Designed for users at all levels and all backgrounds, the PlutoSDR can be used as:</p>
-<ul style="margin-left:8em; margin-top:0em;"><li>A learning module for instructor-led or self-directed learning to develop a foundation in real-world RF and communications in the pursuit of science, technology, or engineering degrees.</li>
-<li>A tool for practicing engineers and industry practitioners who are interested in mastering the design, implementation, and experimentation of communication systems. The PlutoSDR can be used to examine how well the communications system operates in terms of successfully transmitting or recovering intercepted signals.</li>
-<li>A tool for practicing RF engineers who use <a href="https://en.wikipedia.org/wiki/Spectrum_analyzer">spectrum analyzers</a> or <a href="https://en.wikipedia.org/wiki/Signal_generator#Vector_signal_generator">vector signal generators</a> to capture or create and analyze RF signals. The PlutoSDR with the appropriate <a href="#framework">software tool</a> is capable of analyzing or generating digitally-modulated radio signals that may use any of a large number of formats used in modern communication systems.</li>
-<li>A complete reference design (hardware, HDL, embedded software, host software) for developers interested in creating their own products based on <a href="https://www.analog.com/en/applications/technology/sdr-radioverse-pavilion-home/wideband-transceivers.html">Analog Devices Wideband Transceivers</a>.</li></ul>
-<p>Based on the <a href="http://www.analog.com/AD9363">AD9363</a>, the PlutoSDR features independent receive and transmit channels that can be operated in full duplex. The PlutoSDR can generate or acquire RF analog signals from 325 MHz to 3800 MHz at up to 61.44 MegaSamples per second (MSPS). Small enough to fit in a shirt pocket, the PlutoSDR is completely self-contained and entirely USB powered with the default firmware. PlutoSDR is enabled by libiio drivers and supports macOS®, Windows®, and Linux®, allowing students and engineers to learn and explore on a variety of host platforms.</p>
+<h1>Welcome to <strong>Tezuka Firmware</strong></h1>
+<p style="margin-bottom:0em;"><strong>Tezuka</strong> aims to be Universal Zynq/AD9363 firmware builder for plutosdr board and other boards: PlutoSDR, Pluto+, AntSDR (e200). Other targets could be added (ZynqSDR,LibreSDR..)</p>
+<ul style="margin-left:1em; margin-top:1em;"><li>AAA</li>
+<li>BBB</li>
+<li>CCC</li>
+<li>DDD</a>.</li></ul>
+<p>EEE</p>
 </section>
 <hr>
-<section id="started">
+<section id="Features">
 <a class="anchor" href="#top">Back to top</a>
-<h3>Getting Started</h3>
-<p>The PlutoSDR <a href="https://wiki.analog.com/plutosdr">online documentation</a> provides instruction on how to set up the software on your <a href="https://wiki.analog.com/university/tools/pluto/drivers/windows">Windows</a>, <a href="https://wiki.analog.com/university/tools/pluto/drivers/linux">Linux</a>, or <a href="https://wiki.analog.com/university/tools/pluto/drivers/osx">macOS</a> based host to use the PlutoSDR. For those who do not read instructions, do the following steps:</p>
+<h3>Features</h3>
+<p>Tezuka <a href="https://github.com/F5OEO/tezuka_fw">online documentation</a> provides instruction on how to set up the software on your <a href="https://wiki.analog.com/university/tools/pluto/drivers/windows">Windows</a>, <a href="https://wiki.analog.com/university/tools/pluto/drivers/linux">Linux</a>, or <a href="https://wiki.analog.com/university/tools/pluto/drivers/osx">macOS</a> based host to use on your board. For those who do not read instructions, do the following steps:</p>
 <ol>
 <li id="hideupgrade">Upgrade your <a href="#firmware">Firmware</a>
 <li id="hidedriver">Install the Windows <a href="https://github.com/analogdevicesinc/plutosdr-m2k-drivers-win/">driver</a> : <a id="drivertest" href="https://github.com/analogdevicesinc/plutosdr-m2k-drivers-win/releases/latest">Latest Windows Driver</a></li>

@@ -3,10 +3,12 @@ body{
 	font-size: 16px;
 	font-weight: normal;
 	line-height: 1.3em;
+	background-color: #00000000;
 	color: #636363;
 	padding: 0 20px 0;
 	max-width: 1024px;
 	margin: auto;
+	
 }
 hr{
 	color: #ccc;
@@ -30,7 +32,7 @@ header{
 }
 header img{
 	margin-top: 10px;
-	width: 175px;
+	width: 300px;
 }
 nav{
 	margin-bottom: 20px;
@@ -49,7 +51,7 @@ th{
 	text-align: left;
 }
 td{
-	background-color: #f5f5f5;
+	background-color: #00000000;
 	font-size: 14px;
 	padding: 5px 10px;
 }

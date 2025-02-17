@@ -1,1 +1,6 @@
 buildroot*/
+app/fftclient/fftclient
+app/pluto_rx/plutorx
+app/sweep/sweepfft
+f_uac2.c
+u_uac2.h

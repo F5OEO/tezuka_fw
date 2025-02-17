@@ -44,6 +44,10 @@ select BR2_PACKAGE_READLINE
 select BR2_PACKAGE_BASH	
 #ntp 
 select BR2_PACKAGE_CHRONY
+#gps
+select  BR2_PACKAGE_GPSD
+select BR2_PACKAGE_GPSD_UBX
+
 	help
 	  "Tezuka common tools"
 

@@ -236,127 +236,14 @@ run_websocket_client(const char *host,
 	/* Connection established */
 	printf("%10.0f - Connected\n", difftime(time(NULL), pclient_data->started));
 
-	/* If there are greetings to send, do it now */
-	if (greetings) {
-		printf("%10.0f - Sending greetings\n",
-		       difftime(time(NULL), pclient_data->started));
-
-		mg_websocket_client_write(client_conn,
-		                          MG_WEBSOCKET_OPCODE_TEXT,
-		                          greetings,
-		                          strlen(greetings));
-	}
-
-	/* Wait for some seconds */
-	sleep(5);
-
-	/* Does the server play "ping pong" ? */
-	for (i = 0; i < 5; i++) {
-		/* Send a PING message every 5 seconds. */
-		printf("%10.0f - Sending PING\n",
-		       difftime(time(NULL), pclient_data->started));
-		mg_websocket_client_write(client_conn,
-		                          MG_WEBSOCKET_OPCODE_PING,
-		                          (const char *)&i,
-		                          sizeof(int));
-		sleep(5);
-	}
+	
 
 	/* Wait a while */
 	/* If we do not use "ping pong", the server will probably
 	 * close the connection with a timeout earlier. */
 	sleep(150);
 
-	/* Send greetings again */
-	if (greetings) {
-		printf("%10.0f - Sending greetings again\n",
-		       difftime(time(NULL), pclient_data->started));
-
-		mg_websocket_client_write(client_conn,
-		                          MG_WEBSOCKET_OPCODE_TEXT,
-		                          greetings,
-		                          strlen(greetings));
-	}
-
-	/* Wait for some seconds */
-	sleep(5);
-
-	/* Send some "song text": http://www.99-bottles-of-beer.net/ */
-	{
-		char txt[128];
-		int b = 99; /* start with 99 bottles */
-
-		while (b > 0) {
-			/* Send "b bottles" text line. */
-			sprintf(txt,
-			        "%i bottle%s of beer on the wall, "
-			        "%i bottle%s of beer.",
-			        b,
-			        ((b != 1) ? "s" : ""),
-			        b,
-			        ((b != 1) ? "s" : ""));
-			mg_websocket_client_write(client_conn,
-			                          MG_WEBSOCKET_OPCODE_TEXT,
-			                          txt,
-			                          strlen(txt));
-
-			/* Take a breath. */
-			sleep(1);
-
-			/* Drink a bottle */
-			b--;
-
-			/* Send "remaining bottles" text line. */
-			if (b) {
-				sprintf(txt,
-				        "Take one down and pass it around, "
-				        "%i bottle%s of beer on the wall.",
-				        b,
-				        ((b != 1) ? "s" : ""));
-			} else {
-				strcpy(txt,
-				       "Take one down and pass it around, "
-				       "no more bottles of beer on the wall.");
-			}
-			mg_websocket_client_write(client_conn,
-			                          MG_WEBSOCKET_OPCODE_TEXT,
-			                          txt,
-			                          strlen(txt));
-
-			/* Take a breath. */
-			sleep(2);
-		}
-
-		/* Send "no more bottles" text line. */
-		strcpy(txt,
-		       "No more bottles of beer on the wall, "
-		       "no more bottles of beer.");
-		mg_websocket_client_write(client_conn,
-		                          MG_WEBSOCKET_OPCODE_TEXT,
-		                          txt,
-		                          strlen(txt));
-
-		/* Take a breath. */
-		sleep(1);
-
-		/* Buy new bottles. */
-		b = 99;
-
-		/* Send "buy some more" text line. */
-		sprintf(txt,
-		        "Go to the store and buy some more, "
-		        "%i bottle%s of beer on the wall.",
-		        b,
-		        ((b != 1) ? "s" : ""));
-		mg_websocket_client_write(client_conn,
-		                          MG_WEBSOCKET_OPCODE_TEXT,
-		                          txt,
-		                          strlen(txt));
-	}
-
-	/* Wait for some seconds */
-	sleep(5);
-
+		
 	/* Somewhat boring conversation, isn't it?
 	 * Tell the server we have to leave. */
 	printf("%10.0f - Sending close message\n",
