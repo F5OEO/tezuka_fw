@@ -1,7 +1,6 @@
 #!/bin/sh
 #https://www.analog.com/media/cn/technical-documentation/user-guides/AD9364_Register_Map_Reference_Manual_UG-672.pdf
 
-DEVICE="/dev/ttyACM0"
 
 adphys="$(cat /sys/bus/iio/devices/iio:device0/name)"
 
@@ -130,15 +129,9 @@ txmute=$(cat /sys/bus/iio/devices/iio:device1/out_altvoltage1_TX_LO_powerdown)
 fi
 if [ "$txmute" = "1" ] ; then
 	echo "SdrConsole PTT OFF"
-	if [ -e "$DEVICE" ]; then
-		echo "PTT OFF" > "$DEVICE"
-	fi
 	pttoff
 else
 	echo "SdrConsole PTT ON"
-	if [ -e "$DEVICE" ]; then 
-		echo "PTT ON" > "$DEVICE" 
-	fi
 	ptton
 fi
 done
