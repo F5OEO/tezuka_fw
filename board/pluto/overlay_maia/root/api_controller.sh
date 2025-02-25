@@ -1,5 +1,7 @@
 #!/bin/bash
 
+SERIAL_PORT="/dev/ttyACM0"
+
 # declare folder, files and their corresponding aliases (seen by client)
 
 folder='/sys/bus/iio/devices/iio:device0/'
@@ -47,16 +49,18 @@ mqtt_publish () {
   /usr/bin/mosquitto_pub -r -i "tezuka_pub" -t "state/${1}" -m "${2}"
 }
 
-# Publish to serial port if needed - currently to stdout for DEBUG only
+# Publish to serial port.
 serial_publish () {
-  # for future use to publish to a serial port
-  echo ${1} ${2}
+  if [ -e "${SERIAL_PORT}" ]; then
+		echo "${1}" "${2}" > "${SERIAL_PORT}"
+  fi
+  echo "${1}" "${2}"
 }
 
 # Generic publish function
 publish () {
   mqtt_publish "${1}" "${2}"
-#  serial_publish "${1}" "${2}"
+  serial_publish "${1}" "${2}"
 }
 
 # File reader with error handling
