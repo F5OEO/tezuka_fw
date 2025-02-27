@@ -54,7 +54,7 @@ serial_publish () {
   if [ -e "${SERIAL_PORT}" ]; then
 		echo "${1}" "${2}" > "${SERIAL_PORT}"
   fi
-  echo "${1}" "${2}"
+  
 }
 
 # Generic publish function
