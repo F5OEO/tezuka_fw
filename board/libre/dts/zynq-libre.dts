@@ -13,7 +13,7 @@
 
 &adc0_ad9364 {
 	/* This property is controlled by u-boot environment. */
-	//adi,2rx-2tx-mode-enable;
+	adi,2rx-2tx-mode-enable;
 };
 
 &cf_ad9364_dac_core_0 {
@@ -39,7 +39,7 @@
 
 		button {
 			interrupt-parent = <&gpio0>;
-			interrupts = <14 IRQ_TYPE_EDGE_FALLING>;
+			interrupts = <12 IRQ_TYPE_EDGE_FALLING>;
 			label = "Button";
 			linux,code = <BTN_MISC>;
 		};
