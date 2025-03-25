@@ -1,0 +1,13 @@
+diff --git a/board/xilinx/zynq/board.c b/board/xilinx/zynq/board.c
+index 2b23baf8..2bb204f5 100644
+--- a/board/xilinx/zynq/board.c
++++ b/board/xilinx/zynq/board.c
+@@ -113,7 +113,7 @@ int board_late_init(void)
+ #include <environment.h>
+ int misc_init_r(void)
+ {
+-#define BUTTON_GPIO 14
++#define BUTTON_GPIO 12
+ 
+ 	gpio_request(BUTTON_GPIO, "SWITCH");
+ 	gpio_direction_input(BUTTON_GPIO);
