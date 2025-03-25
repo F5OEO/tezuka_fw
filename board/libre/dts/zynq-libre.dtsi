@@ -272,7 +272,7 @@
 		  * 1 = SKIP TX
 		  * 2 = SKIP ALL
 		  */
-		//adi,digital-interface-tune-skip-mode = <0>;
+		
 
 		adi,pp-tx-swap-enable;
 		adi,pp-rx-swap-enable;
@@ -281,16 +281,16 @@
 		adi,lvds-bias-mV = <0x96>;
 		adi,lvds-rx-onchip-termination-enable;
 		adi,rx-data-delay = <0x04>;
-		adi,xo-disable-use-ext-refclk-enable;
+		//adi,xo-disable-use-ext-refclk-enable; // Libre Doesnt have ext clk
 
 		/* Enable CMOS Mode */
 		//adi,full-port-enable;
-		adi,digital-interface-tune-fir-disable;
+		//adi,digital-interface-tune-fir-disable;
 
-		adi,digital-interface-tune-skip-mode = <0>; /* TUNE RX & TX */
+		adi,digital-interface-tune-skip-mode = <2>; /* TUNE RX & TX -> BIG DC if 0 */
 		adi,tx-fb-clock-delay = <0x07>;
 		adi,tx-data-delay = <0x09>;
-		adi,swap-ports-enable;
+		//adi,swap-ports-enable; //Setting this option swaps Port 0 and Port 1. Must be clear for LVDS mode
 
 		/* Mode Setup */
 
