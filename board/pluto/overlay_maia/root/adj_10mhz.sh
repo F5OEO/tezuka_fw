@@ -13,7 +13,7 @@ if [ "$ten_mhz" = "1" ] ; then
 #       echo "Ten $ten_mhz"
 #       printf "Dev %d %s\n" $dev $signed
         correct=$((dev * 2))
-        final_xo=$((40000000+$correct))
+        final_xo=$((40000000-$correct))
         echo "Xo Correction $final_xo"
         echo $final_xo > /sys/bus/iio/devices/iio:device0/xo_correction
 fi
