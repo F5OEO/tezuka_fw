@@ -37,7 +37,7 @@
 		#size-cells = <0>;
 		button {
 			label = "Button";
-			gpios = <&gpio0 14 0>;
+			gpios = <&gpio0 12 0>;
 			linux,code = <103>; /* up */
 			wakeup-source;
 			autorepeat;
