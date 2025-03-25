@@ -1,0 +1,9 @@
+config BR2_PACKAGE_SRT
+	bool "srt-master"
+	help
+	  transport protocol for ultra low (sub-second) latency live
+	  github (release)
+
+	  https://github.com/Haivision/srt
+
+	  
