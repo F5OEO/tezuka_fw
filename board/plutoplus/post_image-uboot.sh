@@ -42,7 +42,7 @@ bootgen -image $SDIMGDIR/boot.bif -w -o i $SDIMGDIR/BOOT.bin
 cp $BIN_DIR/rootfs.cpio.gz $SDIMGDIR/ramdisk.image.gz
 $mkimage -A arm -T ramdisk -C gzip -d $SDIMGDIR/ramdisk.image.gz $SDIMGDIR/uramdisk.image.gz
 rm $SDIMGDIR/ramdisk.image.gz
-cp $BIN_DIR/pluto.dfu $SDIMGDIR/uImage
+mkimage -A arm -O linux -T kernel -C none -a 0x2080000 -e 2080000 -n "Linux kernel" -d $BIN_DIR/zImage $SDIMGDIR/uImage
 #cp $BIN_DIR/zynq-plutoplus.dtb $SDIMGDIR/devicetree.dtb
 cp $BIN_DIR/plutoplus.dtb $SDIMGDIR/devicetree.dtb
 
