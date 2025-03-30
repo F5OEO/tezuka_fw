@@ -52,6 +52,15 @@ create_system_files () {
 	NFS_SERVER=`fw_printenv -n nfs_server 2> /dev/null | tr -cd '[a-zA-Z0-9 \\/:]._-'`
 	FORCE_MODEL=`fw_printenv -n force_model 2> /dev/null || echo off | tr -cd '[a-zA-Z0-9 \\/]._-'`
 	DISABLE_USB_CONSOLE=`fw_printenv -n disable_usb_console 2> /dev/null || echo off | tr -cd '[a-zA-Z0-9 \\/]._-'`
+	ENABLE_IPV6=`fw_printenv -n enable_ipv6 2> /dev/null || echo no | tr -cd '[a-zA-Z0-9 \\/]._-'`
+
+	if [ "$ENABLE_IPV6" == "yes" ]; then
+		echo 0 > /proc/sys/net/ipv6/conf/all/disable_ipv6
+	else
+		echo 1 > /proc/sys/net/ipv6/conf/all/disable_ipv6
+	fi
+
+
 	### /etc/udhcpd.conf ###
 	echo "start $IPADDR_HOST" > $UDHCPD_CONF
 	echo "end $IPADDR_HOST" >> $UDHCPD_CONF
@@ -197,6 +206,7 @@ create_system_files () {
 	echo "nfs_server = $NFS_SERVER"$'\r' >> $CONF
 	echo "force_model = $FORCE_MODEL"$'\r' >> $CONF
 	echo "disable_usb_console = $DISABLE_USB_CONSOLE"$'\r' >> $CONF
+	echo "enable_ipv6 = $ENABLE_IPV6"$'\r' >> $CONF
 	echo ""$'\r'>> $CONF
 	### /www/index.html ###
 

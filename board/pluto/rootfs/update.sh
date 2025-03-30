@@ -117,6 +117,7 @@ process_ini() {
 		echo "nfs_server $nfs_server" >> /opt/fw_set.tmp
 		echo "force_model $force_model" >> /opt/fw_set.tmp
 		echo "disable_usb_console $disable_usb_console" >> /opt/fw_set.tmp
+		echo "enable_ipv6 $enable_ipv6" >> /opt/fw_set.tmp
 		fw_setenv -s /opt/fw_set.tmp
 		rm /opt/fw_set.tmp
 		flash_indication_off
