@@ -34,7 +34,7 @@ jobs:
     - uses: actions/checkout@v4.1.1
       with:
         clean: false
-        submodules: recursive
+        fetch-depth: 0
 
     - name: Install dependencies
       shell: bash
@@ -66,7 +66,7 @@ jobs:
         make libre_maiasdr_defconfig && make && mv ${{runner.workspace}}/build/buildroot-2024.11.1/output/images/tezuka.zip ${{runner.workspace}}/build/libresdr.zip
         make clean
         make fishball_maiasdr_defconfig && make && mv ${{runner.workspace}}/build/buildroot-2024.11.1/output/images/tezuka.zip ${{runner.workspace}}/build/fishball.zip
-        
+
     - name: Save zip Archive
       uses: actions/upload-artifact@v4
       with:
