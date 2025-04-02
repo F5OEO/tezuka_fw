@@ -273,7 +273,6 @@
 		  * 2 = SKIP ALL
 		  */
 		
-
 		adi,pp-tx-swap-enable;
 		adi,pp-rx-swap-enable;
 		adi,rx-frame-pulse-mode-enable;
@@ -285,9 +284,9 @@
 
 		/* Enable CMOS Mode */
 		//adi,full-port-enable;
-		//adi,digital-interface-tune-fir-disable;
+		adi,digital-interface-tune-fir-disable; // WITHOUT : big trouble on TX 
 
-		adi,digital-interface-tune-skip-mode = <2>; /* TUNE RX & TX -> BIG DC if 0 */
+		adi,digital-interface-tune-skip-mode = <0>; /* TUNE RX & TX -> BIG DC if 0 */
 		adi,tx-fb-clock-delay = <0x07>;
 		adi,tx-data-delay = <0x09>;
 		//adi,swap-ports-enable; //Setting this option swaps Port 0 and Port 1. Must be clear for LVDS mode
