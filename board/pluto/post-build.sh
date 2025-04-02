@@ -27,7 +27,7 @@ if [ ! -e ${BINARIES_DIR}/msd ]; then
 fi
 
 cp ${BOARD_DIR}/LICENSE.template ${BINARIES_DIR}/msd/LICENSE.html
-cp ${BOARD_DIR}/msd/index.html ${BINARIES_DIR}/msd/
+cp -r ${BOARD_DIR}/msd/* ${BINARIES_DIR}/msd/
 LINUX_VERS=$(cat ${BR2_CONFIG} | grep '^BR2_LINUX_KERNEL_VERSION' | cut -d\" -f 2)
 UBOOT_VERS=$(cat ${BR2_CONFIG} | grep '^BR2_TARGET_UBOOT_VERSION' | cut -d\" -f 2)
 FW_VERSION=$(cd ${BOARD_DIR} && git describe --abbrev=4 --always --tags)
@@ -63,6 +63,7 @@ BOARD_ROOTFS="${BOARD_DIR}/rootfs"
 rm -Rf ${TARGET_DIR}/etc/dropbear
 
 mkdir -p ${TARGET_DIR}/www/img
+mkdir -p ${TARGET_DIR}/www/sweep
 mkdir -p ${TARGET_DIR}/etc/wpa_supplicant/
 mkdir -p ${TARGET_DIR}/mnt/jffs2
 mkdir -p ${TARGET_DIR}/mnt/msd
@@ -105,7 +106,8 @@ ${INSTALL} -D -m 0755 ${BOARD_ROOTFS}/ifupdown.sh ${TARGET_DIR}/lib/mdev/ifupdow
 ${INSTALL} -D -m 0644 ${BOARD_ROOTFS}/input-event-daemon.conf ${TARGET_DIR}/etc/
 
 ${INSTALL} -D -m 0644 ${BOARD_DIR}/msd/img/* ${TARGET_DIR}/www/img/
-${INSTALL} -D -m 0644 ${BOARD_DIR}/msd/*.html ${TARGET_DIR}/www/
+${INSTALL} -D -m 0644 ${BOARD_DIR}/msd/sweep/* ${TARGET_DIR}/www/sweep/
+${INSTALL} -D -m 0644 ${BOARD_DIR}/msd/*.* ${TARGET_DIR}/www/
 
 ${INSTALL} -D -m 0755 ${BOARD_ROOTFS}/wpa_supplicant/* ${TARGET_DIR}/etc/wpa_supplicant/
 
