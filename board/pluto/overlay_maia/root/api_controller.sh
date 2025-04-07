@@ -22,6 +22,8 @@ declare -A VMAP=(
   [${folder}out_voltage0_hardwaregain]='tx/gain'
   [${folder}out_altvoltage1_TX_LO_powerdown]='tx/active'
   [${folder}out_altvoltage0_RX_LO_powerdown]='rx/active'
+  [/sys/kernel/debug/iio/iio:device0/adi,1rx-1tx-mode-use-rx-num]='rx/rfinput'
+  [${folder}in_voltage_filter_fir_en]='rx/fir_enable'
 )
 
 # List of possible values (capabilities/caps) for reported values settings
@@ -41,8 +43,11 @@ declare -A cVMAP=(
 )
 
 # based on VMAP, declare rVMAP
-declare -A rVMAP
-for K in "${!VMAP[@]}"; do rVMAP[${VMAP[$K]}]=$K; done
+declare -A rVMAP=(
+  [rx/gain]=${folder}in_voltage0_hardwaregain
+  
+)
+#for K in "${!VMAP[@]}"; do rVMAP[${VMAP[$K]}]=$K; done
 
 # Publish to mqtt
 mqtt_publish () {
@@ -88,14 +93,46 @@ dump_data () {
   publish "main/serial" "`read_file /etc/serial`"
   publish "main/hw_model" "`grep 'hw_model=' /etc/libiio.ini | sed s,hw_model=,,`"
   publish "main/fw_version" "`grep 'fw_version=' /etc/libiio.ini | sed s,fw_version=,,`"
+  sweep=$(iio_attr -D ad9361-phy adi,rx-fastlock-pincontrol-enable)
+
+  #sweep=$(iio_attr -D ad9361-phy direct_reg_access 0X25A);
+  
+  if [ $sweep == "1" ]; then
+    publish "rx/sweep" "on";
+  else
+    publish "rx/sweep" "off";
+  fi
+
+  rx_overload=$(iio_attr -D ad9361-phy direct_reg_access 0x5E);
+  rx_overload=$((rx_overload & 1));
+  if [ $rx_overload == "1" ]; then
+    publish "rx/overload" "1";
+  else
+    publish "rx/overload" "0";
+  fi
+
 }
 
 # Parse data provided on mqtt and execute commands
 parse_cmd () {
+  
   cmd="${1//cmd\//}"  
   shift       
   val="${@}"
-  echo ${val} > ${rVMAP[$cmd]}
+  #echo ${val} > ${rVMAP[$cmd]}
+  #First check if it is a classical iio cmd
+  if  [ ${rVMAP[$cmd]} ]; then
+      #echo "Cmd known ${cmd} ${val}"  
+      echo ${val} > ${rVMAP[$cmd]}
+  else
+    echo ${cmd} ${val}
+    case $cmd in
+    rx/rfinput)
+      /root/switch_rfinput.sh ${val}
+    ;;
+    esac
+      
+  fi  
 }   
 
 # Watch files and publish information to multiple outputs
@@ -111,6 +148,7 @@ inotifywait --format %w%f -r -q -m -e create -e modify ${folder}* | update_data 
 
 # Dump data every 10 seconds
 while true; do
-  sleep 10;
+  sleep 2;
+  update_data;
   dump_data;
 done

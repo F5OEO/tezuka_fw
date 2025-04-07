@@ -34,7 +34,7 @@ setnewvalue()
 
 rx1()
 {
-    #PTT on GPIO 0  (GPIO 1 should be not touched)
+    
         # Get the current register value
         if [ "$adphys" = "ad9361-phy" ] ; then
         
@@ -55,7 +55,7 @@ rx1()
 
 rx2()
 {
-    #PTT on GPIO 0  (GPIO 1 should be not touched)
+    
         # Get the current register value
         if [ "$adphys" = "ad9361-phy" ] ; then
                echo 2 >/sys/kernel/debug/iio/iio:device0/adi,1rx-1tx-mode-use-rx-num

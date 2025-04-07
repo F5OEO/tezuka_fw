@@ -12,13 +12,14 @@ case "$1" in
 		if [ "$ETH_IPADDR" == "AP" ]; then
 			start-stop-daemon -S -q -p /var/run/udhcpdlan.pid -x /usr/sbin/udhcpd -- /etc/udhcpdlan.conf
 		fi	
-		httpd -h /www
+		#httpd -h /www
+		/root/websrv /www &
 		[ $? = 0 ] && echo "OK" || echo "FAIL"
 		;;
 
 	stop)
 		echo -n "Stopping dhcpd Daemon & httpd Server: "
-		killall -7 httpd
+		killall -7 websrv
 		start-stop-daemon -K -q -p /var/run/udhcpd.pid 2>/dev/null
 		start-stop-daemon -K -q -p /var/run/udhcpdwan.pid 2>/dev/null
 		start-stop-daemon -K -q -p /var/run/udhcpdlan.pid 2>/dev/null

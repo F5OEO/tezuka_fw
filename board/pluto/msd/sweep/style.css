@@ -2,12 +2,21 @@ html, body {
     width:  100%;
     height: 100%;
     margin: 0px;
+    padding: 0px;
 }
 
 #waterfall {
     display: block;
     width: 100%;
     height: 100%;
+}
+
+.waterfall {
+    display: block;
+    width: 100%;
+    height: calc(100% - 60px);
+    margin: 0px;
+    padding: 0px;
 }
 
 .status {
@@ -28,4 +37,9 @@ html, body {
 #log {
     white-space: nowrap;
     text-shadow: 0 1px 0 darken(red, 10%);
+}
+.top_button_wrapper{
+    margin-bottom:10px ;
+    padding: 10px 0;
+    
 }

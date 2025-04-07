@@ -224,7 +224,7 @@ Spectrum.prototype.updateInfo = function(x) {
 
     this.ctx_InfoFrequency.textAlign = "left";
     
-    var freq = (((this.Screentobin(x)-this.wf_size/2)/this.wf_size*this.NativeSpan)+Number(this.orginalfreq));
+    var freq = (((this.Screentobin(x)-this.wf_size/2)/this.wf_size*this.spanHz)+Number(this.orginalfreq));
     if (this.centerHz + this.spanHz > 1e6)
         freq = (freq / 1e6).toFixed(3) + "MHz";
     else if (this.centerHz + this.spanHz/this.zoom > 1e3)
@@ -297,31 +297,18 @@ Spectrum.prototype.updateAxes = function() {
 
 Spectrum.prototype.addData = function(data) {
     const fspectrum = new Float32Array(data);
-    this.onsweep==1;
-    //console.log("Sweep"+fspectrum[0]);
-    /*
-    if(this.oldsweep==fspectrum[0])
-    {
-        
-        if(this.onsweep!=0)
-            this.databin = new Uint16Array(fspectrum.length);
-        this.onsweep=0;
-    }
-    else
-    {
-        
-        
-        if(this.onsweep!=1)
-            this.databin = new Uint16Array(fspectrum.length*8);
-        this.onsweep=1;
-    }
-    this.oldsweep=fspectrum[0];
-      */ 
-            
+    
+   var sweepstep = 0;
+    
+        // Detect change in sweepmode
+        if(this.oldsweep != this.onsweep)
+        {    
+            //console.log("New sweep mode "+this.onsweep);
             if(this.onsweep==0)
             {
                 this.databin = new Uint16Array(fspectrum.length);
                 this.onsweep=0;
+                
             }
             else
             {    
@@ -329,13 +316,17 @@ Spectrum.prototype.addData = function(data) {
                 this.databin = new Uint16Array(fspectrum.length*8);
                 this.onsweep=1;
             }    
-            this.oldsweep=fspectrum[0];
-   
+            this.oldsweep=this.onsweep;
+        }
+        if(this.onsweep==0)
+            sweepstep=0;
+        else    
+            sweepstep=fspectrum[0];
     
     if (!this.paused) {
         for (let i = 0; i < fspectrum.length; i++) {
             // Convertir l'élément en entier non signé 16 bits et le stocker dans le tableau Uint16Array
-            this.databin[i+fspectrum.length*this.oldsweep] = Math.log(fspectrum[i])*100;
+            this.databin[i+fspectrum.length*sweepstep] = Math.log(fspectrum[i])*100;
         }
         if (this.databin.length != this.wf_size) {
             this.wf_size = this.databin.length;
@@ -354,7 +345,7 @@ Spectrum.prototype.addData = function(data) {
         }
         else
         {
-            if(this.oldsweep==7)
+            if(sweepstep==7)
             {
                 this.drawSpectrum(this.databin);
                 this.addWaterfallRow(this.databin);
@@ -664,8 +655,8 @@ Spectrum.prototype.scaleat = function(at, amount)
         this.pos = at - (at - this.pos) * amount;
         //console.log("Original "+this.NativeSpan+" Span "+this.NativeSpan*(this.Screentobin(this.canvas.width)-this.Screentobin(0))/this.wf_size);    
        
-       this.setSpanHz(this.NativeSpan*(this.Screentobin(this.canvas.width)-this.Screentobin(0))/this.wf_size);
-        this.setCenterHz(((this.Screentobin(this.canvas.width/2)-this.wf_size/2)/this.wf_size*this.NativeSpan)+this.orginalfreq);
+       //this.setSpanHz(this.spanHz*(this.Screentobin(this.canvas.width)-this.Screentobin(0))/this.wf_size);
+        //this.setCenterHz(((this.Screentobin(this.canvas.width/2)-this.wf_size/2)/this.wf_size*this.spanHz)+this.orginalfreq);
         //console.log("Freq "+((this.Screentobin(this.canvas.width/2)-this.wf_size/2)/this.wf_size*this.NativeSpan)+this.orginalfreq);
     }    
     
@@ -868,8 +859,8 @@ function Spectrum(id, options) {
 
     // Create main canvas and adjust dimensions to match actual
     this.canvas = document.getElementById(id);
-    this.canvas.height = this.canvas.clientHeight;
-    this.canvas.width = this.canvas.clientWidth;
+    //this.canvas.height = this.canvas.clientHeight;
+    //this.canvas.width = this.canvas.clientWidth;
     this.ctx = this.canvas.getContext("2d");
     this.ctx.fillStyle = "black";
     this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
@@ -902,7 +893,7 @@ function Spectrum(id, options) {
     this.updateSpectrumRatio();
     this.resize();
 
-    this.oldsweep =0;
+    this.oldsweep =2;
     this.onsweep=0;
     //this.pos=this.wf_size/2;
     this.pos=0;

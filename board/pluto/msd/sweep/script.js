@@ -95,9 +95,7 @@ function onConnect() {
     // Once a connection has been made, make a subscription and send a message.
     console.log("MQTT onConnect");
     mqtt_client.subscribe("state/#");
-    //message = new Paho.MQTT.Message("Hello");
-    //message.destinationName = "World";
-    //mqtt_client.send(message);
+    
   }
   
   // called when the client loses its connection
@@ -113,8 +111,55 @@ function onConnect() {
     switch(message.destinationName)
     {
         case "state/rx/frequency" : spectrum.setCenterHz(message.payloadString);spectrum.orginalfreq=message.payloadString;break;
-        case "state/rx/sampling" : spectrum.setSpanHz(message.payloadString);spectrum.NativeSpan=message.payloadString;break;
+        case "state/rx/sampling" : 
+            if(spectrum.onsweep==0)
+            {
+                spectrum.setSpanHz(message.payloadString);
+                spectrum.NativeSpan=message.payloadString;
+            }    
+            else
+            {    
+                spectrum.setSpanHz(Number(message.payloadString)*8);
+                spectrum.NativeSpan=message.payloadString;
+            }    
+            break;
+        case "state/rx/sweep" :
+             if(message.payloadString == "on")
+                 spectrum.onsweep=1; 
+             else 
+                spectrum.onsweep=0;
+             break;
+        case "state/rx/overload" :
+            if(message.payloadString == "1") 
+            {
+                document.getElementById("rfgain_val").style.backgroundColor = 'red';        
+            }
+            else
+            {
+                document.getElementById("rfgain_val").style.backgroundColor = 'green';        
+            }
+            break;
     }
+  }
+
+  const gain = document.getElementById("rfgain");
+  function updateGain()
+  {
+    document.getElementById("rfgain_val").innerText = gain.value;
+    var message = new Paho.MQTT.Message(gain.value);
+    message.destinationName = "cmd/rx/gain";
+    mqtt_client.send(message);
+    //ad9361_gain(Number(gain.value));
+
+  }
+
+  const rfinput = document.getElementById("rfinput");
+  function updateRxinput()
+  {
+    console.log("RFinput "+rfinput.value);
+    var message = new Paho.MQTT.Message(rfinput.value);
+    message.destinationName = "cmd/rx/rfinput";
+    mqtt_client.send(message);
   }
 
 function main() {
@@ -155,8 +200,18 @@ function main() {
     window.addEventListener('mousemove',function (e)  
     {
         spectrum.handleMouseMove(e);
+    });
+    window.addEventListener('resize',function (e)  
+    {
+        spectrum.resize();
+        
     });  
 
+   
+    gain.addEventListener("input", updateGain);
+    rfinput.addEventListener("input", updateRxinput);
+    updateGain() ;
+    
    // FIXME : NEED HTTPS !!!!!
     if (navigator.requestMIDIAccess) {
         console.log('This browser supports WebMIDI!');
