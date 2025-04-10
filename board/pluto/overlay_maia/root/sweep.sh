@@ -1,6 +1,6 @@
 #!/bin/sh
 FREQ_CENTRAL=260000000
-SR=60000000
+SPAN=480000000
 
 FREQ_MINI=47000000
 SR_MINI=2100000
@@ -12,10 +12,14 @@ else
 fi
 
 if [ $2 ]; then
-    SR=$2
+    SPAN=$2
 else
-  echo "please provide native SR  : using default $SR"
+  echo "please provide Span  : using default $SPAN"
 fi
+
+#SPAN SHOULD BE AN INTEGER !!!!
+#SPAN=$(printf "%0.f")
+SR=$(($SPAN / 8 ))
 
 
 for i in $(find -L /sys/bus/iio/devices -maxdepth 2 -name name)
@@ -32,12 +36,21 @@ if [ "$dev_name" != "ad9361-phy" ]; then
  exit
 fi
 
+if [ $3 == "0" ]; then
+  echo "Stop sweep"
+  iio_attr -D ad9361-phy adi,rx-fastlock-pincontrol-enable 0
+  #In order to be set, we need a fastlock_recall (bad AD implementation)
+  echo 0 > out_altvoltage0_RX_LO_fastlock_recall
+  echo $FREQ_CENTRAL > out_altvoltage0_RX_LO_frequency
+  exit 1
+fi
+
 if [ "$SR" -lt "$SR_MINI" ]; then
   SR=$SR_MINI
 fi
 
-
-
+#disable fir if any
+echo 0 > in_out_voltage_filter_fir_en
 echo "Setting samlerate $SR"
 echo $SR > in_voltage_sampling_frequency
 

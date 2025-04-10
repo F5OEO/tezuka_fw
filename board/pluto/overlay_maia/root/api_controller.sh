@@ -5,6 +5,8 @@ SERIAL_PORT="/dev/ttyACM0"
 # declare folder, files and their corresponding aliases (seen by client)
 
 folder='/sys/bus/iio/devices/iio:device0/'
+ echo 280000000 > /tmp/sweep_frequency
+ echo 480000000 > /tmp/sweep_span
 
 # List of current values for different settings
 declare -A VMAP=(
@@ -79,12 +81,17 @@ read_file () {
 
 # Publish data
 update_data () {
-  while read i; do
-    k=${VMAP[$i]};
-    v="`read_file $i`";
+  while read j; do
+    k=${VMAP[$j]};
+    v="`read_file $j`";
     publish ${k} ${v};
   done
 }
+
+declare -x sweep_frequency=200000000
+#export sweep_frequency
+#sweep_span=480000000
+#sweep_on=0
 
 # Collect all settings we want to report
 dump_data () {
@@ -95,22 +102,35 @@ dump_data () {
   publish "main/fw_version" "`grep 'fw_version=' /etc/libiio.ini | sed s,fw_version=,,`"
   sweep=$(iio_attr -D ad9361-phy adi,rx-fastlock-pincontrol-enable)
 
-  #sweep=$(iio_attr -D ad9361-phy direct_reg_access 0X25A);
-  
   if [ $sweep == "1" ]; then
-    publish "rx/sweep" "on";
+    publish "rx/sweep/activate" "1"
+    
   else
-    publish "rx/sweep" "off";
+    publish "rx/sweep/activate" "0"
   fi
+  echo  $sweep > /tmp/sweep_on
+  sweep_frequency=$(cat /tmp/sweep_frequency)
+  sweep_span=$(cat /tmp/sweep_span)
+  
+  publish "rx/sweep/frequency" $sweep_frequency
+  publish "rx/span" $sweep_span
 
-  rx_overload=$(iio_attr -D ad9361-phy direct_reg_access 0x5E);
-  rx_overload=$((rx_overload & 1));
+  rx_overload=$(iio_attr -D ad9361-phy direct_reg_access 0x5E)
+  rx_overload=$((rx_overload & 1))
   if [ $rx_overload == "1" ]; then
-    publish "rx/overload" "1";
+    publish "rx/overload" "1"
   else
-    publish "rx/overload" "0";
+    publish "rx/overload" "0"
   fi
 
+}
+
+#frequency,span,on
+
+update_sweep () {
+   
+      /root/sweep.sh $1 $2 $3
+   
 }
 
 # Parse data provided on mqtt and execute commands
@@ -123,12 +143,66 @@ parse_cmd () {
   #First check if it is a classical iio cmd
   if  [ ${rVMAP[$cmd]} ]; then
       #echo "Cmd known ${cmd} ${val}"  
-      echo ${val} > ${rVMAP[$cmd]}
+      echo ${val} > ${rVMAP[$cmd]} &
   else
     echo ${cmd} ${val}
     case $cmd in
     rx/rfinput)
-      /root/switch_rfinput.sh ${val}
+      /root/switch_rfinput.sh ${val} &
+    ;;
+    rx/span)
+      SPAN=$(printf "%0.f" $val)
+     
+      echo $SPAN > /tmp/sweep_span
+      if [ "$SPAN" -gt "60000000" ]; then
+        current_frequency=$(cat ${folder}out_altvoltage0_RX_LO_frequency)
+         update_sweep $current_frequency $SPAN 1        
+      else
+        /root/sweep_stop.sh
+        echo 60000000 > ${folder}in_voltage_sampling_frequency
+
+      fi
+       
+    ;;
+    rx/frequency)
+      
+      SPAN=$(cat /tmp/sweep_span)
+      sweep_on=$(cat /tmp/sweep_on)
+      echo $val > /tmp/sweep_frequency
+
+      if [ "$sweep_on" == "1" ]; then
+        
+         update_sweep $val $SPAN 1        
+      else
+        echo $val > ${folder}out_altvoltage0_RX_LO_frequency
+
+      fi
+       
+    ;;
+    rx/sweep/frequency)
+    if [ "$sweep_frequency" != "$val" ]; then
+    sweep_frequency=$val
+    echo $sweep_frequency > /tmp/sweep_frequency
+    echo "Sweep Freqency $sweep_frequency"
+    update_sweep $sweep_frequency $sweep_span $sweep_on 
+    fi
+    ;;
+    rx/sweep/span)
+    if [ "$sweep_span" != "$val" ] ; then
+    sweep_span=$val
+    echo $sweep_span > /tmp/sweep_span
+    echo "Sweep span $val"
+    update_sweep $sweep_frequency $sweep_span $sweep_on 
+    fi
+    ;;
+    rx/sweep/activate)
+    sweep_on=$(cat /tmp/sweep_on)
+    if [ "$val" == "1" ]; then
+    sweep_on=$val
+    update_sweep $sweep_frequency $sweep_span $sweep_on 
+    else
+    /root/sweep_stop.sh
+    fi
     ;;
     esac
       
@@ -138,17 +212,20 @@ parse_cmd () {
 # Watch files and publish information to multiple outputs
 
 # Initial dump of data
-dump_data
+#dump_data
 
 # Observer changes in files
-inotifywait --format %w%f -r -q -m -e create -e modify ${folder}* | update_data &
+#inotifywait --format %w%f -r -q -m -e create -e modify ${folder}* | update_data &
 
 # Watch files and publish information to multiple outputs
 /usr/bin/mosquitto_sub -v -i "tezuka_sub" -t "cmd/#" | while read i; do parse_cmd $i ; done &
 
 # Dump data every 10 seconds
+
 while true; do
-  sleep 2;
-  update_data;
-  dump_data;
+
+  #update_data
+  
+  dump_data
+  sleep 2
 done

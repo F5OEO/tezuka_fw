@@ -93,6 +93,16 @@ function ad9361_samplerate(ad_samplerate) {
       })
 }
 
+function ad9361_frequency(ad_freq) {
+    fetch(apiUrl+"/api/ad9361", {
+        method: 'PATCH',
+        headers: {
+          "Content-Type": 'application/json',
+        },
+        body: JSON.stringify({ rx_lo_frequency : ad_freq })
+      })
+}
+
 function ad9361_rfbanwidth(ad_bandwidth) {
     fetch(apiUrl+"/api/ad9361", {
         method: 'PATCH',
@@ -134,11 +144,11 @@ function ad9361_gainmode(ad_gainmode) {
 //fetchData();
 
 spectro_input("AD9361");//DDC,AD9361
-spectro_fps(200);
+//spectro_fps(200);
 //ddc_design(32,40);
 //ddc_frequency(0);
 spectro_mode("Average");// PeakDetect or Average
-ad9361_samplerate(60000000);
+//ad9361_samplerate(60000000);
 ad9361_rfbanwidth(56000000);
 ad9361_gainmode("Manual");
 //ad9361_gain2(Number(50.0));

@@ -230,7 +230,7 @@ Spectrum.prototype.updateInfo = function(x) {
     else if (this.centerHz + this.spanHz/this.zoom > 1e3)
         freq = (freq / 1e3).toFixed(3) + "kHz";
     
-    this.ctx_InfoFrequency.fillText(freq, x, 50);
+    this.ctx_InfoFrequency.fillText(freq+" Span "+this.spanHz/1e6, x, 50);
     
 }
 
@@ -277,7 +277,9 @@ Spectrum.prototype.updateAxes = function() {
                 this.ctx_axes.textAlign = "center";
             }
            
-            var freq = Number(this.centerHz) + (Number(this.spanHz)/ 10) * (i - 5);
+            //var freq = Number(this.centerHz) + (Number(this.spanHz)*this.zoom_mini/(this.zoom* 10)) * (i - 5);
+            //var freq = (((this.wf_size/2)/this.wf_size*this.spanHz)+Number(this.orginalfreq));    
+            var freq = (((this.Screentobin(x)-this.wf_size/2)/this.wf_size*this.spanHz)+Number(this.orginalfreq));
             //console.log("Span "+this.spanHz+" freq "+freq);
             if (this.centerHz + this.spanHz > 1e6)
                 freq = (freq / 1e6).toFixed(3) + "M";
@@ -421,11 +423,11 @@ Spectrum.prototype.setRange = function(min_db, max_db) {
 }
 
 Spectrum.prototype.rangeUp = function() {
-    this.setRange(this.min_db - 5, this.max_db - 5);
+    this.setRange(this.min_db - 10, this.max_db - 10);
 }
 
 Spectrum.prototype.rangeDown = function() {
-    this.setRange(this.min_db + 5, this.max_db + 5);
+    this.setRange(this.min_db + 10, this.max_db + 10);
 }
 
 Spectrum.prototype.rangeIncrease = function() {
@@ -653,11 +655,22 @@ Spectrum.prototype.scaleat = function(at, amount)
     {    
         this.zoom *= amount;
         this.pos = at - (at - this.pos) * amount;
+        
+        //this.Sendmqtt("cmd/rx/sweep/activate","0");
         //console.log("Original "+this.NativeSpan+" Span "+this.NativeSpan*(this.Screentobin(this.canvas.width)-this.Screentobin(0))/this.wf_size);    
        
        //this.setSpanHz(this.spanHz*(this.Screentobin(this.canvas.width)-this.Screentobin(0))/this.wf_size);
         //this.setCenterHz(((this.Screentobin(this.canvas.width/2)-this.wf_size/2)/this.wf_size*this.spanHz)+this.orginalfreq);
         //console.log("Freq "+((this.Screentobin(this.canvas.width/2)-this.wf_size/2)/this.wf_size*this.NativeSpan)+this.orginalfreq);
+    }
+    else
+    {
+        console.log("Zoom mini");
+        //this.spanHz=this.spanHz*1.2;
+        //this.setSpanHz(this.spanHz);
+        //this.Sendmqtt("cmd/rx/sweep/span",calculspan.toString());
+        //this.Sendmqtt("cmd/rx/sweep/frequency",this.centerHz);
+        //this.Sendmqtt("cmd/rx/sweep/activate","1");
     }    
     
     
@@ -673,19 +686,38 @@ Spectrum.prototype.Bintoscreen= function(x)
     return ((x-this.xoffset)*this.zoom+this.pos);
 }
 
-Spectrum.prototype.UpdateXOffset= function(x)
+Spectrum.prototype.UpdateXOffset= function(x,enable_freq_update)
 {
     //console.log("screen "+this.Screentobin(this.canvas.width)+" bin "+this.Screentobin(0));
+    console.log("Offsetx"+this.xoffset+" pos "+this.pos);
     if((this.xoffset+x)*this.zoom<this.pos)
-        this.xoffset=this.pos/this.zoom;
+    {
+        console.log("Offset mini");
+
+         this.xoffset=this.pos/this.zoom;
+         if(enable_freq_update == 1)
+         {
+         var newfreq=Math.ceil(Number(this.centerHz)-this.spanHz*0.1*this.zoom_mini/this.zoom);
+            console.log("New freq"+newfreq.toString());
+            this.Sendmqtt("cmd/rx/frequency",newfreq.toString());
+            this.setCenterHz(newfreq);
+         }   
+    }     
     else
     if(this.Screentobin(this.canvas.width)>this.wf_size)
         {
             this.xoffset-=x;    
-            //console.log("Limite "+this.Bintoscreen(this.pos)+" "+this.Bintoscreen(this.wf_size)); 
-            //this.xoffset=this.Screentobin(this.pos/this.zoom);
+            console.log("Limite "+this.Bintoscreen(this.pos)+" "+this.Bintoscreen(this.wf_size));
+            if(enable_freq_update == 1)
+            {
+            var newfreq=Math.ceil(Number(this.centerHz)+this.spanHz*0.1*this.zoom_mini/this.zoom);
+            console.log("New freq"+newfreq.toString());
+            this.Sendmqtt("cmd/rx/frequency",newfreq.toString());
+            this.setCenterHz(newfreq);
+            }
+           
         }
-        //this.xoffset=this.pos+this.wf_size;
+        
     else    
         this.xoffset+=x;
     
@@ -778,56 +810,117 @@ Spectrum.prototype.onKeypress = function(e) {
 Spectrum.prototype.handleMouseWheel = function(e)
 {
 
-    
-    
+     
+        
     if(e.deltaY<0)
         {
-        //this.zoomin();
-        //this.scaleat(e.offsetX,1.2);
+            console.log("Zoom "+this.zoom);
         this.scaleat(e.offsetX,1.2);
-        //this.xoffset=e.OffsetX;
+        /*
+        if(this.spanHz/1.2>60000000)
+            {
+        
+                this.setSpanHz(this.spanHz/1.2);
+                this.Sendmqtt("cmd/rx/span",this.spanHz.toString());
+                spectro_fps(200);
+                
+            }
+            else
+            {
+
+                this.setSpanHz(60000000);  
+                ad9361_samplerate(this.spanHz); 
+                spectro_fps(25);
+            }
+                */
         }
     if(e.deltaY>0)
     {
         
-        //this.scaleat(e.offsetX,1/1.2);
-        this.scaleat(e.offsetX,1/1.2);
-        
-        //this.zoomout();
+         console.log("DeZoom "+this.zoom);
+         if(this.zoom/1.2>this.zoom_mini)
+            this.scaleat(e.offsetX,1/1.2);
+        else
+        {
+            if(this.spanHz*1.2>60000000)
+                {
+                    if(this.spanHz*1.2<60000000*8)
+                    {
+                        this.setSpanHz(this.spanHz*1.2);
+                        this.Sendmqtt("cmd/rx/span",this.spanHz.toString());
+                        spectro_fps(200);
+                    }
+                    else
+                    {
+                        this.setSpanHz(60000000*8);
+                        this.Sendmqtt("cmd/rx/span",this.spanHz.toString());
+                        spectro_fps(200);
+                        console.log("Span max");
+                    }
+                    
+                }
+            else       
+            {
+                this.setSpanHz(60000000);
+                ad9361_samplerate(this.spanHz);   
+                spectro_fps(25);
+            }
+        }   
     }
+
     this.updateInfo(e.clientX);
+    this.updateAxes();
 }
 
 Spectrum.prototype.handleMouseUp = function(e)
 {
     this.mouseisdown=0;
+
+    
 }
 
 Spectrum.prototype.handleMouseDown = function(e)
 {
     this.mouseisdown=1;
+    this.LastDownPosition = e.clientX;
 }
 
 Spectrum.prototype.handleMouseMove = function(e)
 {
     if(this.mouseisdown==1)
     {
-        this.UpdateXOffset(-(e.movementX*1)/this.zoom);
+        var enable_update=0;
+        if(Math.abs(this.LastDownPosition-e.clientX)>10)
+            {
+                
+                this.LastDownPosition = e.clientX;
+                enable_update=1    
+            }
+        this.UpdateXOffset(-(e.movementX*1)/this.zoom,enable_update);
 
         if(e.movementY<0)
             this.rangeUp();
         if(e.movementY>0)
             this.rangeDown();
+        this.updateAxes();
         //this.UpdateYOffset(-(e.movementY*10)/this.zoom);
     }
     this.updateInfo(e.clientX);
 }
 
+Spectrum.prototype.Sendmqtt= function(topic,val)
+{
+  
+  var message = new Paho.MQTT.Message(val);
+  message.destinationName = topic;
+  mqtt_client.send(message);
+}
+
 function Spectrum(id, options) {
     // Handle options
-    this.centerHz = (options && options.centerHz) ? options.centerHz : 258e6;
+    this.centerHz = (options && options.centerHz) ? options.centerHz : 100e6;
     this.orginalfreq = this.centerHz;
-    this.spanHz = (options && options.spanHz) ? options.spanHz : 480e6;
+    this.spanHz = (options && options.spanHz) ? options.spanHz : 60e6;
     this.NativeSpan=this.spanHz;
     this.gain = (options && options.gain) ? options.gain : 0;
     this.fps = (options && options.fps) ? options.fps : 0;
@@ -838,7 +931,7 @@ function Spectrum(id, options) {
     this.averaging = (options && options.averaging) ? options.averaging : 0;
     this.maxHold = (options && options.maxHold) ? options.maxHold : false;
     this.autoScale = (options && options.autoScale) ? options.autoScale : false;
-
+   
     this.logger = (options && options.logger) ? document.getElementById(options.logger) : document.getElementById('log');
     
     // Setup state
@@ -897,5 +990,12 @@ function Spectrum(id, options) {
     this.onsweep=0;
     //this.pos=this.wf_size/2;
     this.pos=0;
+    this.LastDownPosition=0;
+    //this.Sendmqtt("cmd/rx/sweep/activate","0");
+    ad9361_rfbanwidth(56000000);
+    ad9361_gainmode("Manual");
+    ad9361_frequency(this.centerHz);
+    ad9361_samplerate(this.spanHz);
+
     //this.scaleat(this.canvas.width/2,this.canvas.width/this.wf_size );
 }

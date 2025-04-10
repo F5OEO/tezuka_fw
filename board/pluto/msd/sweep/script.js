@@ -95,6 +95,10 @@ function onConnect() {
     // Once a connection has been made, make a subscription and send a message.
     console.log("MQTT onConnect");
     mqtt_client.subscribe("state/#");
+    var message = new Paho.MQTT.Message("0");
+    message.destinationName = "cmd/rx/sweep/activate";
+    mqtt_client.send(message);
+    
     
   }
   
@@ -112,23 +116,35 @@ function onConnect() {
     {
         case "state/rx/frequency" : spectrum.setCenterHz(message.payloadString);spectrum.orginalfreq=message.payloadString;break;
         case "state/rx/sampling" : 
+            spectrum.NativeSpan=message.payloadString;
             if(spectrum.onsweep==0)
             {
-                spectrum.setSpanHz(message.payloadString);
-                spectrum.NativeSpan=message.payloadString;
-            }    
-            else
-            {    
-                spectrum.setSpanHz(Number(message.payloadString)*8);
-                spectrum.NativeSpan=message.payloadString;
+                //spectrum.setSpanHz(message.payloadString);
             }    
             break;
-        case "state/rx/sweep" :
-             if(message.payloadString == "on")
+
+        case "state/rx/sweep/activate" :
+             if(message.payloadString == "1")
                  spectrum.onsweep=1; 
              else 
                 spectrum.onsweep=0;
              break;
+        case "state/rx/sweep/frequency" :
+                if(spectrum.onsweep == 1)
+                {
+                    //spectrum.setCenterHz(message.payloadString);spectrum.orginalfreq=message.payloadString;
+                }
+                
+                   
+                break;
+        case "state/rx/sweep/span" :
+                    if(spectrum.onsweep == 1)
+                    {
+                        //spectrum.setSpanHz(message.payloadString);
+                    }
+                    
+                       
+                    break;       
         case "state/rx/overload" :
             if(message.payloadString == "1") 
             {
@@ -169,17 +185,19 @@ function main() {
     mqtt_client.onConnectionLost = onConnectionLost;
     mqtt_client.onMessageArrived = onMessageArrived;
 
-// connect the client
-    mqtt_client.connect({onSuccess:onConnect});
     // Create spectrum object on canvas with ID "waterfall"
     spectrum = new Spectrum(
         "waterfall", {
         spectrumPercent: 50,
-        logger: 'log',
+        logger: 'log'
+        
     });
 
     // Connect to websocket
     connectWebSocket(spectrum);
+
+    // connect the client
+    mqtt_client.connect({onSuccess:onConnect});
 
     // Bind keypress handler
     window.addEventListener("keydown", function (e) {
