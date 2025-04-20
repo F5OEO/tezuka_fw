@@ -1,2 +1,1 @@
-wget https://buildroot.org/downloads/buildroot-2024.08.tar.gz
-tar -xvf buildroot-2024.08.tar.gz
+mkdir -p buildroot && wget -O- https://buildroot.org/downloads/buildroot-2024.11.1.tar.gz | tar -xz -C buildroot --strip-component 1
