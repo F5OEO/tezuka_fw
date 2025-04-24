@@ -52,7 +52,7 @@ If you like this firmware you can help me maintaining it by
 ```
 git clone https://github.com/F5OEO/tezuka_fw
 cd tezuka_fw
-bash getbuildroot.sh
+./getbuildroot.sh
 
 ```
 ### Build
@@ -61,6 +61,17 @@ source sourceme.first
 cd buildroot
 make pluto_maiasdr_defconfig && make
 ```
+
+### In container build
+```
+cd buildroot
+BR2_EXTERNAL=../ utils/docker-run
+# After image build or immediately you be in container
+make pluto_maiasdr_defconfig && make
+```
+
+See 'utils/docker-run' script to understand how env is passed from host
+
 ### Result
 All materials are in buildroot/output/images
 
