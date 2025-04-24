@@ -47,11 +47,18 @@ EOF
 
 patch -p0 << 'EOF'
 --- buildroot/utils/docker-run	2025-01-09 17:43:35.000000000 +0300
-+++ docker-run	2025-04-24 17:23:50.818136982 +0300
-@@ -9,11 +9,6 @@
-     # Support git-worktree
-     GIT_DIR="$(cd "${MAIN_DIR}" && git rev-parse --no-flags --git-common-dir)"
- fi
++++ docker-run	2025-04-25 01:32:56.488904974 +0300
+@@ -2,18 +2,6 @@
+ set -o errexit -o pipefail
+ DIR=$(dirname "${0}")
+ MAIN_DIR=$(readlink -f "${DIR}/..")
+-if [ -L "${MAIN_DIR}/.git/config" ]; then
+-    # Support git-new-workdir
+-    GIT_DIR="$(dirname "$(realpath "${MAIN_DIR}/.git/config")")"
+-else
+-    # Support git-worktree
+-    GIT_DIR="$(cd "${MAIN_DIR}" && git rev-parse --no-flags --git-common-dir)"
+-fi
 -if test -z "${IMAGE}" ; then
 -    # shellcheck disable=SC2016
 -    IMAGE=$(grep ^image: "${MAIN_DIR}/.gitlab-ci.yml" | \
@@ -60,7 +67,7 @@ patch -p0 << 'EOF'
 
  declare -a docker_opts=(
      -i
-@@ -44,6 +39,26 @@
+@@ -44,6 +32,26 @@
      exit 1
  fi
 
@@ -87,7 +94,7 @@ patch -p0 << 'EOF'
  # curl lists (and recognises and uses) other types of *_proxy variables,
  # but only those make sense for Buildroot:
  for env in all_proxy http_proxy https_proxy ftp_proxy no_proxy; do
-@@ -90,6 +105,12 @@
+@@ -90,6 +98,12 @@
      docker_opts+=( --env BR2_DL_DIR )
  fi
 
