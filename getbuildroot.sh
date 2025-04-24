@@ -4,6 +4,15 @@ wget -O- https://buildroot.org/downloads/buildroot-2024.11.1.tar.gz | tar -xz --
 patch -p0 << 'EOF'
 --- buildroot/support/docker/Dockerfile	2025-01-09 17:43:35.000000000 +0300
 +++ Dockerfile	2025-04-24 12:36:38.179855982 +0300
+@@ -6,7 +6,7 @@
+ # We use a specific tag for the base image *and* the corresponding date
+ # for the repository., so do not forget to update the apt-sources.list
+ # file that is shipped next to this Dockerfile.
+-FROM debian:bullseye-20230202
++FROM debian:bookworm-20250203
+
+ LABEL maintainer="Buildroot mailing list <buildroot@buildroot.org>" \
+       vendor="Buildroot" \
 @@ -51,6 +51,11 @@
          subversion \
          unzip \
