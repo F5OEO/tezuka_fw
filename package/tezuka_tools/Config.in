@@ -47,7 +47,9 @@ select BR2_PACKAGE_CHRONY
 #gps
 select  BR2_PACKAGE_GPSD
 select BR2_PACKAGE_GPSD_UBX
-
+#DATV
+#select BR2_PACKAGE_SRT
+#select BR2_PACKAGE_SDONLY
 	help
 	  "Tezuka common tools"
 
