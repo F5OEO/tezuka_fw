@@ -49,14 +49,14 @@ If you like this firmware you can help me maintaining it by
 # For developpers
 ## Building from source (linux debian based)
 ### Install once
-```
+```bash
 git clone https://github.com/F5OEO/tezuka_fw
 cd tezuka_fw
 ./getbuildroot.sh
 
 ```
 ### Build
-```
+```bash
 source sourceme.first
 cd buildroot
 # If you want to use the build in a Docker container, then run the following command here:
