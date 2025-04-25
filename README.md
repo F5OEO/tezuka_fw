@@ -59,18 +59,10 @@ cd tezuka_fw
 ```
 source sourceme.first
 cd buildroot
+# If you want to use the build in a Docker container, then run the following command here:
+#  utils/docker-run
 make pluto_maiasdr_defconfig && make
 ```
-
-### In container build
-```
-cd buildroot
-BR2_EXTERNAL=../ utils/docker-run
-# After image build or immediately you be in container
-make pluto_maiasdr_defconfig && make
-```
-
-See 'utils/docker-run' script to understand how env is passed from host
 
 ### Result
 All materials are in buildroot/output/images

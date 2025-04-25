@@ -47,7 +47,7 @@ EOF
 
 patch -p0 << 'EOF'
 --- buildroot/utils/docker-run	2025-01-09 17:43:35.000000000 +0300
-+++ docker-run	2025-04-25 01:32:56.488904974 +0300
++++ docker-run	2025-04-25 21:48:11.721897175 +0300
 @@ -2,18 +2,6 @@
  set -o errexit -o pipefail
  DIR=$(dirname "${0}")
@@ -94,18 +94,23 @@ patch -p0 << 'EOF'
  # curl lists (and recognises and uses) other types of *_proxy variables,
  # but only those make sense for Buildroot:
  for env in all_proxy http_proxy https_proxy ftp_proxy no_proxy; do
-@@ -90,6 +98,12 @@
+@@ -90,6 +98,18 @@
      docker_opts+=( --env BR2_DL_DIR )
  fi
 
-+# NOTE only one external dir
 +if [ "${BR2_EXTERNAL}" ]; then
-+    mountpoints+=( "$(realpath ${BR2_EXTERNAL})" )
-+    docker_opts+=( --env BR2_EXTERNAL="$(realpath ${BR2_EXTERNAL})" )
++    br2_externals=(${BR2_EXTERNAL//:/ })
++    br2_externals=$(printf "%s\n" "${br2_externals[@]}" | sort -u)  # leave only unique paths
++    br2_external_container_env=
++    for br2_external_path in ${br2_externals[@]}; do
++        real_path=$(realpath ${br2_external_path})
++        mountpoints+=( "${real_path}" )
++        br2_external_container_env="${br2_external_container_env}${real_path}:"
++    done
++    docker_opts+=( --env BR2_EXTERNAL="${br2_external_container_env}" )
 +fi
 +
  # shellcheck disable=SC2013 # can't use while-read because of the assignment
  for dir in $(printf '%s\n' "${mountpoints[@]}" |LC_ALL=C sort -u); do
      docker_opts+=( --mount "type=bind,src=${dir},dst=${dir}" )
 EOF
-
