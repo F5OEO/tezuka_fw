@@ -37,7 +37,6 @@ sed -i s/##UBOOT_VERSION##/${UBOOT_VERS}/g ${BINARIES_DIR}/msd/LICENSE.html
 
 echo device-fw tezuka-${FW_VERSION}> ${TARGET_DIR}/opt/VERSIONS
 
-BOARD_DIR="$(dirname $0)"
 BOARD_NAME="$(basename ${BOARD_DIR})"
 GENIMAGE_CFG="${BOARD_DIR}/genimage-msd.cfg"
 GENIMAGE_TMP="${BUILD_DIR}/genimage.tmp"
@@ -59,57 +58,19 @@ rm -rf ${BINARIES_DIR}/msd
 
 INSTALL=install
 
-BOARD_ROOTFS="${BOARD_DIR}/rootfs"
 rm -Rf ${TARGET_DIR}/etc/dropbear
 
 mkdir -p ${TARGET_DIR}/www/img
 mkdir -p ${TARGET_DIR}/www/sweep
-mkdir -p ${TARGET_DIR}/etc/wpa_supplicant/
 mkdir -p ${TARGET_DIR}/mnt/jffs2
 mkdir -p ${TARGET_DIR}/mnt/msd
 mkdir -p ${TARGET_DIR}/mnt/nfs
 mkdir -p ${TARGET_DIR}/mnt/sd
 mkdir -p ${TARGET_DIR}/etc/dropbear
 
-${INSTALL} -D -m 0755 ${BOARD_ROOTFS}/update.sh ${TARGET_DIR}/sbin/
-#${INSTALL} -D -m 0755 ${BOARD_ROOTFS}/update_from_github.sh ${TARGET_DIR}/sbin/
-${INSTALL} -D -m 0755 ${BOARD_ROOTFS}/update_frm.sh ${TARGET_DIR}/sbin/
-${INSTALL} -D -m 0755 ${BOARD_ROOTFS}/udc_handle_suspend.sh ${TARGET_DIR}/sbin/
-${INSTALL} -D -m 0755 ${BOARD_ROOTFS}/S10mdev ${TARGET_DIR}/etc/init.d/
-${INSTALL} -D -m 0755 ${BOARD_ROOTFS}/S15watchdog ${TARGET_DIR}/etc/init.d/
-${INSTALL} -D -m 0755 ${BOARD_ROOTFS}/S20urandom ${TARGET_DIR}/etc/init.d/
-${INSTALL} -D -m 0755 ${BOARD_ROOTFS}/S21misc ${TARGET_DIR}/etc/init.d/
-${INSTALL} -D -m 0755 ${BOARD_ROOTFS}/S22serial ${TARGET_DIR}/etc/init.d/
-${INSTALL} -D -m 0755 ${BOARD_ROOTFS}/S23udc ${TARGET_DIR}/etc/init.d/
-${INSTALL} -D -m 0755 ${BOARD_ROOTFS}/S40network ${TARGET_DIR}/etc/init.d/
-${INSTALL} -D -m 0755 ${BOARD_ROOTFS}/S41network ${TARGET_DIR}/etc/init.d/
-${INSTALL} -D -m 0755 ${BOARD_ROOTFS}/S45msd ${TARGET_DIR}/etc/init.d/
-${INSTALL} -D -m 0755 ${BOARD_ROOTFS}/S50avahi-daemon ${TARGET_DIR}/etc/init.d/
-${INSTALL} -D -m 0755 ${BOARD_ROOTFS}/S55hostkeys ${TARGET_DIR}/etc/init.d/
-${INSTALL} -D -m 0755 ${BOARD_ROOTFS}/S98autostart ${TARGET_DIR}/etc/init.d/
-${INSTALL} -D -m 0644 ${BOARD_ROOTFS}/fw_env.config ${TARGET_DIR}/etc/
-#${INSTALL} -D -m 0644 ${BOARD_ROOTFS}/VERSIONS ${TARGET_DIR}/opt/
-${INSTALL} -D -m 0755 ${BOARD_ROOTFS}/device_reboot ${TARGET_DIR}/usr/sbin/
-${INSTALL} -D -m 0755 ${BOARD_ROOTFS}/device_passwd ${TARGET_DIR}/usr/sbin/
-${INSTALL} -D -m 0755 ${BOARD_ROOTFS}/device_persistent_keys ${TARGET_DIR}/usr/sbin/
-${INSTALL} -D -m 0755 ${BOARD_ROOTFS}/device_format_jffs2 ${TARGET_DIR}/usr/sbin/
-#MOTD Font Name: Graffiti
-echo "\033[1;35m" > ${TARGET_DIR}/etc/motd
-cat ${BOARD_ROOTFS}/motd >> ${TARGET_DIR}/etc/motd
-echo "\033[0m" >> ${TARGET_DIR}/etc/motd
-#${INSTALL} -D -m 0644 ${BOARD_ROOTFS}/motd ${TARGET_DIR}/etc/
-${INSTALL} -D -m 0755 ${BOARD_ROOTFS}/test_ensm_pinctrl.sh ${TARGET_DIR}/usr/sbin/
-${INSTALL} -D -m 0644 ${BOARD_ROOTFS}/device_config ${TARGET_DIR}/etc/
-${INSTALL} -D -m 0644 ${BOARD_ROOTFS}/mdev.conf ${TARGET_DIR}/etc/
-${INSTALL} -D -m 0755 ${BOARD_ROOTFS}/automounter.sh ${TARGET_DIR}/lib/mdev/automounter.sh
-${INSTALL} -D -m 0755 ${BOARD_ROOTFS}/ifupdown.sh ${TARGET_DIR}/lib/mdev/ifupdown.sh
-${INSTALL} -D -m 0644 ${BOARD_ROOTFS}/input-event-daemon.conf ${TARGET_DIR}/etc/
-
 ${INSTALL} -D -m 0644 ${BOARD_DIR}/msd/img/* ${TARGET_DIR}/www/img/
 ${INSTALL} -D -m 0644 ${BOARD_DIR}/msd/sweep/* ${TARGET_DIR}/www/sweep/
 ${INSTALL} -D -m 0644 ${BOARD_DIR}/msd/*.* ${TARGET_DIR}/www/
-
-${INSTALL} -D -m 0755 ${BOARD_ROOTFS}/wpa_supplicant/* ${TARGET_DIR}/etc/wpa_supplicant/
 
 ln -sf ../../wpa_supplicant/ifupdown.sh ${TARGET_DIR}/etc/network/if-up.d/wpasupplicant
 ln -sf ../../wpa_supplicant/ifupdown.sh ${TARGET_DIR}/etc/network/if-down.d/wpasupplicant
