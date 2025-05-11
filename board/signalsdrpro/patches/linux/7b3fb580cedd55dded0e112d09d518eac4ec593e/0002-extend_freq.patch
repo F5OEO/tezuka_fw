@@ -1,5 +1,5 @@
 --- /dev/null
-+++ linux-04fbdbb433faae8ffb3a5b24b7435509b11334cb/drivers/iio/adc/ad9361_regs.h
++++ linux-7b3fb580cedd55dded0e112d09d518eac4ec593e/drivers/iio/adc/ad9361_regs.h
 @@ -2817,11 +2817,11 @@
  #define MIN_VCO_FREQ_HZ			6000000000ULL
  
