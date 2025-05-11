@@ -306,7 +306,3 @@ index 000000000000..0f97c1e815c4
 +MODULE_DESCRIPTION("ad5660mp driver");
 +MODULE_LICENSE("GPL V2");
 \ No newline at end of file
-
- 
--- 
-2.25.1
