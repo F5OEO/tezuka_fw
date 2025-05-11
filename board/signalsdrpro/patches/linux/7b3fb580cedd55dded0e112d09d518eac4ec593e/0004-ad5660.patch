@@ -306,60 +306,7 @@ index 000000000000..0f97c1e815c4
 +MODULE_DESCRIPTION("ad5660mp driver");
 +MODULE_LICENSE("GPL V2");
 \ No newline at end of file
-diff --git a/drivers/mtd/spi-nor/core.c b/drivers/mtd/spi-nor/core.c
-index 84439aca5009..b7e676bbe6a9 100644
---- a/drivers/mtd/spi-nor/core.c
-+++ b/drivers/mtd/spi-nor/core.c
-@@ -608,7 +608,8 @@ int spi_nor_write_ear(struct spi_nor *nor, u32 addr)
- 		code = SPINOR_OP_BRWR;
- 	if (nor->jedec_id == CFI_MFR_ST ||
- 	    nor->jedec_id == CFI_MFR_MACRONIX ||
--	    nor->jedec_id == CFI_MFR_PMC) {
-+	    nor->jedec_id == CFI_MFR_PMC ||
-+		nor->jedec_id == CFI_MFR_WINBND) {
- 		spi_nor_write_enable(nor);
- 		code = SPINOR_OP_WREAR;
- 	}
-@@ -687,7 +688,8 @@ static int read_ear(struct spi_nor *nor, struct flash_info *info)
- 	/* This is actually Micron */
- 	else if (nor->jedec_id == CFI_MFR_ST ||
- 		 nor->jedec_id == CFI_MFR_MACRONIX ||
--		 nor->jedec_id == CFI_MFR_PMC)
-+		 nor->jedec_id == CFI_MFR_PMC || 
-+		 nor->jedec_id == CFI_MFR_WINBND)
- 		code = SPINOR_OP_RDEAR;
- 	else
- 		return -EINVAL;
-@@ -2007,6 +2009,30 @@ static const struct flash_info *spi_nor_read_id(struct spi_nor *nor)
- 	u8 *id = nor->bouncebuf;
- 	unsigned int i;
- 	int ret;
-+	int tmp;
-+	u8 uid[20];
-+	if(nor -> spimem){
-+		struct spi_mem_op op = 
-+			SPI_MEM_OP(SPI_MEM_OP_CMD(0x4B,1),
-+					SPI_MEM_OP_NO_ADDR,
-+					SPI_MEM_OP_DUMMY(0,4),
-+					SPI_MEM_OP_DATA_IN(20,uid,1)
-+						);
-+		tmp = spi_mem_exec_op(nor->spimem, &op);
-+		if(tmp < 0){
-+			dev_dbg(nor->dev, "error %d reading UID\n", tmp);
-+			return ERR_PTR(tmp);
-+		}
-+		dev_info(nor->dev,"SPI-NOR-UniqueID %*phN\n",8,&uid[4]);
-+	} else{
-+		tmp = nor->controller_ops->read_reg(nor,0x4b,uid,20);
-+		if(tmp < 0){
-+			dev_dbg(nor->dev, "error %d reading UID\n", tmp);
-+			return ERR_PTR(tmp);
-+		}
-+		dev_info(nor->dev,"SPI-NOR-UniqueID %*phN\n",16,&uid[4]);
-+	}
-+
- 
- 	#define SPI_NOR_MAX_EDID_LEN	20
+
  
 -- 
 2.25.1
