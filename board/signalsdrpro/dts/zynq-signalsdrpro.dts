@@ -1,113 +1,53 @@
+// SPDX-License-Identifier: GPL-2.0
 /*
- * Analog Devices Inc. Pluto SDR board DTS
  *
- * Copyright (C) 2015-2018 Analog Devices Inc.
+ * hdl_project: <signalsdrpro>
+ * board_revision: <A>
  *
- * SPDX-License-Identifier:     GPL-2.0+
+ * Copyright (C) 2016-2019 MicroPhase Inc.
  */
 /dts-v1/;
-#include "zynq-7000.dtsi"
+#include "zynq-signalsdrpro.dtsi"
+
+
+// &axi_i2c0 {
+//      current_limiter@5a {
+//              compatible = "adi,adm1177";
+//              reg = <0x5a>;
+//              adi,r-sense-mohm = <50>; /* 50 mOhm */
+//              adi,shutdown-threshold-ma = <1059>; /* 1.059 A */
+//              adi,vrange-high-enable;
+//      };
+// };
+
+
+&adc0_ad9364 {
+        /* This property is controlled by u-boot environment. */
+        adi,2rx-2tx-mode-enable;
+};
+
+&cf_ad9364_dac_core_0 {
+        /* This property is controlled by u-boot environment. */
+        compatible = "adi,axi-ad9361-dds-6.00.a";
+};
+
 
 / {
-        model = "Zynq Pluto SDR Board";
-        compatible = "xlnx,zynq-7000";
+        model = "Analog Devices PlutoSDR Rev.C (Z7010/AD9363)";
 
-        aliases {
-                ethernet0 = &gem0;
-                serial0 = &uart1;
-                spi0 = &qspi;
+        leds {
+                compatible = "gpio-leds";
+                led0 {
+                        label = "led0:green";
+                        gpios = <&gpio0 15 0>;
+                        linux,default-trigger = "heartbeat";
+                };
         };
 
-        memory {
-                device_type = "memory";
-                reg = <0x0 0x40000000>;
-        };
-
-        chosen {
-                bootargs = "earlyprintk";
-                linux,stdout-path = &uart1;
-                stdout-path = &uart1;
-        };
-
-        usb_phy0: phy0 {
-                compatible = "usb-nop-xceiv";
-                #phy-cells = <0>;
-        };
         gpio_keys {
                 compatible = "gpio-keys";
                 #address-cells = <1>;
                 #size-cells = <0>;
-                button {
-                        label = "Button";
-                        gpios = <&gpio0 14 0>;
-                        linux,code = <103>; /* up */
-                        wakeup-source;
-                        autorepeat;
-                };
-
+                autorepeat;
         };
-
-
-};
-
-
-
-
-
-
-&qspi {
-        status = "okay";
-        is-dual = <0>;
-        num-cs = <1>;
-        flash@0 {
-                compatible = "n25q512a","micron,m25p80";
-                reg = <0x0>;
-                spi-tx-bus-width = <1>;
-                spi-rx-bus-width = <4>;
-                spi-max-frequency = <50000000>;
-                #address-cells = <1>;
-                #size-cells = <1>;
-                partition@qspi-fsbl-uboot {
-                        label = "qspi-fsbl-uboot";
-                        reg = <0x0 0x100000>; /* 1M */
-                };
-                partition@qspi-uboot-env {
-                        label = "qspi-uboot-env";
-                        reg = <0x100000 0x20000>; /* 128k */
-                };
-                partition@qspi-nvmfs {
-                        label = "qspi-nvmfs";
-                        reg = <0x120000 0xE0000>; /* 1M */
-                };
-                partition@qspi-linux {
-                        label = "qspi-linux";
-                        reg = <0x200000 0x1E00000>; /* 30M */
-                };
-        };
-};
-
-&uart1 {
-        status = "okay";
-};
-
-&usb0 {
-        status = "okay";
-        dr_mode = "host";
-        usb-phy = <&usb_phy0>;
-};
-&sdhci0 {
-        u-boot,dm-pre-reloc;
-        status = "okay";
-
-};
-
-&gem0 {
-        status = "okay";
-        phy-mode = "rgmii-id";
-        phy-handle = <&ethernet_phy0>;
-
-        ethernet_phy0: ethernet-phy@0 {
-                reg = <0>;
-                reset-gpios = <&gpio0 46 0>;
-        };
-};
+};              
