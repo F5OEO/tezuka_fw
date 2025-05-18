@@ -46,9 +46,18 @@ If you like this firmware you can help me maintaining it by
 - Make some pull request
 
 
-# For developpers
-## Building from source (linux debian based)
+# For developers
+## Building from source (linux Debian based)
 ### Install once
+#### Add required packages
+Buildroot documentation has the [list of required packages](https://buildroot.org/downloads/manual/manual.html#requirement-mandatory).
+
+The following packages must be installed for building Maia-fw related code:
+```
+sudo apt install pkg-config openssl-dev libclang-dev
+```
+
+Now clone this repo and get buildroot
 ```
 git clone https://github.com/F5OEO/tezuka_fw
 cd tezuka_fw
@@ -61,6 +70,19 @@ source sourceme.first
 cd buildroot
 make pluto_maiasdr_defconfig && make
 ```
+
+For a list all supported boards run (this might take a while):
+```
+make list-defconfigs
+```
+The items at the bottom are the ones supported by Tezuka.
+
+### Building on WSL2 
+Buildroot does not allow whitespaces in the PATH environment variable. On WSL several paths with whitespaces are added. The following script can be used to remove any path with whitespaces. It also deletes any leftover ':' at the end:
+```
+export PATH=$(echo $PATH | tr ':' '\n' | grep -v ' ' | tr '\n' ':' | sed 's/:$//')
+```
+
 ### Result
 All materials are in buildroot/output/images
 
