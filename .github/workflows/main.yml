@@ -66,6 +66,8 @@ jobs:
         make libre_maiasdr_defconfig && make && mv ${{runner.workspace}}/build/buildroot-2024.11.1/output/images/tezuka.zip ${{runner.workspace}}/build/libresdr.zip
         make clean
         make fishball_maiasdr_defconfig && make && mv ${{runner.workspace}}/build/buildroot-2024.11.1/output/images/tezuka.zip ${{runner.workspace}}/build/fishball.zip
+        make clean
+        make fishball_maiasdr_7020_defconfig && make && mv ${{runner.workspace}}/build/buildroot-2024.11.1/output/images/tezuka.zip ${{runner.workspace}}/build/fishball7020.zip
 
     - name: Save zip Archive
       uses: actions/upload-artifact@v4
