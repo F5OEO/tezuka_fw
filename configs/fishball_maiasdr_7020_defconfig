@@ -101,6 +101,7 @@ BR2_PACKAGE_HOST_DFU_UTIL=y
 BR2_PACKAGE_HOST_DOSFSTOOLS=y
 BR2_PACKAGE_HOST_GENIMAGE=y
 BR2_PACKAGE_HOST_MTOOLS=y
+BR2_PACKAGE_HOST_BOOTGEN=y
 BR2_PACKAGE_HOST_UBOOT_TOOLS_FIT_SUPPORT=y
 BR2_PACKAGE_HOST_UBOOT_TOOLS_FIT_SIGNATURE_SUPPORT=y
 
@@ -132,8 +133,9 @@ BR2_TARGET_UBOOT_CUSTOM_DTS_PATH="$(BR2_EXTERNAL_PLUTOSDR_PATH)/board/fishball/u
 BR2_PACKAGE_HOST_UBOOT_TOOLS_ENVIMAGE_SOURCE="${BR2_EXTERNAL_PLUTOSDR_PATH}/board/fishball/uboot-env.txt"
 #BR2_LINUX_KERNEL_CUSTOM_DTS_PATH="$(BR2_EXTERNAL_PLUTOSDR_PATH)/board/plutoplus/dts/zynq-maiaplutoplus.dts $(BR2_EXTERNAL_PLUTOSDR_PATH)/board/plutoplus/dts/zynq-pluto-sdr-maiasdr.dtsi $(BR2_EXTERNAL_PLUTOSDR_PATH)/board/plutoplus/dts/zynq-7000.dtsi $(BR2_EXTERNAL_PLUTOSDR_PATH)/board/plutoplus/dts/zynq-pluto-sdr.dts $(BR2_EXTERNAL_PLUTOSDR_PATH)/board/plutoplus/dts/zynq-pluto-sdr-revb.dts $(BR2_EXTERNAL_PLUTOSDR_PATH)/board/plutoplus/dts/zynq-pluto-sdr-revc.dts $(BR2_EXTERNAL_PLUTOSDR_PATH)/board/plutoplus/dts/zynq-pluto-sdr.dtsi $(BR2_EXTERNAL_PLUTOSDR_PATH)/board/plutoplus/dts/zynq-plutoplus.dtsi $(BR2_EXTERNAL_PLUTOSDR_PATH)/board/plutoplus/dts/zynq-plutoplus.dts"
 BR2_LINUX_KERNEL_CUSTOM_DTS_PATH="$(BR2_EXTERNAL_PLUTOSDR_PATH)/board/fishball/dts/fishball.dtsi $(BR2_EXTERNAL_PLUTOSDR_PATH)/board/fishball/dts/fishball.dts $(BR2_EXTERNAL_PLUTOSDR_PATH)/board/fishball/dts/zynq-7000.dtsi "
-BR2_ROOTFS_OVERLAY="${BR2_EXTERNAL_PLUTOSDR_PATH}/board/pluto/overlay_maia"
+BR2_ROOTFS_OVERLAY="${BR2_EXTERNAL_PLUTOSDR_PATH}/board/pluto/overlay_base ${BR2_EXTERNAL_PLUTOSDR_PATH}/board/pluto/overlay_maia"
 BR2_ROOTFS_POST_BUILD_SCRIPT="${BR2_EXTERNAL_PLUTOSDR_PATH}/board/pluto/post-build.sh"
 BR2_ROOTFS_POST_IMAGE_SCRIPT="${BR2_EXTERNAL_PLUTOSDR_PATH}/board/fishball/post_image_maia.sh ${BR2_EXTERNAL_PLUTOSDR_PATH}/board/fishball_7020/post_image-uboot.sh"
 BR2_PACKAGE_MAIASDR_FW=y
-BR2_PACKAGE_FISHBALL_7020_FPGA=y
+BR2_PACKAGE_FISHBALL_FPGA_7020=y
+

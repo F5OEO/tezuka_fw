@@ -1,0 +1,8 @@
+config BR2_PACKAGE_GR_DVBS2RX
+        bool "gr-dvbs2rx"
+        select BR2_PACKAGE_BOOST_TEST
+        select BR2_PACKAGE_PYTHON_SCIPY
+        depends on BR2_TOOLCHAIN_HAS_THREADS
+                 
+comment "gnuradio dvbs2rx"
+        

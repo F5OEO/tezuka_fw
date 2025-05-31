@@ -1,0 +1,14 @@
+config BR2_PACKAGE_GR_SATELLITE
+        bool "gr-satellite"
+        
+        select BR2_PACKAGE_PYTHON_CONSTRUCT
+        select BR2_PACKAGE_PYTHON_REQUESTS
+
+        select BR2_PACKAGE_BOOST_PYTHON
+ 	select BR2_PACKAGE_PYTHON_NUMPY
+        select BR2_PACKAGE_PYTHON_WEBSOCKET_CLIENT
+        select BR2_PACKAGE_PYTHON_PYAML
+        depends on BR2_TOOLCHAIN_HAS_THREADS
+                 
+comment "gnuradio gr-satellite"
+        

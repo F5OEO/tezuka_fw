@@ -3,6 +3,7 @@ BOARD_DIR=$(dirname $0)
 BIN_DIR=$1
 mkimage=$HOST_DIR/bin/mkimage
 dfu_suffix=$HOST_DIR/bin/dfu-suffix
+bootgen=$HOST_DIR/bin/bootgen
 
 DEVICE_VID=0x0456
 DEVICE_PID=0xb673
