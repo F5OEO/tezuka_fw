@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-wget -O- https://buildroot.org/downloads/buildroot-2025.02.3.tar.gz | tar -xz --one-top-level=buildroot --strip-components=1
+#wget -O- https://buildroot.org/downloads/buildroot-2025.02.3.tar.gz | tar -xz --one-top-level=buildroot --strip-components=1
+git clone https://github.com/signalens/buildroot.git
 
 patch -p0 << 'EOF'
 --- buildroot/support/docker/Dockerfile	2025-05-26 20:56:37.937741302 +0300

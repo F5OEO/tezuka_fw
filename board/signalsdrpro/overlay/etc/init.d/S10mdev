@@ -1,0 +1,24 @@
+#!/bin/sh
+#
+# Start mdev....
+#
+
+case "$1" in
+  start)
+	echo -n "Starting mdev: "
+	echo /sbin/mdev >/proc/sys/kernel/hotplug
+	/sbin/mdev -s
+	# coldplug modules
+	# find /sys/ -name modalias -print0 | xargs -0 sort -u -z | xargs -0 modprobe -abq
+	[ $? = 0 ] && echo "OK" || echo "FAIL"
+	;;
+  stop)
+	;;
+  restart|reload)
+	;;
+  *)
+	echo "Usage: $0 {start|stop|restart}"
+	exit 1
+esac
+
+exit $?

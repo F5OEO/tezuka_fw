@@ -1,0 +1,32 @@
+#!/bin/sh
+
+case "$1" in
+	ram)
+		cause=7
+		;;
+	sf)
+		cause=3
+		;;
+	verbose)
+		cause=6
+		;;
+	break)
+		cause=2
+		;;
+	reset)
+		cause=0
+		;;
+
+	*)
+		echo "Usage: $0 {ram|sf|reset|verbose|break}"
+		echo "  sf     : Reboot and enter Serial Flash DFU mode"
+		echo "  ram    : Reboot and enter RAM DFU mode"
+		echo "  reset  : Reboot"
+		echo "  verbose: Reboot and start serial console Verbose"
+		echo "  break  : Reboot and HALT in u-boot"
+		exit 1
+esac
+
+echo $cause > /sys/kernel/debug/zynq_rst/code && /sbin/reboot
+
+exit 0

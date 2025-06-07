@@ -1,0 +1,36 @@
+#! /bin/sh
+
+xo_correction() {
+
+	XO_ENV_VAL=`fw_printenv -n xo_correction 2> /dev/null`
+	if [ $? -eq 0 ]; then
+
+		for dev in /sys/bus/iio/devices/*; do
+			[ `cat ${dev}/name` == "ad9361-phy" ] && DEV_NAME=`basename ${dev}`
+		done
+
+		echo ${XO_ENV_VAL} > /sys/bus/iio/devices/${DEV_NAME}/xo_correction
+	fi
+}
+
+
+case "$1" in
+	start|"")
+		echo -n "Starting miscellaneous setup: "
+		# Restore saved password and Dropbear keys
+		[[ -d /mnt/jffs2/etc ]] && cd /mnt/jffs2/etc && md5sum -s -c password.md5 && cp passwd shadow group /etc
+		[[ -d /mnt/jffs2/etc/dropbear ]] && cd /mnt/jffs2/etc/dropbear && md5sum -s -c keys.md5 && cp dropbear* /etc/dropbear/
+		[[ -d /mnt/jffs2/root/.ssh ]] && cd /mnt/jffs2/root/.ssh && md5sum -s -c keys.md5 && mkdir /root/.ssh && cp authorized_keys /root/.ssh
+		xo_correction
+		MAX_BS=`fw_printenv -n iio_max_block_size 2> /dev/null || echo 67108864`
+		echo ${MAX_BS} > /sys/module/industrialio_buffer_dma/parameters/max_block_size
+		[ $? = 0 ] && echo "OK" || echo "FAIL"
+		;;
+	stop)
+
+		;;
+	*)
+		echo "Usage: $0 {start|stop}" >&2
+		exit 1
+		;;
+esac

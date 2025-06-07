@@ -1,0 +1,29 @@
+#! /bin/sh
+#
+# urandom	This script saves the random seed between reboots.
+#		It is called from the boot, halt and reboot scripts.
+#
+# Version:	@(#)urandom  1.33  22-Jun-1998  miquels@cistron.nl
+#
+
+[ -c /dev/urandom ] || exit 0
+#. /etc/default/rcS
+
+case "$1" in
+	start|"")
+		echo -n "Starting initializing random number generator: "
+
+		# Load and then save 512 bytes,
+		# which is the size of the entropy pool
+
+		dmesg | sha512sum > /dev/urandom
+		[ $? = 0 ] && echo "OK" || echo "FAIL"
+		;;
+	stop)
+
+		;;
+	*)
+		echo "Usage: urandom {start|stop}" >&2
+		exit 1
+		;;
+esac

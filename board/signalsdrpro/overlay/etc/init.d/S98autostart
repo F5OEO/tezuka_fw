@@ -1,0 +1,21 @@
+#!/bin/sh
+#
+# Script to check for and run user-supplied /mnt/jffs2/autorun.sh
+#
+
+case "$1" in
+  start)
+	if test -f /mnt/jffs2/autorun.sh; then
+		source /mnt/jffs2/autorun.sh
+	fi
+	;;
+  stop)
+	;;
+  restart|reload)
+	;;
+  *)
+	echo "Usage: $0 {start|stop|restart}"
+	exit 1
+esac
+
+exit $?
