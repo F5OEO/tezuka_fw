@@ -77,6 +77,12 @@ For a list all supported boards run (this might take a while):
 ```bash
 make list-defconfigs
 ```
+
+If encounter CMAKE version issue
+```bash
+CMAKE_POLICY_VERSION_MINIMUM=3.5 make
+```
+
 The items at the bottom are the ones supported by Tezuka.
 
 ### Building on WSL2 
