@@ -17,7 +17,7 @@
 +#define CONFIG_ZYNQ_EEPROM
 +#define CONFIG_DFU_SF
 +
-+#include <configs/zynq-common.h>
++#include <configs/tezuka-common.h>
 +
 +/* To maintain compatility with official
 + * SF map all uboot stuff must be
