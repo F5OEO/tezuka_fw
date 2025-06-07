@@ -8,6 +8,7 @@ DEVICE_VID=0x0456
 DEVICE_PID=0xb673
 
 cp $BOARD_DIR/signalsdrpro.its $BIN_DIR/signalsdrpro.its
+cp $BOARD_DIR/dts/* $BIN_DIR/
 
 echo "# entering $BIN_DIR for the next command"
 (cd $BIN_DIR && $mkimage -f signalsdrpro.its signalsdrpro.itb)
