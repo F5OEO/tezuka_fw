@@ -77,18 +77,21 @@ For a list all supported boards run (this might take a while):
 ```bash
 make list-defconfigs
 ```
-
-If encounter CMAKE version issue
-```bash
-CMAKE_POLICY_VERSION_MINIMUM=3.5 make
-```
-
 The items at the bottom are the ones supported by Tezuka.
 
 ### Building on WSL2 
 Buildroot does not allow whitespaces in the PATH environment variable. On WSL several paths with whitespaces are added. The following script can be used to remove any path with whitespaces. It also deletes any leftover ':' at the end:
 ```bash
 export PATH=$(echo $PATH | tr ':' '\n' | grep -v ' ' | tr '\n' ':' | sed 's/:$//')
+```
+### Compatibility with older build scripts
+
+If you encounter errors related to CMAKE policy version, it's because newer versions of CMAKE (3.27+) have stricter policy requirements. Setting CMAKE_POLICY_VERSION_MINIMUM=3.5 tells CMAKE to use policies from version 3.5 or newer, which helps maintain compatibility with older build scripts and dependencies that may not be fully compatible with the latest CMAKE policies. This is particularly important when building packages that haven't been updated to support newer CMAKE versions.
+
+Run the build with:
+
+```bash
+CMAKE_POLICY_VERSION_MINIMUM=3.5 make
 ```
 
 ### Result
