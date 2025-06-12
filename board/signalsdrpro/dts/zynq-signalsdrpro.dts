@@ -1,0 +1,53 @@
+// SPDX-License-Identifier: GPL-2.0
+/*
+ *
+ * hdl_project: <signalsdrpro>
+ * board_revision: <A>
+ *
+ * Copyright (C) 2016-2019 MicroPhase Inc.
+ */
+/dts-v1/;
+#include "zynq-signalsdrpro.dtsi"
+
+
+// &axi_i2c0 {
+//      current_limiter@5a {
+//              compatible = "adi,adm1177";
+//              reg = <0x5a>;
+//              adi,r-sense-mohm = <50>; /* 50 mOhm */
+//              adi,shutdown-threshold-ma = <1059>; /* 1.059 A */
+//              adi,vrange-high-enable;
+//      };
+// };
+
+
+&adc0_ad9364 {
+        /* This property is controlled by u-boot environment. */
+        adi,2rx-2tx-mode-enable;
+};
+
+&cf_ad9364_dac_core_0 {
+        /* This property is controlled by u-boot environment. */
+        compatible = "adi,axi-ad9361-dds-6.00.a";
+};
+
+
+/ {
+        model = "Analog Devices PlutoSDR Rev.C (Z7010/AD9363)";
+
+        leds {
+                compatible = "gpio-leds";
+                led0 {
+                        label = "led0:green";
+                        gpios = <&gpio0 15 0>;
+                        linux,default-trigger = "heartbeat";
+                };
+        };
+
+        gpio_keys {
+                compatible = "gpio-keys";
+                #address-cells = <1>;
+                #size-cells = <0>;
+                autorepeat;
+        };
+};
