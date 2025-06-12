@@ -5,20 +5,6 @@ set -e
 
 BOARD_DIR=$(dirname ${0})
 
-# Add a console on tty1
-grep -qE '^ttyGS0::' ${TARGET_DIR}/etc/inittab || \
-sed -i '/GENERIC_SERIAL/a\
-ttyGS0::respawn:/sbin/getty -L ttyGS0 0 vt100 # USB console' ${TARGET_DIR}/etc/inittab
-
-#ttyGS0 is not relevant and persistant on u-boot. As ACM seems to allows ONLY one serial, let use it as a general Serial link
-#Rev C has a 2nd tty port plugged on usb power to have a full control
-
-grep -qE '^::sysinit:/bin/mount -t debugfs' ${TARGET_DIR}/etc/inittab || \
-sed -i '/hostname/a\
-::sysinit:/bin/mount -t debugfs none /sys/kernel/debug/' ${TARGET_DIR}/etc/inittab
-
-sed -i -e '/::sysinit:\/bin\/hostname -F \/etc\/hostname/d' ${TARGET_DIR}/etc/inittab
-
 grep -q mtd2 ${TARGET_DIR}/etc/fstab || echo "mtd2 /mnt/jffs2 jffs2 rw,noatime 0 0" >> ${TARGET_DIR}/etc/fstab
 
 # Prepare LICENSE.html
