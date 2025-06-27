@@ -28,7 +28,8 @@
 		compatible = "gpio-leds";
 		led0 {
 			label = "led0:green";
-			gpios = <&gpio0 15 0>;
+			/* An other firmware use 106 and 107 */
+			gpios = <&gpio0 107 0>; 
 			linux,default-trigger = "heartbeat";
 		};
 	};
