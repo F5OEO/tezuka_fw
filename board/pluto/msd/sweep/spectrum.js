@@ -816,6 +816,7 @@ Spectrum.prototype.handleMouseWheel = function(e)
         {
             console.log("Zoom "+this.zoom);
         this.scaleat(e.offsetX,1.2);
+        // Add something to chaneg weep and SR depending on high Zoom level
         /*
         if(this.spanHz/1.2>60000000)
             {
@@ -829,7 +830,7 @@ Spectrum.prototype.handleMouseWheel = function(e)
             {
 
                 this.setSpanHz(60000000);  
-                ad9361_samplerate(this.spanHz); 
+                this.Sendmqtt("cmd/rx/span",this.spanHz.toString());
                 spectro_fps(25);
             }
                 */
@@ -918,7 +919,7 @@ Spectrum.prototype.Sendmqtt= function(topic,val)
 
 function Spectrum(id, options) {
     // Handle options
-    this.centerHz = (options && options.centerHz) ? options.centerHz : 100e6;
+    this.centerHz = (options && options.centerHz) ? options.centerHz : 500e6;
     this.orginalfreq = this.centerHz;
     this.spanHz = (options && options.spanHz) ? options.spanHz : 60e6;
     this.NativeSpan=this.spanHz;
