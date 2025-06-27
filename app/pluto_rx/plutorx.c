@@ -122,7 +122,13 @@ void print_usage()
             "plutorx -%s\n\
 Usage:\nplutorx -n ip:port\n\
 -h            help (print this help).\n\
-Example : ./plutorx -n 10.0.0.100:10000 -o 8\n\
+-b Buffer Size \n\
+-k Kernel number \n\
+-p Measure Performance \n\
+-o 16 or 8bits \n\
+-s samplerate \n\
+-u uri \n\
+Example : ./plutorx -u ip:plutosdr.local -o 8\n\
 \n",
             PROGRAM_VERSION);
 
@@ -138,12 +144,13 @@ int main(int argc, char **argv)
     bool outnetwork = false;
     bool out_cs8=false;
     size_t buf_request=0;
-    char type[30]="";
-
+    char type[255]="";
+    long long SampleRate=0;
+    unsigned int kernel_buffer_cnt=0;
     bool perf=false;
     while (1)
     {
-        a = getopt(argc, argv, "hn:o:b:pt:");
+        a = getopt(argc, argv, "hn:o:b:pu:k:s:");
 
         if (a == -1)
         {
@@ -172,13 +179,19 @@ int main(int argc, char **argv)
         case 'b':
             buf_request = atoi(optarg);
             break;
+        case 'k':
+            kernel_buffer_cnt = atoi(optarg);
+            break;    
         case 'p':
             perf = true;
             break;
-        case 't':
+        case 'u':
             strcpy(type,optarg);
             break;
-            
+        case 's':
+            SampleRate = atol(optarg);
+            break;    
+        
         case -1:
             break;
         case '?':
@@ -265,14 +278,18 @@ int main(int argc, char **argv)
 
     size_t blockSize=1024;
 
+    if(SampleRate>0)
+    {
+
+        iio_channel_attr_write_longlong(iio_device_find_channel(dev,"voltage0",false),"sampling_frequency",SampleRate); 
+    }
     
-    unsigned int kernel_buffer_cnt=1;
-    long long SampleRate;
     //#define SAMPLE_MINI 25000000/12
     #define SAMPLE_MINI 18000000
     #define SAMPLE_MAX 64000000
-    #define MAX_BUFF_SIZE 8000000LL/2LL
-    #define MAX_TOTAL_SIZE 64000000LL
+    //#define MAX_BUFF_SIZE 8000000LL/2LL
+    #define MAX_BUFF_SIZE 32000000LL
+    #define MAX_TOTAL_SIZE 60000000LL
     #define MAX_CNT 64
    
     iio_channel_attr_read_longlong(iio_device_find_channel(dev,"voltage0",false),"sampling_frequency",&SampleRate);
@@ -283,14 +300,17 @@ int main(int argc, char **argv)
         blockSize=buf_request;
     else
     blockSize = SampleRate/8LL; 
-    blockSize=(blockSize>>2)<<2;
+    blockSize=(blockSize>>12)<<12;
     if(blockSize>MAX_BUFF_SIZE) blockSize=MAX_BUFF_SIZE;
-    kernel_buffer_cnt=MAX_TOTAL_SIZE/(blockSize*2);
-    if(kernel_buffer_cnt>MAX_CNT) kernel_buffer_cnt=MAX_CNT;
+    if(kernel_buffer_cnt==0)
+    {
+        kernel_buffer_cnt=MAX_TOTAL_SIZE/(blockSize);
+        if(kernel_buffer_cnt>MAX_CNT) kernel_buffer_cnt=MAX_CNT;
+    }    
 
 
     iio_device_set_kernel_buffers_count(dev, kernel_buffer_cnt);
-    struct iio_buffer *rxbuf = iio_device_create_buffer(rx, blockSize/2, false); //2 because driver think it is 16bit 
+    struct iio_buffer *rxbuf = iio_device_create_buffer(rx, blockSize/4, false); //2 because driver think it is 16bit 
     fprintf(stderr,"Using %d buffers of %ld bytes\n",kernel_buffer_cnt,blockSize);
     if (outnetwork)
     {
@@ -310,7 +330,7 @@ int main(int argc, char **argv)
     if(!perf)
     {
         
-
+        if(SampleRate)
         while (want_quit == 0)
         {
             size_t Size = iio_buffer_refill(rxbuf);
@@ -359,7 +379,10 @@ int main(int argc, char **argv)
            fprintf(stderr,"Trying sampleRate %lld\n",SampleRate);
             iio_device_reg_read(rx, 0x80000088, &val);
             iio_device_reg_write(rx, 0x80000088, val);
-            for(size_t Read=0;(Read<20)&&(ErrorRead==0);Read++)
+            int ReadLength= SampleRate*8/blockSize;
+            fprintf(stderr,"Start running %d block!\n",ReadLength);
+
+            for(size_t Read=0;(Read<ReadLength)&&(ErrorRead==0);Read++)
             {
                 if (want_quit == 1) return 0;
                 size_t Size = iio_buffer_refill(rxbuf);
