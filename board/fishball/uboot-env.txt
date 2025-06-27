@@ -28,6 +28,7 @@ fdt_high=0x20000000
 fit_config=config@0
 fit_load_address=0x2080000
 fit_size=0x900000
+fpgaload=fatload mmc 0 0xF000000 system_top.bit.bin;fpga load 0 0xF000000 ${filesize}
 importbootenv=echo Importing environment from SD ...; env import -t ${loadbootenv_addr} $filesize
 initrd_high=0x20000000
 ipaddr=192.168.2.1
@@ -57,6 +58,9 @@ ramdisk_size=0x400000
 read_sf=sf probe 0:0 50000000 0 && run qspiboot_extraenv &&sf read ${fit_load_address} 0x200000 0x0E00000 && iminfo ${fit_load_address} || sf read ${fit_load_address} 0x200000  0x0E00000; 
 refclk_source=internal
 sdboot=if mmcinfo; then run uenvboot; echo Copying Linux from SD to RAM... && load mmc 0 ${fit_load_address} ${kernel_image} && load mmc 0 ${devicetree_load_address} ${devicetree_image} && load mmc 0 ${ramdisk_load_address} ${ramdisk_image} && run adi_loadvals_libre;envversion;setenv bootargs console=ttyPS0,115200 maxcpus=${maxcpus} rootfstype=ramfs root=/dev/ram0 rw earlyprintk clk_ignore_unused uio_pdrv_genirq.of_id=uio_pdrv_genirq uboot="${uboot-version}" && bootm ${fit_load_address} ${ramdisk_load_address} ${devicetree_load_address}; fi
+#sdboot=run sdboot_kuiper
+bootargs=console=ttyPS0,115200 root=/dev/mmcblk0p2 rw earlycon rootfstype=ext4 rootwait clk_ignore_unused cpuidle.off=1 uio_pdrv_genirq.of_id=uio_pdrv_genirq 
+sdboot_kuiper=if mmcinfo; then run uenvboot; echo Copying Linux from SD to RAM... && fatload mmc 0 0x3000000 ${kernel_image} && fatload mmc 0 0x2A00000 ${devicetree_image} && bootm 0x3000000 - 0x2A00000; fi
 sd_uEnvtxt_existence_test=test -e mmc 0 /uEnv.txt
 thor_mmc=run dfu_mmc_info && thordown 0 mmc 0
 thor_ram=run dfu_ram_info && thordown 0 ram 0
