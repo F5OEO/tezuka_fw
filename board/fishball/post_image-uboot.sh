@@ -49,6 +49,10 @@ NAME=`basename -- "$filename" .elf`
 bootgen -image $SDIMGDIR/boot.bif -w -o i $SDIMGDIR"/overclock/BOOT_"$NAME
 done
 
+# SYSTEM TOP.BIN when need to launch from USB or SD without BOOT.BIN
+#echo "img : {$SDIMGDIR/system_top.bit }" >  $SDIMGDIR/system.bif
+#bootgen -image $SDIMGDIR/system.bif -process_bitstream bin -arch zynq -w -o i $SDIMGDIR/system_top.bin
+
 rm $SDIMGDIR/fsbl.elf  $SDIMGDIR/system_top.bit  $SDIMGDIR/u-boot.elf $SDIMGDIR/boot.bif
 cp $BIN_DIR/rootfs.cpio.gz $SDIMGDIR/ramdisk.image.gz
 $mkimage -A arm -T ramdisk -C gzip -d $SDIMGDIR/ramdisk.image.gz $SDIMGDIR/uramdisk.image.gz
