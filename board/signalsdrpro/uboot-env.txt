@@ -1,0 +1,55 @@
+
+adi_loadvals=fdt addr ${fit_load_address} && fdt get value fdt_choosen /configurations/${fit_config}/ fdt && fdt get addr fdtaddr /images/${fdt_choosen} data && fdt addr ${fdtaddr}; if test -n ${ad936x_ext_refclk} && test ! -n ${ad936x_skip_ext_refclk}; then fdt set /clocks/clock@0 clock-frequency ${ad936x_ext_refclk}; fi; fdt get value model / model; if test -n ${ad936x_ext_refclk_override} && test "${model}" = "Analog Devices PlutoSDR Rev.C (Z7010/AD9363)"; then fdt set /clocks/clock@0 clock-frequency ${ad936x_ext_refclk_override}; fi; if test ${refclk_source} = internal || test ! "${model}" = "Analog Devices PlutoSDR Rev.C (Z7010/AD9363)" ; then fdt rm /axi/gpio@e000a000/clock_extern_en; fi; if test -n ${attr_name} && test -n ${attr_val}; then fdt set /axi/spi@e0006000/ad9361-phy@0 ${attr_name} ${attr_val}; fi; if test ${refclk_source} = external || test ! "${model}" = "Analog Devices PlutoSDR Rev.C (Z7010/AD9363)" ; then fdt rm /axi/gpio@e000a000/clock_internal_en; fi; if test -n ${compatible} && test ! ${compatible} = ad9361 && test ! ${compatible} = ad9364 && test ! ${compatible} = ad9364; then setenv compatible ad9364; saveenv; fi; if test -n ${mode} && test ! ${mode} = 1r1t && test ! ${mode} = 2r2t; then setenv mode 1r1t; saveenv; fi; if test -n ${refclk_source} && test ! ${refclk_source} = internal && test ! ${refclk_source} = external; then setenv refclk_source internal; saveenv; fi; if test -n ${compatible}; then fdt set /axi/spi@e0006000/ad9361-phy@0 compatible ${compatible}; fi; if test  ${compatible} = ad9361 && test ! "${model}" = "Analog Devices PlutoSDR Rev.C (Z7010/AD9363)" ; then fdt set /axi/spi@e0006000/ad9361-phy@0 compatible ad9364; compatible=ad9364; fi; if test ${mode} = 1r1t || test ! "${model}" = "Analog Devices PlutoSDR Rev.C (Z7010/AD9363)"; then fdt rm /axi/spi@e0006000/ad9361-phy@0 adi,2rx-2tx-mode-enable; fi; if test -n ${cs_gpio}; then fdt set /axi/axi_quad_spi@7C430000/ cs-gpios "<0x06 ${cs_gpio} 0>"; fi; if test "${compatible}" = ad9364 || test  "${attr_val}" = ad9364; then fdt rm /axi/spi@e0006000/ad9361-phy@0 adi,2rx-2tx-mode-enable; fdt set /fpga-axi/cf-ad9361-dds-core-lpc@79024000 compatible adi,axi-ad9364-dds-6.00.a; setenv mode 1r1t; saveenv; fi; 
+baudrate=115200
+bitstream_image=system.bit.bin
+bitstream_size=0x400000
+bootcmd=run $modeboot
+bootdelay=0
+bootenv=uEnv.txt
+boot_image=BOOT.bin
+boot_size=0xF00000
+clear_reset_cause=mw f8000008 df0d && mw f8000258 00400000 && mw f8000004 767b
+devicetree_image=devicetree.dtb
+devicetree_load_address=0x2000000
+devicetree_size=0x20000
+dfu_mmc_info=set dfu_alt_info ${kernel_image} fat 0 1\\;${devicetree_image} fat 0 1\\;${ramdisk_image} fat 0 1
+dfu_mmc=run dfu_mmc_info && dfu 0 mmc 0
+dfu_ram=echo Entering DFU RAM mode ... && run dfu_ram_info && dfu 0 ram 0
+dfu_ram_info=set dfu_alt_info dummy.dfu ram 0 0\\;firmware.dfu ram ${fit_load_address} 0x1E00000
+dfu_sf=gpio set 15;set stdout serial@e0001000;echo Entering DFU SF mode ... && run dfu_sf_info && dfu 0 sf 0:0:40000000:0 && if test -n ${dfu_alt_num} && test ${dfu_alt_num} = 1; then set fit_size ${filesize} && set dfu_alt_num && env save; fi;gpio clear 15;
+dfu_sf_info=set dfu_alt_info boot.dfu raw 0x0 0x100000\\;firmware.dfu raw 0x200000 0x1E00000\\;uboot-extra-env.dfu raw 0xFF000 0x1000\\;uboot-env.dfu raw 0x100000 0x20000\\;spare.dfu raw 0x120000 0xE0000
+ethaddr=00:0a:35:00:01:22
+extraenv_load_address=0x207E000
+fdt_high=0x20000000
+fit_config=config@0
+fit_load_address=0x2080000
+fit_size=0x900000
+importbootenv=echo Importing environment from SD ...; env import -t ${loadbootenv_addr} $filesize
+initrd_high=0x20000000
+ipaddr=192.168.2.1
+ipaddr_host=192.168.2.10
+jtagboot=env default -a;sf probe && sf protect unlock 0 100000 && run dfu_sf; 
+kernel_image=uImage
+loadbit_addr=0x100000
+loadbootenv_addr=0x2000000
+loadbootenv=load mmc 0 ${loadbootenv_addr} ${bootenv}
+maxcpus=1
+mode=1r1t
+netmask=255.255.255.0
+preboot=
+preboot=if test $modeboot = sdboot && env run sd_uEnvtxt_existence_test; then if env run loadbootenv; then env run importbootenv; fi; fi; 
+qspiboot_extraenv=sf read ${extraenv_load_address} 0xFF000 0x1000 && env import -c ${extraenv_load_address} 0x1000 || true 
+qspiboot=set stdout nulldev;run read_sf;adi_hwref;test -n $PlutoRevA || gpio input 14 && set stdout serial@e0001000 && sf probe && sf protect lock 0 100000 && run dfu_sf;  set stdout serial@e0001000;itest *f8000258 == 480003 && run clear_reset_cause && run dfu_sf; itest *f8000258 == 480007 && run clear_reset_cause && run ramboot_verbose; itest *f8000258 == 480006 && run clear_reset_cause && run qspiboot_verbose; itest *f8000258 == 480002 && run clear_reset_cause && exit; echo Booting silently && set stdout nulldev; run read_sf && run adi_loadvals; envversion;setenv bootargs console=ttyPS0,115200 maxcpus=${maxcpus} rootfstype=ramfs root=/dev/ram0 rw quiet loglevel=4 uboot="${uboot-version}" && bootm ${fit_load_address}#${fit_config} || set stdout serial@e0001000;echo BOOT failed entering DFU mode ... && sf protect lock 0 100000 && run dfu_sf 
+qspiboot_verbose=adi_hwref;echo Copying Linux from QSPI flash to RAM... && run read_sf && if run adi_loadvals; then echo Loaded AD936x refclk frequency and model into devicetree; fi; envversion;setenv bootargs console=ttyPS0,115200 maxcpus=${maxcpus} rootfstype=ramfs root=/dev/ram0 rw earlyprintk uboot="${uboot-version}" && bootm ${fit_load_address}#${fit_config} || echo BOOT failed entering DFU mode ... && run dfu_sf 
+ramboot_verbose=adi_hwref;echo Copying Linux from DFU to RAM... && run dfu_ram;if run adi_loadvals; then echo Loaded AD936x refclk frequency and model into devicetree; fi; envversion;setenv bootargs console=ttyPS0,115200 maxcpus=${maxcpus} rootfstype=ramfs root=/dev/ram0 rw earlyprintk uboot="${uboot-version}" && bootm ${fit_load_address}#${fit_config}
+ramdisk_image=uramdisk.image.gz
+ramdisk_load_address=0x4000000
+ramdisk_size=0x4000 00
+read_sf=sf probe 0:0 50000000 0 && run qspiboot_extraenv &&sf read ${fit_load_address} 0x200000 ${fit_size} && iminfo ${fit_load_address} || sf read ${fit_load_address} 0x200000  0x1E00000; 
+refclk_source=internal
+sdboot=if mmcinfo; then run uenvboot; echo Copying Linux from SD to RAM... && load mmc 0 ${fit_load_address} ${kernel_image} && load mmc 0 ${devicetree_load_address} ${devicetree_image} && load mmc 0 ${ramdisk_load_address} ${ramdisk_image} && bootm ${fit_load_address} ${ramdisk_load_address} ${devicetree_load_address}; fi
+sd_uEnvtxt_existence_test=test -e mmc 0 /uEnv.txt
+thor_mmc=run dfu_mmc_info && thordown 0 mmc 0
+thor_ram=run dfu_ram_info && thordown 0 ram 0
+uenvboot=if run loadbootenv; then echo Loaded environment from ${bootenv}; run importbootenv; fi; if test -n $uenvcmd; then echo Running uenvcmd ...; run uenvcmd; fi
+usbboot=if usb start; then run uenvboot; echo Copying Linux from USB to RAM... && load usb 0 ${fit_load_address} ${kernel_image} && load usb 0 ${devicetree_load_address} ${devicetree_image} && load usb 0 ${ramdisk_load_address} ${ramdisk_image} && bootm ${fit_load_address} ${ramdisk_load_address} ${devicetree_load_address}; fi
