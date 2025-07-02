@@ -9,10 +9,12 @@ getoriginal()
 
                 echo 0x2 > /sys/kernel/debug/iio/iio:device0/direct_reg_access
                 CURRENT_VALUE=$(cat  /sys/kernel/debug/iio/iio:device0/direct_reg_access | grep -o '0x[0-9a-fA-F]\+')
+                 mode="$(cat /sys/kernel/debug/iio/iio:device0/adi,2rx-2tx-mode-enable)"
         else
 
                 echo 0x2 > /sys/kernel/debug/iio/iio:device1/direct_reg_access
                 CURRENT_VALUE=$(cat  /sys/kernel/debug/iio/iio:device1/direct_reg_access | grep -o '0x[0-9a-fA-F]\+')
+                 mode="$(cat /sys/kernel/debug/iio/iio:device1/adi,2rx-2tx-mode-enable)"
         fi
 }
 
@@ -74,8 +76,12 @@ tx2()
 }
 
 getoriginal
-if [ "$1" = "tx2" ] ; then
-    tx2
+if [ "$mode" = "0" ] ; then
+    if [ "$1" = "tx2" ] ; then
+        tx2
+    else
+        tx1
+    fi
 else
-    tx1
+    echo "Switch rf no relevant as we are in 2R2T"
 fi
