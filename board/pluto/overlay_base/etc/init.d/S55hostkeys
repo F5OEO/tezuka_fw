@@ -10,11 +10,7 @@ case "$1" in
 		[[ ! -f /mnt/jffs2/authorized_keys ]] && [[ -f /root/.ssh/authorized_keys ]] && [[ -d /mnt/jffs2 ]] && cp /root/.ssh/authorized_keys /mnt/jffs2/authorized_keys
 		;;
 	stop)
-		echo -n "Starting host keys backup: "
-		# Save  Dropbear keys
-		[[ ! -f /mnt/jffs2/dropbear_ed25519_host_key ]] && [[ -f /etc/dropbear/dropbear_ed25519_host_key ]] && [[ -d /mnt/jffs2 ]] && cp /etc/dropbear/dropbear_ed25519_host_key /mnt/jffs2/dropbear_ed25519_host_key
-		# Save ssh authorized keys
-		[[ ! -f /mnt/jffs2/authorized_keys ]] && [[ -f /root/.ssh/authorized_keys ]] && [[ -d /mnt/jffs2 ]] && cp /root/.ssh/authorized_keys /mnt/jffs2/authorized_keys
+		
 		;;
 	*)
 		echo "Usage: $0 {start|stop}" >&2
