@@ -54,7 +54,7 @@ Buildroot documentation has the [list of required packages](https://buildroot.or
 
 The following packages must be installed for building Maia-fw related code:
 ```bash
-sudo apt install pkg-config openssl-dev libclang-dev
+sudo apt install pkg-config libssl-dev libclang-dev
 ```
 
 Now clone this repo and get buildroot
