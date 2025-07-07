@@ -253,7 +253,7 @@
 		#address-cells = <1>;
 		#size-cells = <0>;
 		#clock-cells = <1>;
-		compatible = "adi,ad9364";
+		compatible = "adi,ad9361";
 
 		/* SPI Setup */
 		reg = <0>;
