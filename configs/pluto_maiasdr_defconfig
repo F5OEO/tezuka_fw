@@ -131,7 +131,7 @@ BR2_PACKAGE_HOST_UBOOT_TOOLS_ENVIMAGE_SOURCE="${BR2_EXTERNAL_PLUTOSDR_PATH}/boar
 BR2_LINUX_KERNEL_CUSTOM_DTS_PATH="$(BR2_EXTERNAL_PLUTOSDR_PATH)/board/tezuka/pluto/dts/zynq-7000.dtsi $(BR2_EXTERNAL_PLUTOSDR_PATH)/board/tezuka/pluto/dts/zynq-pluto-sdr.dts $(BR2_EXTERNAL_PLUTOSDR_PATH)/board/tezuka/pluto/dts/zynq-pluto-sdr-revb.dts $(BR2_EXTERNAL_PLUTOSDR_PATH)/board/tezuka/pluto/dts/zynq-pluto-sdr-revc.dts $(BR2_EXTERNAL_PLUTOSDR_PATH)/board/tezuka/pluto/dts/zynq-pluto-sdr.dtsi $(BR2_EXTERNAL_PLUTOSDR_PATH)/board/tezuka/pluto/dts/maia-iio/zynq-pluto-sdr-maiasdr.dts $(BR2_EXTERNAL_PLUTOSDR_PATH)/board/tezuka/pluto/dts/maia-iio/zynq-pluto-sdr-revb-maiasdr.dts $(BR2_EXTERNAL_PLUTOSDR_PATH)/board/tezuka/pluto/dts/maia-iio/zynq-pluto-sdr-revc-maiasdr.dts $(BR2_EXTERNAL_PLUTOSDR_PATH)/board/tezuka/pluto/dts/maia-iio/zynq-pluto-sdr-maiasdr.dtsi "
 BR2_ROOTFS_OVERLAY="${BR2_EXTERNAL_PLUTOSDR_PATH}/board/tezuka/common/overlay_base ${BR2_EXTERNAL_PLUTOSDR_PATH}/board/tezuka/common/overlay_tezuka ${BR2_EXTERNAL_PLUTOSDR_PATH}/board/tezuka/common/overlay_maia"
 BR2_ROOTFS_POST_BUILD_SCRIPT="${BR2_EXTERNAL_PLUTOSDR_PATH}/board/tezuka/common/post-build.sh"
-BR2_ROOTFS_POST_IMAGE_SCRIPT="${BR2_EXTERNAL_PLUTOSDR_PATH}/board/tezuka/pluto/post_image_maia.sh ${BR2_EXTERNAL_PLUTOSDR_PATH}/board/tezuka/pluto/post_image-uboot.sh"
+BR2_ROOTFS_POST_IMAGE_SCRIPT="${BR2_EXTERNAL_PLUTOSDR_PATH}/board/tezuka/common/post-image.sh ${BR2_EXTERNAL_PLUTOSDR_PATH}/board/tezuka/pluto/post_image-uboot.sh"
 
 #endif
 
