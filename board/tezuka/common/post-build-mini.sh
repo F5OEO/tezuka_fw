@@ -1,9 +1,5 @@
 #!/bin/sh
-# args from BR2_ROOTFS_POST_SCRIPT_ARGS
-# $2    board name
 set -e
-
-BOARD_DIR=$(dirname ${0})
 
 #rm -f ${TARGET_DIR}/usr/lib/libxml2.* -> USED BY IIO
 #rm -f ${TARGET_DIR}/usr/lib/libasound.*
