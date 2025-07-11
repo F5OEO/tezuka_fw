@@ -124,8 +124,6 @@ BR2_PACKAGE_LIBINI=y
 
 ####### CUSTOME CONFIGS
 
-
-
 ##PLUTOPLUS MAIA_IIO
 BR2_LINUX_KERNEL_CUSTOM_CONFIG_FILE="$(BR2_EXTERNAL_PLUTOSDR_PATH)/board/fishball/kernel/zynq_pluto_linux_defconfig"
 BR2_TARGET_UBOOT_CUSTOM_CONFIG_FILE="$(BR2_EXTERNAL_PLUTOSDR_PATH)/board/fishball/u-boot-config/zynq_pluto_defconfig"

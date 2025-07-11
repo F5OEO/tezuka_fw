@@ -122,17 +122,6 @@ BR2_PACKAGE_LIBINI=y
 
 ####### CUSTOME CONFIGS
 
-## MAIA_SDR
-#BR2_LINUX_KERNEL_CUSTOM_CONFIG_FILE="$(BR2_EXTERNAL_PLUTOSDR_PATH)/board/pluto/kernel/zynq_pluto_linux_defconfig"
-#BR2_TARGET_UBOOT_CUSTOM_CONFIG_FILE="$(BR2_EXTERNAL_PLUTOSDR_PATH)/board/pluto/u-boot-config/zynq_pluto_defconfig"
-#BR2_TARGET_UBOOT_CUSTOM_DTS_PATH="$(BR2_EXTERNAL_PLUTOSDR_PATH)/board/pluto/dts/zynq-7000.dtsi $(BR2_EXTERNAL_PLUTOSDR_PATH)/board/pluto/u-boot-dts/zynq-pluto-sdr.dts $(BR2_EXTERNAL_PLUTOSDR_PATH)/board/pluto/u-boot-dts/zynq-7000.dtsi"
-#BR2_PACKAGE_HOST_UBOOT_TOOLS_ENVIMAGE_SOURCE="${BR2_EXTERNAL_PLUTOSDR_PATH}/board/pluto/uboot-env.txt"
-#BR2_LINUX_KERNEL_CUSTOM_DTS_PATH="$(BR2_EXTERNAL_PLUTOSDR_PATH)/board/pluto/dts/zynq-pluto-sdr.dts $(BR2_EXTERNAL_PLUTOSDR_PATH)/board/pluto/dts/zynq-pluto-sdr-revb.dts $(BR2_EXTERNAL_PLUTOSDR_PATH)/board/pluto/dts/zynq-pluto-sdr-revc.dts $(BR2_EXTERNAL_PLUTOSDR_PATH)/board/pluto/dts/zynq-pluto-sdr.dtsi $(BR2_EXTERNAL_PLUTOSDR_PATH)/board/pluto/dts/maia-sdr/zynq-pluto-sdr-maiasdr.dts $(BR2_EXTERNAL_PLUTOSDR_PATH)/board/pluto/dts/maia-sdr/zynq-pluto-sdr-revb-maiasdr.dts $(BR2_EXTERNAL_PLUTOSDR_PATH)/board/pluto/dts/maia-sdr/zynq-pluto-sdr-revc-maiasdr.dts $(BR2_EXTERNAL_PLUTOSDR_PATH)/board/pluto/dts/maia-sdr/zynq-pluto-sdr-maiasdr.dtsi "
-#BR2_ROOTFS_POST_BUILD_SCRIPT="${BR2_EXTERNAL_PLUTOSDR_PATH}/board/pluto/post-build.sh"
-#BR2_ROOTFS_POST_IMAGE_SCRIPT="${BR2_EXTERNAL_PLUTOSDR_PATH}/board/pluto/post_image_maia.sh ${BR2_EXTERNAL_PLUTOSDR_PATH}/board/pluto/post_image-uboot.sh"
-#BR2_PACKAGE_MAIASDR_FW=y
-#BR2_PACKAGE_PLUTOMAIA_SYSTEM_TOP_BIT=y
-
 ## MAIA_IIO
 BR2_PACKAGE_MAIASDR_FW=y
 BR2_PACKAGE_PLUTOMAIA_IIO_SYSTEM_TOP_BIT=y
@@ -149,13 +138,3 @@ BR2_ROOTFS_POST_IMAGE_SCRIPT="${BR2_EXTERNAL_PLUTOSDR_PATH}/board/pluto/post_ima
 
 #endif
 
-##PLUTOSDR ORIGINAL
-#BR2_LINUX_KERNEL_CUSTOM_CONFIG_FILE="$(BR2_EXTERNAL_PLUTOSDR_PATH)/board/pluto/kernel/zynq_pluto_linux_defconfig"
-#BR2_TARGET_UBOOT_CUSTOM_CONFIG_FILE="$(BR2_EXTERNAL_PLUTOSDR_PATH)/board/pluto/u-boot-config/zynq_pluto_defconfig"
-#BR2_TARGET_UBOOT_CUSTOM_DTS_PATH="$(BR2_EXTERNAL_PLUTOSDR_PATH)/board/pluto/dts/zynq-7000.dtsi $(BR2_EXTERNAL_PLUTOSDR_PATH)/board/pluto/u-boot-dts/zynq-pluto-sdr.dts $(BR2_EXTERNAL_PLUTOSDR_PATH)/board/pluto/u-boot-dts/zynq-7000.dtsi"
-#BR2_PACKAGE_HOST_UBOOT_TOOLS_ENVIMAGE_SOURCE="${BR2_EXTERNAL_PLUTOSDR_PATH}/board/pluto/uboot-env.txt"
-#BR2_LINUX_KERNEL_CUSTOM_DTS_PATH="$(BR2_EXTERNAL_PLUTOSDR_PATH)/board/pluto/dts/zynq-pluto-sdr.dts $(BR2_EXTERNAL_PLUTOSDR_PATH)/board/pluto/dts/zynq-pluto-sdr-revb.dts $(BR2_EXTERNAL_PLUTOSDR_PATH)/board/pluto/dts/zynq-pluto-sdr-revc.dts $(BR2_EXTERNAL_PLUTOSDR_PATH)/board/pluto/dts/zynq-pluto-sdr.dtsi"
-#BR2_ROOTFS_POST_BUILD_SCRIPT="${BR2_EXTERNAL_PLUTOSDR_PATH}/board/pluto/post-build.sh"
-#BR2_ROOTFS_POST_IMAGE_SCRIPT="${BR2_EXTERNAL_PLUTOSDR_PATH}/board/pluto/post_image.sh ${BR2_EXTERNAL_PLUTOSDR_PATH}/board/pluto/post_image-uboot.sh"
-#BR2_PACKAGE_PLUTO_SYSTEM_TOP_BIT=y
-#BR2_PACKAGE_TEZUKA_COMMON_TOOLS=y
