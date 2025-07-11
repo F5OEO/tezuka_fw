@@ -125,11 +125,12 @@ BR2_PACKAGE_LIBINI=y
 BR2_LINUX_KERNEL_CUSTOM_CONFIG_FILE="$(BR2_EXTERNAL_PLUTOSDR_PATH)/board/tezuka/e200/kernel/zynq_pluto_linux_defconfig"
 BR2_TARGET_UBOOT_CUSTOM_CONFIG_FILE="$(BR2_EXTERNAL_PLUTOSDR_PATH)/board/tezuka/e200/u-boot-config/zynq_pluto_defconfig"
 BR2_TARGET_UBOOT_CUSTOM_DTS_PATH="$(BR2_EXTERNAL_PLUTOSDR_PATH)/board/tezuka/e200/u-boot-dts/zynq-pluto-sdr.dts $(BR2_EXTERNAL_PLUTOSDR_PATH)/board/tezuka/plutoplus/u-boot-dts/zynq-7000.dtsi"
-BR2_PACKAGE_HOST_UBOOT_TOOLS_ENVIMAGE_SOURCE="${BR2_EXTERNAL_PLUTOSDR_PATH}/board/tezuka/plutoplus/uboot-env.txt"
+BR2_PACKAGE_HOST_UBOOT_TOOLS_ENVIMAGE_SOURCE="${BR2_EXTERNAL_PLUTOSDR_PATH}/board/tezuka/e200/uboot-env.txt"
 BR2_LINUX_KERNEL_CUSTOM_DTS_PATH="$(BR2_EXTERNAL_PLUTOSDR_PATH)/board/tezuka/e200/dts/zynq-e200.dts $(BR2_EXTERNAL_PLUTOSDR_PATH)/board/tezuka/e200/dts/zynq-e200.dtsi $(BR2_EXTERNAL_PLUTOSDR_PATH)/board/tezuka/e200/dts/zynq-7000.dtsi "
 BR2_ROOTFS_OVERLAY="${BR2_EXTERNAL_PLUTOSDR_PATH}/board/tezuka/common/overlay_base ${BR2_EXTERNAL_PLUTOSDR_PATH}/board/tezuka/common/overlay_tezuka ${BR2_EXTERNAL_PLUTOSDR_PATH}/board/tezuka/common/overlay_maia"
 BR2_ROOTFS_POST_BUILD_SCRIPT="${BR2_EXTERNAL_PLUTOSDR_PATH}/board/tezuka/common/post-build.sh"
-BR2_ROOTFS_POST_IMAGE_SCRIPT="${BR2_EXTERNAL_PLUTOSDR_PATH}/board/tezuka/common/post-image.sh ${BR2_EXTERNAL_PLUTOSDR_PATH}/board/tezuka/e200/post_image-uboot.sh"
+BR2_ROOTFS_POST_IMAGE_SCRIPT="${BR2_EXTERNAL_PLUTOSDR_PATH}/board/tezuka/common/post-image.sh"
+BR2_ROOTFS_POST_IMAGE_SCRIPT_ARGS="${BR2_EXTERNAL_PLUTOSDR_PATH}/board/tezuka/e200 zynq-e200.dtb"
 BR2_PACKAGE_MAIASDR_FW=y
 BR2_PACKAGE_ANTSDR_FPGA=y
 
