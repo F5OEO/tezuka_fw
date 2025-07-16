@@ -1,6 +1,4 @@
 #!/bin/sh
-# args from BR2_ROOTFS_POST_SCRIPT_ARGS
-# $2    board name
 set -e
 
 BOARD_DIR=$(dirname ${0})
@@ -23,7 +21,6 @@ sed -i s/##UBOOT_VERSION##/${UBOOT_VERS}/g ${BINARIES_DIR}/msd/LICENSE.html
 
 echo device-fw tezuka-${FW_VERSION}> ${TARGET_DIR}/opt/VERSIONS
 
-BOARD_NAME="$(basename ${BOARD_DIR})"
 GENIMAGE_CFG="${BOARD_DIR}/genimage-msd.cfg"
 GENIMAGE_TMP="${BUILD_DIR}/genimage.tmp"
 
