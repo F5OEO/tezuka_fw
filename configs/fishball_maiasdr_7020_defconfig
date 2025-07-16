@@ -130,7 +130,7 @@ BR2_LINUX_KERNEL_CUSTOM_DTS_PATH="$(BR2_EXTERNAL_PLUTOSDR_PATH)/board/tezuka/fis
 BR2_ROOTFS_OVERLAY="${BR2_EXTERNAL_PLUTOSDR_PATH}/board/tezuka/common/overlay_base ${BR2_EXTERNAL_PLUTOSDR_PATH}/board/tezuka/common/overlay_tezuka ${BR2_EXTERNAL_PLUTOSDR_PATH}/board/tezuka/common/overlay_maia"
 BR2_ROOTFS_POST_BUILD_SCRIPT="${BR2_EXTERNAL_PLUTOSDR_PATH}/board/tezuka/common/post-build.sh"
 BR2_ROOTFS_POST_IMAGE_SCRIPT="${BR2_EXTERNAL_PLUTOSDR_PATH}/board/tezuka/common/post-image.sh"
-BR2_ROOTFS_POST_IMAGE_SCRIPT_ARGS="${BR2_EXTERNAL_PLUTOSDR_PATH}/board/tezuka/fishball_7020 fishball.dtb"
+BR2_ROOTFS_POST_IMAGE_SCRIPT_ARGS="${BR2_EXTERNAL_PLUTOSDR_PATH}/board/tezuka/fishball fishball.dtb"
 BR2_PACKAGE_MAIASDR_FW=y
 BR2_PACKAGE_FISHBALL_FPGA_7020=y
 
