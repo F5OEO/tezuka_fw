@@ -68,6 +68,6 @@ rm $SDIMGDIR/boot.bif
 mkimage -A arm -T ramdisk -C gzip -d $BIN_DIR/rootfs.cpio.gz $SDIMGDIR/uramdisk.image.gz
 mkimage -A arm -O linux -T kernel -C none -a 0x2080000 -e 2080000 -n "Linux kernel" -d $BIN_DIR/zImage $SDIMGDIR/uImage
 cp $BIN_DIR/$DTB_NAME $SDIMGDIR/devicetree.dtb
-cp $BOARD_DIR/uboot-env.txt $SDIMGDIR/uEnv.txt
+cp $COMMON_DIR/uboot-env.txt $SDIMGDIR/uEnv.txt
 
 cd $BIN_DIR && zip -r tezuka.zip boot.dfu boot.frm pluto.frm pluto.dfu sdimg/*
