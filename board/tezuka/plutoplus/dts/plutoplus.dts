@@ -4,7 +4,7 @@
 
 &adc0_ad9364 {
 	/* This property is controlled by u-boot environment. */
-	/* adi,2rx-2tx-mode-enable; */
+	adi,2rx-2tx-mode-enable; 
 };
 
 &cf_ad9364_dac_core_0 {
