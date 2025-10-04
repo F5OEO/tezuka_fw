@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-wget -O- https://buildroot.org/downloads/buildroot-2025.05.tar.gz | tar -xz --one-top-level=buildroot --strip-components=1
+wget -O- https://buildroot.org/downloads/buildroot-2025.08.tar.gz | tar -xz --one-top-level=buildroot --strip-components=1
 
 patch -p0 << 'EOF'
 --- buildroot/support/docker/Dockerfile	2025-05-26 20:56:37.937741302 +0300
@@ -97,3 +97,9 @@ patch -p0 << 'EOF'
      docker_opts+=( --env BR2_DL_DIR )
 
 EOF
+
+# Substitute bootgen package with older version. Bootgen 2025.01 produces a broken binary.
+# This replaces bootgen 2025.01 with bootgen 2024.2 from Buildroot 2025.05.
+echo "Substituting bootgen package with older version"
+rm -r buildroot/package/bootgen
+cp -a bootgen-alt buildroot/package/bootgen
