@@ -19,10 +19,10 @@ case "$1" in
 		echo -n "Starting miscellaneous setup: "
 		# Restore saved password and Dropbear keys
 		[[ -d /mnt/jffs2/etc ]] && cd /mnt/jffs2/etc && md5sum -s -c password.md5 && cp passwd shadow group /etc
-		[[ -f /mnt/jffs2/dropbear_ed25519_host_key ]] && [[ ! -f /etc/dropbear/dropbear_ed25519_host_key ]] && [[ -d /etc/dropbear ]] && cp /mnt/jffs2/dropbear_ed25519_host_key /etc/dropbear/dropbear_ed25519_host_key
+		[[ -f /mnt/jffs2/etc/dropbear/dropbear_ed25519_host_key ]] && [[ ! -f /etc/dropbear/dropbear_ed25519_host_key ]] && [[ -d /etc/dropbear ]] && cp /mnt/jffs2/etc/dropbear/dropbear_ed25519_host_key /etc/dropbear/dropbear_ed25519_host_key
 		[[ ! -d /root/.ssh ]] && mkdir /root/.ssh
-		[[ -f /mnt/jffs2/authorized_keys ]] && [[ ! -f /root/.ssh/authorized_keys ]] && [[ -d /root/.ssh ]] && cp /mnt/jffs2/authorized_keys /root/.ssh/authorized_keys && chmod 600 /root/.ssh/authorized_keys
-		echo -e "#! /bin/sh\ncp /etc/dropbear/dropbear_ed25519_host_key /mnt/jffs2/dropbear_ed25519_host_key\ncp /root/.ssh/authorized_keys /mnt/jffs2/authorized_keys\n" > /root/backup-host-keys.sh && chmod u+x /root/backup-host-keys.sh
+		[[ -f /mnt/jffs2/etc/dropbear/authorized_keys ]] && [[ ! -f /root/.ssh/authorized_keys ]] && [[ -d /root/.ssh ]] && cp /mnt/jffs2/authorized_keys /root/.ssh/authorized_keys && chmod 600 /root/.ssh/authorized_keys
+		echo -e "#! /bin/sh\ncp /etc/dropbear/dropbear_ed25519_host_key /mnt/jffs2/etc/dropbear/dropbear_ed25519_host_key\ncp /root/.ssh/authorized_keys /mnt/jffs2/etc/dropbear/authorized_keys\n" > /root/backup-host-keys.sh && chmod u+x /root/backup-host-keys.sh
 		xo_correction
 		MAX_BS=`fw_printenv -n iio_max_block_size 2> /dev/null || echo 67108864`
 		echo ${MAX_BS} > /sys/module/industrialio_buffer_dma/parameters/max_block_size
