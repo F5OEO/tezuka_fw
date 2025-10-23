@@ -10,6 +10,7 @@ BR2_TOOLCHAIN_EXTERNAL_ARM_ARM=y
 BR2_KERNEL_HEADERS_6_1=y
 #BR2_DEFAULT_KERNEL_HEADERS="6.1.108"
 BR2_OPTIMIZE_3=y
+BR2_LINUX_KERNEL_PATCH="${BR2_EXTERNAL_PLUTOSDR_PATH}/board/tezuka/common/patches/linux/04fbdbb433faae8ffb3a5b24b7435509b11334cb"
 BR2_GLOBAL_PATCH_DIR="${BR2_EXTERNAL_PLUTOSDR_PATH}/board/tezuka/libre/patches"
 BR2_TARGET_GENERIC_HOSTNAME="libresdr"
 BR2_TARGET_GENERIC_ISSUE="Welcome to Tezuka"
@@ -122,7 +123,8 @@ BR2_PACKAGE_LIBINI=y
 ####### CUSTOME CONFIGS
 
 ##PLUTOPLUS MAIA_IIO
-BR2_LINUX_KERNEL_CUSTOM_CONFIG_FILE="$(BR2_EXTERNAL_PLUTOSDR_PATH)/board/tezuka/libre/kernel/zynq_pluto_linux_defconfig"
+BR2_LINUX_KERNEL_CUSTOM_CONFIG_FILE="$(BR2_EXTERNAL_PLUTOSDR_PATH)/board/tezuka/common/kernel/zynq_pluto_linux_defconfig"
+BR2_LINUX_KERNEL_CONFIG_FRAGMENT_FILES="$(BR2_EXTERNAL_PLUTOSDR_PATH)/board/tezuka/libre/kernel/fragment/frag1.config"
 BR2_TARGET_UBOOT_CUSTOM_CONFIG_FILE="$(BR2_EXTERNAL_PLUTOSDR_PATH)/board/tezuka/libre/u-boot-config/zynq_pluto_defconfig"
 BR2_TARGET_UBOOT_CUSTOM_DTS_PATH="$(BR2_EXTERNAL_PLUTOSDR_PATH)/board/tezuka/libre/u-boot-dts/zynq-pluto-sdr.dts $(BR2_EXTERNAL_PLUTOSDR_PATH)/board/tezuka/plutoplus/u-boot-dts/zynq-7000.dtsi"
 BR2_PACKAGE_HOST_UBOOT_TOOLS_ENVIMAGE_SOURCE="${BR2_EXTERNAL_PLUTOSDR_PATH}/board/tezuka/libre/uboot-env.txt"
