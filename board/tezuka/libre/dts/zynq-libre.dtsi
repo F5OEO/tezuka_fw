@@ -11,9 +11,6 @@
 #include <dt-bindings/gpio/gpio.h>
 #include <dt-bindings/interrupt-controller/irq.h>
 
-#define AD9361_EXT_BAND_CTL_SHORTHANDS
-#include <dt-bindings/iio/adc/adi,ad9361.h>
-
 / {
 	model = "LibreSDR Rev.5 (Z7020/AD9363)";
 	memory {
@@ -64,7 +61,7 @@
 
                 maia_sdr_recording: maia_sdr_recording@6000000 {
                         no-map;
-                        reg = <0x6000000 0x10000000>;
+                        reg = <0x6000000 0x8000000>;
                         label = "maia_sdr_recording";
                 };
         };
@@ -281,20 +278,15 @@
 		adi,lvds-mode-enable;
 		adi,lvds-bias-mV = <150>;
 		adi,lvds-rx-onchip-termination-enable;
-		adi,rx-data-delay = <0x04>;
-		
-		adi,xo-disable-use-ext-refclk-enable; 
+		adi,rx-data-delay = <4>;
+		adi,tx-fb-clock-delay = <7>;
+		adi,tx-data-delay = <9>;
 
-		/* Enable CMOS Mode */
-		//adi,full-port-enable;
-		//adi,digital-interface-tune-fir-disable; // WITHOUT : big trouble on TX 
+		adi,xo-disable-use-ext-refclk-enable;
 
-		
-		adi,tx-fb-clock-delay = <0x07>;
-		//adi,tx-data-delay = <0x09>;
-		//adi,swap-ports-enable; //Setting this option swaps Port 0 and Port 1. Must be clear for LVDS mode
-		
+
 		/* Mode Setup */
+
 
 		//adi,split-gain-table-mode-enable;
 

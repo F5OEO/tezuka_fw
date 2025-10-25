@@ -31,7 +31,7 @@
 
                 maia_sdr_recording: maia_sdr_recording@6000000 {
                         no-map;
-                        reg = <0x6000000 0x10000000>;
+                        reg = <0x6000000 0x8000000>;
                         label = "maia_sdr_recording";
                 };
         };
