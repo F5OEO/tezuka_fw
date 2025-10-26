@@ -17,7 +17,6 @@ patch_html_page() {
 	BUILD=`grep device-fw /opt/VERSIONS | cut -d ' ' -f 2`
 	FPGA=`grep hdl /opt/VERSIONS | cut -d ' ' -f 2`
 	ROOTFS=`grep buildroot /opt/VERSIONS | cut -d ' ' -f 2`
-	UBOOT=`cat /proc/cmdline | tr  "=" "\n" | grep "U-Boot"`
 	USB_ETH_MODE=`fw_printenv -n usb_ethernet_mode 2> /dev/null || echo rndis`
 	if [ "$USB_ETH_MODE" == "ncm" ]; then
 		NETWORKUSB="Communications Device Class – Network Control Model (CDC-NCM)"
@@ -27,7 +26,7 @@ patch_html_page() {
 		NETWORKUSB="Remote Network Driver Interface Specification (RNDIS)"
 	fi
 
-	sed -i -e "s/#LINUX#/$LINUX/g" -e "s/#MODEL#/$MODEL/g" -e "s/#SERIAL#/$SERIAL/g" -e "s/#MACHOST#/$MACHOST/g" -e "s/#MAC#/$MAC/g" -e "s/#IIO#/$IIO/g" -e "s/#BUILD#/$BUILD/g" -e "s/#FPGA#/$FPGA/g" -e "s/#ROOTFS#/$ROOTFS/g" -e "s/#UBOOT#/$UBOOT/g" -e "s/#NETWORKUSB#/$NETWORKUSB/g" $1
+	sed -i -e "s/#LINUX#/$LINUX/g" -e "s/#MODEL#/$MODEL/g" -e "s/#SERIAL#/$SERIAL/g" -e "s/#MACHOST#/$MACHOST/g" -e "s/#MAC#/$MAC/g" -e "s/#IIO#/$IIO/g" -e "s/#BUILD#/$BUILD/g" -e "s/#FPGA#/$FPGA/g" -e "s/#ROOTFS#/$ROOTFS/g" -e "s/#UBOOT#/$UBOOT_VERSION/g" -e "s/#UBOOT_MODEBOOT#/$UBOOT_MODEBOOT/g" -e "s/#NETWORKUSB#/$NETWORKUSB/g" $1
 
 	sed -i -e "s/#BUILD#/$BUILD/g" $2 /etc/motd
 }
