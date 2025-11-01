@@ -1,0 +1,38 @@
+#! /bin/sh
+
+xo_correction() {
+
+	XO_ENV_VAL=`fw_printenv -n xo_correction 2> /dev/null`
+	if [ $? -eq 0 ]; then
+
+		for dev in /sys/bus/iio/devices/*; do
+			[ `cat ${dev}/name` == "ad9361-phy" ] && DEV_NAME=`basename ${dev}`
+		done
+
+		echo ${XO_ENV_VAL} > /sys/bus/iio/devices/${DEV_NAME}/xo_correction
+	fi
+}
+
+
+case "$1" in
+	start|"")
+		echo -n "Starting miscellaneous setup: "
+		# Restore saved password and Dropbear keys
+		[[ -d /mnt/jffs2/etc ]] && [[ -f /mnt/jffs2/etc/passwd ]] && [[ -f /mnt/jffs2/etc/shadow ]] && [[ -f /mnt/jffs2/etc/group ]] && cd /mnt/jffs2/etc && md5sum -s -c password.md5 && cp passwd shadow group /etc
+		[[ -f /mnt/jffs2/etc/dropbear/dropbear_ed25519_host_key ]] && [[ ! -f /etc/dropbear/dropbear_ed25519_host_key ]] && [[ -d /etc/dropbear ]] && cp /mnt/jffs2/etc/dropbear/dropbear_ed25519_host_key /etc/dropbear/dropbear_ed25519_host_key
+		[[ ! -d /root/.ssh ]] && mkdir /root/.ssh
+		[[ -f /mnt/jffs2/etc/dropbear/authorized_keys ]] && [[ ! -f /root/.ssh/authorized_keys ]] && [[ -d /root/.ssh ]] && cp /mnt/jffs2/etc/dropbear/authorized_keys /root/.ssh/authorized_keys && chmod 600 /root/.ssh/authorized_keys
+		echo -e "#! /bin/sh\ncp /etc/dropbear/dropbear_ed25519_host_key /mnt/jffs2/etc/dropbear/dropbear_ed25519_host_key\ncp /root/.ssh/authorized_keys /mnt/jffs2/etc/dropbear/authorized_keys\n" > /root/backup-host-keys.sh && chmod u+x /root/backup-host-keys.sh
+		xo_correction
+		MAX_BS=`fw_printenv -n iio_max_block_size 2> /dev/null || echo 67108864`
+		echo ${MAX_BS} > /sys/module/industrialio_buffer_dma/parameters/max_block_size
+		[ $? = 0 ] && echo "OK" || echo "FAIL"
+		;;
+	stop)
+
+		;;
+	*)
+		echo "Usage: $0 {start|stop}" >&2
+		exit 1
+		;;
+esac

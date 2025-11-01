@@ -35,6 +35,19 @@ jobs:
       with:
         clean: false
         fetch-depth: 0
+    - name: Free Disk Space Before Build
+      run: |
+          echo "Disk space before cleanup:"
+          df -h
+          sudo rm -rf /usr/local/.ghcup
+          sudo rm -rf /opt/hostedtoolcache/CodeQL
+          sudo rm -rf /usr/local/lib/android/sdk/ndk
+          sudo rm -rf /usr/share/dotnet
+          sudo rm -rf /opt/ghc
+          sudo rm -rf /usr/local/share/boost
+          sudo apt-get clean
+          echo "Disk space after cleanup:"
+          df -h    
 
     - name: Install dependencies
       shell: bash
@@ -56,15 +69,20 @@ jobs:
         ./getbuildroot.sh
 
         mkdir ${{runner.workspace}}/build && cd ${{runner.workspace}}/build
-        wget -O- https://buildroot.org/downloads/buildroot-2025.02.3.tar.gz | tar -xz --one-top-level=buildroot --strip-components=1
+        wget -O- https://buildroot.org/downloads/buildroot-2025.05.tar.gz | tar -xz --one-top-level=buildroot --strip-components=1
                
         cd  ${{runner.workspace}}/build/buildroot
         make pluto_maiasdr_defconfig && make && mv ${{runner.workspace}}/build/buildroot/output/images/tezuka.zip ${{runner.workspace}}/build/pluto.zip
-        make plutoplus_maiasdr_defconfig && make uboot-reconfigure && make linux-reconfigure && make && mv ${{runner.workspace}}/build/buildroot/output/images/tezuka.zip ${{runner.workspace}}/build/plutoplus.zip
-        make e200_maiasdr_defconfig && make uboot-reconfigure && make linux-reconfigure && make && mv ${{runner.workspace}}/build/buildroot/output/images/tezuka.zip ${{runner.workspace}}/build/antsdr_e200.zip
-        make libre_maiasdr_defconfig  && make uboot-reconfigure && make linux-reconfigure && make && mv ${{runner.workspace}}/build/buildroot/output/images/tezuka.zip ${{runner.workspace}}/build/libresdr.zip
-        make fishball_maiasdr_defconfig  && make uboot-reconfigure && make linux-reconfigure && make && mv ${{runner.workspace}}/build/buildroot/output/images/tezuka.zip ${{runner.workspace}}/build/fishball.zip
-        make fishball_maiasdr_7020_defconfig  && make uboot-reconfigure && make linux-reconfigure && make && mv ${{runner.workspace}}/build/buildroot/output/images/tezuka.zip ${{runner.workspace}}/build/fishball7020.zip
+        rm output/images/sdimg/* -r
+        make plutoplus_maiasdr_defconfig && make uboot-dirclean && make linux-reconfigure && make maia-kmod-reconfigure && make && mv ${{runner.workspace}}/build/buildroot/output/images/tezuka.zip ${{runner.workspace}}/build/plutoplus.zip
+        rm output/images/sdimg/* -r
+        make e200_maiasdr_defconfig && make uboot-dirclean && make linux-reconfigure && make maia-kmod-reconfigure && make && mv ${{runner.workspace}}/build/buildroot/output/images/tezuka.zip ${{runner.workspace}}/build/antsdr_e200.zip
+        rm output/images/sdimg/* -r
+        make libre_maiasdr_defconfig  && make uboot-dirclean && make linux-reconfigure && make maia-kmod-reconfigure && make && mv ${{runner.workspace}}/build/buildroot/output/images/tezuka.zip ${{runner.workspace}}/build/libresdr.zip
+        rm output/images/sdimg/* -r
+        make fishball_maiasdr_defconfig  && make uboot-dirclean && make linux-reconfigure && make maia-kmod-reconfigure &&  make && mv ${{runner.workspace}}/build/buildroot/output/images/tezuka.zip ${{runner.workspace}}/build/fishball.zip
+        rm output/images/sdimg/* -r
+        make fishball_maiasdr_7020_defconfig  && make uboot-dirclean && make linux-reconfigure && make maia-kmod-reconfigure && make && mv ${{runner.workspace}}/build/buildroot/output/images/tezuka.zip ${{runner.workspace}}/build/fishball7020.zip
 
     - name: Save zip Archive
       uses: actions/upload-artifact@v4

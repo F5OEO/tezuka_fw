@@ -41,7 +41,7 @@ Other great SDR software could use soon new features (SDRConsole, SDRAngel...), 
 
 # Calling for contribution
 If you like this firmware you can help me maintaining it by
-- Donate at https://www.paypal.com/paypalme/f5oeo
+- Donate at https://paypal.me/f5oeodev
 - Write some documentation
 - Make some pull request
 
@@ -54,7 +54,7 @@ Buildroot documentation has the [list of required packages](https://buildroot.or
 
 The following packages must be installed for building Maia-fw related code:
 ```bash
-sudo apt install pkg-config openssl-dev libclang-dev
+sudo apt install pkg-config libssl-dev libclang-dev
 ```
 
 Now clone this repo and get buildroot

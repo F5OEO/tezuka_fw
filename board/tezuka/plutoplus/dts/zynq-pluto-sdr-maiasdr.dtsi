@@ -1,0 +1,49 @@
+/*
+ * ZYNQ Pluto SDR (Z7010/AD9363) - Maia SDR
+ *
+ * Copyright (C) 2022 Daniel Estevez <daniel@destevez.net>
+ *
+ * Licensed under the GPL-2.
+*/
+
+&fpga_axi {
+     
+        maia_sdr: maia-sdr@7c460000 {
+                compatible = "uio_pdrv_genirq";
+                reg = <0x7c460000 0x1000>;
+                clocks = <&clkc 15>;
+                interrupt-parent = <&intc>;
+                interrupts = <0 55 IRQ_TYPE_LEVEL_HIGH>;
+        };
+};
+
+/ {
+        reserved-memory {
+                #address-cells = <1>;
+                #size-cells = <1>;
+                ranges;
+
+                maia_sdr_spectrometer: maia_sdr_spectrometer@16000000 {
+                        no-map;
+                        reg = <0x16000000 0x40000>;
+                        label = "maia_sdr_spectrometer";
+                };
+
+                maia_sdr_recording: maia_sdr_recording@6000000 {
+                        no-map;
+                        reg = <0x6000000 0x8000000>;
+                        label = "maia_sdr_recording";
+                };
+        };
+
+        maia-sdr-recording {
+                compatible = "maia-sdr,recording";
+                memory-region = <&maia_sdr_recording>;
+        };
+
+        maia-sdr-spectrometer {
+                compatible = "maia-sdr,rxbuffer";
+                memory-region = <&maia_sdr_spectrometer>;
+                buffer-size = <0x8000>;
+        };
+};
