@@ -84,6 +84,15 @@ Buildroot does not allow whitespaces in the PATH environment variable. On WSL se
 ```bash
 export PATH=$(echo $PATH | tr ':' '\n' | grep -v ' ' | tr '\n' ':' | sed 's/:$//')
 ```
+### Compatibility with older build scripts
+
+If you encounter errors related to CMAKE policy version, it's because newer versions of CMAKE (3.27+) have stricter policy requirements. Setting CMAKE_POLICY_VERSION_MINIMUM=3.5 tells CMAKE to use policies from version 3.5 or newer, which helps maintain compatibility with older build scripts and dependencies that may not be fully compatible with the latest CMAKE policies. This is particularly important when building packages that haven't been updated to support newer CMAKE versions.
+
+Run the build with:
+
+```bash
+CMAKE_POLICY_VERSION_MINIMUM=3.5 make
+```
 
 ### Result
 All materials are in buildroot/output/images
