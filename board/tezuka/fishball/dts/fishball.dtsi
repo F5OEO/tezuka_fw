@@ -475,59 +475,7 @@
 		en_agc-gpios = <&gpio0 66 0>;
 		reset-gpios = <&gpio0 67 0>;
 	
-			// --- CONTROL LINE DEFINITION (2 Bits) ---
-		// Bit 0: Pin 81 (adi,gpio-settings[0])
-		adi,band-ctl-0-gpio = <&gpio0 81 0>; 
-		// Bit 1: Pin 82 (adi,gpio-settings[1])
-		adi,band-ctl-1-gpio = <&gpio0 82 0>;
-
 		
-        // --- ADDED REQUIRED CONTAINER NODE ---
-        rx-ext-band-settings {
-
-        
-            /* --- CORRECTION 1: Band 0 (LOWEST FREQ) --- */
-            /* Original: adi,lo-freq-min=<47M>, max=<15M> (Reversed/Wrong start) */
-            adi_rx_ext_band_setting_0 {
-                // Corrected range to start at a low frequency
-                adi,lo-freq-min = /bits/ 64 <47000000>;  // 47 MHz
-                adi,lo-freq-max = /bits/ 64 <150000000>; // 150 MHz
-                adi,gpio-settings = <L L>; // State 00
-				
-            };
-
-            /* --- CORRECTION 2: Band 1 --- */
-            /* Original: adi,lo-freq-min=<15M>, max=<35M> (Wrong start/overlap with fixed) */
-            adi_rx_ext_band_setting_1 {
-                // Corrected range to be contiguous
-                adi,lo-freq-min = /bits/ 64 <150000001>; // 150.000001 MHz
-                adi,lo-freq-max = /bits/ 64 <350000000>; // 350 MHz
-                adi,gpio-settings = <L H>; // State 10
-				
-            };
-
-            /* --- CORRECTION 3: Band 2 --- */
-            /* Original: adi,lo-freq-min=<35M>, max=<55M> (Inconsistent naming) */
-            adi_rx_ext_band_setting_2 {
-                // Corrected range to be contiguous
-                adi,lo-freq-min = /bits/ 64 <350000001>; // 350.000001 MHz
-                adi,lo-freq-max = /bits/ 64 <550000000>; // 550 MHz
-                adi,gpio-settings = <H L>; // State 01
-				
-            };
-
-            /* --- CORRECTION 4: Band 3 (HIGHEST FREQ) --- */
-            /* Original: adi,lo-freq-min=<55M>, max=<6G> (Duplicate GPIO settings) */
-            adi_rx_ext_band_setting_3 {
-                // Corrected range to be contiguous and cover the high end
-                adi,lo-freq-min = /bits/ 64 <550000001>; // 550.000001 MHz
-                adi,lo-freq-max = /bits/ 64 <6000000000>; // 6 GHz
-                adi,gpio-settings = <H H>; // State 11 (Uses the last possible state)
-				
-            };
-
-			
-        }; /* end of rx-ext-band-settings */
         
 		
 
