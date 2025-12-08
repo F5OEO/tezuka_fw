@@ -3,7 +3,13 @@
 [![Tezuka](https://github.com/F5OEO/tezuka_fw/actions/workflows/main.yml/badge.svg?branch=main)](https://github.com/F5OEO/F5OEO/tezuka_fw/actions/workflows/main.yml)
 [![GitHub Release](https://img.shields.io/github/release/F5OEO/tezuka_fw.svg)](https://github.com/F5OEO/tezuka_fw/releases/latest)  [![Github Releases](https://img.shields.io/github/downloads/F5OEO/tezuka_fw/total.svg)](https://github.com/F5OEO/tezuka_fw/releases/latest)
 # About tezuka_fw 
-**tezuka** (name referenced to [pluto](https://en.wikipedia.org/wiki/Pluto:_Urasawa_x_Tezuka)) aims to be Universal Zynq/AD9363 firmware builder for plutosdr board and other boards: PlutoSDR, Pluto+, AntSDR (e200), LibreSDR.
+**tezuka** (name referenced to [pluto](https://en.wikipedia.org/wiki/Pluto:_Urasawa_x_Tezuka)) aims to be Universal Zynq/AD9363 firmware builder for plutosdr board and other boards:
+- PlutoSDR
+- Pluto+
+- AntSDR (e200)
+- LibreSDR/ZynqSDR
+- Fishball (Hamgeek or OpenSDRLab SDR Zynq7010/20 + AD9363),PlutoSky
+- SignalSDRPro
 
 Target of **tezuka** firmware is to **maximize features** of the board and integrate interesting projects on multi-target boards.
 
@@ -12,8 +18,10 @@ Target of **tezuka** firmware is to **maximize features** of the board and integ
 - Switch **RX1/RX2 , TX1/TX2** seamlessly
 - Complex **8bit mode** to extend streaming bandwidth with host (**14Mhz** stable bandwidth through usb, **45MHz** through GbE network)
 - Audio gadget to be recognized as a soundcard (**virtual cable** not needed anymore)
-- SD boot support : easy update, no risk of flashing, high amount of memory 
+- **SD boot support : easy update, no risk of flashing, high amount of memory**
 - Include **Maia-sdr** transparently
+- Fast sweep
+- Gpios handling (OpenSDRLab Pluto Sky)
 - Publish basic information about the current state on local mqtt server
 - Many other (need to be documented)
 
@@ -26,11 +34,16 @@ Thus, official firmware updates are no longer focus on new features for SDR enth
 - In release section (https://github.com/F5OEO/tezuka_fw/releases)
 - Choose your right firmware depending on hardware and software, depending on name.
 - Download your selected configuration on https://github.com/F5OEO/tezuka_fw/releases
-- Unzip it. If you have a board with SD card, prefere this way for updating your firmware.
-
-Use one the method :
-- Flash on memory : paste pluto.frm to pluto drive and eject (detailed update procedure https://wiki.analog.com/university/tools/pluto/users/firmware)
+- Unzip it.
+- **DO NOT USE standard method of flashing with frm**
 - Write SD card : Copy contents of sdimg folder to a fresh FAT32 card formated.
+  
+**ONLY FOR PLUTOSDR (no SD card) :**
+- Flash on memory : paste pluto.frm to pluto drive and eject (detailed update procedure https://wiki.analog.com/university/tools/pluto/users/firmware)
+
+# Disclaimer
+
+Most of boards use non protected flash memory. Flashing could break your card. **Until you know what you are doing, always boot in SD mode.** 
 
 # Configuring
 A soon as firmware is updated, you could see a usb drive with parameters in config.txt (orginal parameters are described at (https://wiki.analog.com/university/tools/pluto/users/customizing)
