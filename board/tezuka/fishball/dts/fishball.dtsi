@@ -475,9 +475,66 @@
 		en_agc-gpios = <&gpio0 66 0>;
 		reset-gpios = <&gpio0 67 0>;
 	
+		adi,band-ctl-0-gpio = <&gpio0 81 0>;
+		adi,band-ctl-1-gpio = <&gpio0 82 0>;
+        adi,band-ctl-2-gpio = <&gpio0 83 0>;
+
+		ad9361_rx_ant_port_a: ad9361_rx_ant_port_a {
+			adi,rx-rf-port-input-select = <0>; /* (RX1A_N &  RX1A_P) and (RX2A_N & RX2A_P) enabled; balanced */
+		};
+
+		ad9361_rx_ant_port_b: ad9361_rx_ant_port_b {
+			adi,rx-rf-port-input-select = <1>; /* (RX1B_N &  RX1B_P) and (RX2B_N & RX2B_P) enabled; balanced */
+		};
+
+		adi_rx_band_setting_0 {
+			adi,lo-freq-min = /bits/ 64 <0>;
+			adi,lo-freq-max = /bits/ 64 <30000000>;
+			adi,gpio-settings = <0 0 0>;
+			adi,band-ctl-post = <&ad9361_rx_ant_port_a 0>;
+		};
+
+		adi_rx_band_setting_1 {
+			adi,lo-freq-min = /bits/ 64 <30000001>;
+			adi,lo-freq-max = /bits/ 64 <100000000>;
+			adi,gpio-settings = <0 0 1>;
+			adi,band-ctl-post = <&ad9361_rx_ant_port_a 0>;
+		};
+
+		adi_rx_band_setting_2 {
+			adi,lo-freq-min = /bits/ 64 <100000001>;
+			adi,lo-freq-max = /bits/ 64 <200000000>;
+			adi,gpio-settings = <0 1 0>;
+			adi,band-ctl-post = <&ad9361_rx_ant_port_a 0>;
+		};
 		
-        
-		
+		adi_rx_band_setting_3 {
+			adi,lo-freq-min = /bits/ 64 <200000001>;
+			adi,lo-freq-max = /bits/ 64 <500000000>;
+			adi,gpio-settings = <0 1 1>;
+			adi,band-ctl-post = <&ad9361_rx_ant_port_a 0>;
+		};
+
+		adi_rx_band_setting_4 {
+			adi,lo-freq-min = /bits/ 64 <500000001>;
+			adi,lo-freq-max = /bits/ 64 <1500000000>;
+			adi,gpio-settings = <1 0 0>;
+			adi,band-ctl-post = <&ad9361_rx_ant_port_a 0>;
+		};
+
+		adi_rx_band_setting_5 {
+			adi,lo-freq-min = /bits/ 64 <1500000001>;
+			adi,lo-freq-max = /bits/ 64 <2400000000>;
+			adi,gpio-settings = <1 0 1>;
+			adi,band-ctl-post = <&ad9361_rx_ant_port_a 0>;
+		};
+
+		adi_rx_band_setting_6 {
+			adi,lo-freq-min = /bits/ 64 <2400000001>;
+			adi,lo-freq-max = /bits/ 64 <6000000000>;
+			adi,gpio-settings = <1 1 0>;
+			adi,band-ctl-post = <&ad9361_rx_ant_port_a 0>;
+		};
 
 	};
 
