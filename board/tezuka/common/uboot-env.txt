@@ -68,7 +68,7 @@ baudrate=115200
 bitstream_image=system.bit.bin
 bitstream_size=0x400000
 bootcmd=run $modeboot
-bootdelay=3
+bootdelay=10
 bootenv=uEnv.txt
 boot_image=BOOT.bin
 boot_size=0xF00000
@@ -168,13 +168,23 @@ sdboot_ram=\
     && load mmc 0 ${ramdisk_load_address} ${ramdisk_image} \
     && envversion; \
     run adi_loadvals; \
-    setenv bootargs console=ttyPS0,115200 maxcpus=${maxcpus} rootfstype=ramfs root=/dev/ram0 rw earlyprintk clk_ignore_unused uio_pdrv_genirq.of_id=uio_pdrv_genirq UBOOT_MODEBOOT=$modeboot UBOOT_VERSION='"\'${uboot-version}'\"' \
+    setenv bootargs console=ttyPS0,115200 rootfstype=ramfs root=/dev/ram0 rw rootwait earlycon clk_ignore_unused cpuidle.off=1 uio_pdrv_genirq.of_id=uio_pdrv_genirq UBOOT_MODEBOOT=$modeboot UBOOT_VERSION='"\'${uboot-version}'\"' \
     && bootm ${fit_load_address} ${ramdisk_load_address} ${devicetree_load_address}; \
   fi
 
 bootargs=console=ttyPS0,115200 root=/dev/mmcblk0p2 rw earlycon rootfstype=ext4 rootwait clk_ignore_unused cpuidle.off=1 uio_pdrv_genirq.of_id=uio_pdrv_genirq UBOOT_MODEBOOT=$modeboot UBOOT_VERSION='\"'${uboot-version}'\"'
-#sdboot_kuiper=if mmcinfo; then run uenvboot; echo Booting Kuiper with rootfs on sd... && fatload mmc 0 0x3000000 ${kernel_image} && fatload mmc 0 0x2A00000 ${devicetree_image} && bootm 0x3000000 - 0x2A00000; fi
-sdboot_kuiper=if mmcinfo; then run uenvboot; echo Copying Linux from SD to RAM... && load mmc 0 ${fit_load_address} ${kernel_image} && load mmc 0 ${devicetree_load_address} ${devicetree_image} && envversion;run adi_loadvals;setenv bootargs console=ttyPS0,115200 maxcpus=${maxcpus} root=/dev/mmcblk0p2 rw earlyprintk clk_ignore_unused uio_pdrv_genirq.of_id=uio_pdrv_genirq UBOOT_MODEBOOT=$modeboot UBOOT_VERSION='\"'${uboot-version}'\"' && bootm ${fit_load_address} - ${devicetree_load_address}; fi
+
+sdboot_kuiper=if mmcinfo; then \
+    run uenvboot; \
+    echo Copying Linux from SD to RAM...\
+    && load mmc 0 ${fit_load_address} ${kernel_image} \
+    && load mmc 0 ${devicetree_load_address} ${devicetree_image} \
+    && envversion; \
+    run adi_loadvals; \
+    setenv bootargs console=ttyPS0,115200 rootfstype=ext4 root=/dev/mmcblk0p2 rootwait rw earlycon clk_ignore_unused cpuidle.off=1 uio_pdrv_genirq.of_id=uio_pdrv_genirq UBOOT_MODEBOOT=$modeboot UBOOT_VERSION='\"'${uboot-version}'\"' \
+    && bootm ${fit_load_address} - ${devicetree_load_address}; \
+    fi
+
 sd_uEnvtxt_existence_test=test -e mmc 0 /uEnv.txt
 thor_mmc=run dfu_mmc_info && thordown 0 mmc 0
 thor_ram=run dfu_ram_info && thordown 0 ram 0
