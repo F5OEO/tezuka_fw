@@ -10,6 +10,7 @@ BR2_TOOLCHAIN_EXTERNAL_ARM_ARM=y
 BR2_KERNEL_HEADERS_6_1=y
 #BR2_DEFAULT_KERNEL_HEADERS="6.1.108"
 BR2_OPTIMIZE_3=y
+BR2_LINUX_KERNEL_PATCH="${BR2_EXTERNAL_PLUTOSDR_PATH}/board/tezuka/common/patches/linux/04fbdbb433faae8ffb3a5b24b7435509b11334cb"
 BR2_GLOBAL_PATCH_DIR="${BR2_EXTERNAL_PLUTOSDR_PATH}/board/tezuka/signalsdrpro/patches"
 BR2_TARGET_GENERIC_HOSTNAME="signalsdrpro"
 BR2_TARGET_GENERIC_ISSUE="Welcome to Tezuka"
@@ -127,13 +128,15 @@ BR2_PACKAGE_LIBINI=y
 
 ##SignalSDRPro
 BR2_LINUX_KERNEL_CUSTOM_CONFIG_FILE="$(BR2_EXTERNAL_PLUTOSDR_PATH)/board/tezuka/signalsdrpro/kernel/zynq_signalsdrpro_linux_defconfig"
+BR2_LINUX_KERNEL_CONFIG_FRAGMENT_FILES="$(BR2_EXTERNAL_PLUTOSDR_PATH)/board/tezuka/signalsdrpro/kernel/fragment/frag1.config"
 BR2_TARGET_UBOOT_CUSTOM_CONFIG_FILE="$(BR2_EXTERNAL_PLUTOSDR_PATH)/board/tezuka/signalsdrpro/u-boot-config/zynq_signalsdrpro_defconfig"
 BR2_TARGET_UBOOT_CUSTOM_DTS_PATH="$(BR2_EXTERNAL_PLUTOSDR_PATH)/board/tezuka/signalsdrpro/u-boot-dts/zynq_signalsdrpro.dts"
 BR2_PACKAGE_HOST_UBOOT_TOOLS_ENVIMAGE_SOURCE="${BR2_EXTERNAL_PLUTOSDR_PATH}/board/tezuka/signalsdrpro/uboot-env.txt"
-BR2_LINUX_KERNEL_CUSTOM_DTS_PATH="$(BR2_EXTERNAL_PLUTOSDR_PATH)/board/tezuka/signalsdrpro/dts/zynq-signalsdrpro.dts $(BR2_EXTERNAL_PLUTOSDR_PATH)/board/tezuka/signalsdrpro/dts/zynq-signalsdrpro-revb.dts $(BR2_EXTERNAL_PLUTOSDR_PATH)/board/tezuka/signalsdrpro/dts/zynq-signalsdrpro-revc.dts  $(BR2_EXTERNAL_PLUTOSDR_PATH)/board/tezuka/signalsdrpro/dts/zynq-signalsdrpro.dtsi"
-BR2_ROOTFS_OVERLAY="${BR2_EXTERNAL_PLUTOSDR_PATH}/board/tezuka/common/overlay_base ${BR2_EXTERNAL_PLUTOSDR_PATH}/board/tezuka/common/overlay_tezuka ${BR2_EXTERNAL_PLUTOSDR_PATH}/board/tezuka/signalsdrpro/overlay_signalsdrpro"
+BR2_LINUX_KERNEL_CUSTOM_DTS_PATH="$(BR2_EXTERNAL_PLUTOSDR_PATH)/board/tezuka/signalsdrpro/dts/zynq-signalsdrpro.dts $(BR2_EXTERNAL_PLUTOSDR_PATH)/board/tezuka/signalsdrpro/dts/zynq-signalsdrpro-revb.dts $(BR2_EXTERNAL_PLUTOSDR_PATH)/board/tezuka/signalsdrpro/dts/zynq-signalsdrpro-revc.dts  $(BR2_EXTERNAL_PLUTOSDR_PATH)/board/tezuka/signalsdrpro/dts/zynq-signalsdrpro.dtsi $(BR2_EXTERNAL_PLUTOSDR_PATH)/board/tezuka/signalsdrpro/dts/zynq-7000.dtsi"
+BR2_ROOTFS_OVERLAY="${BR2_EXTERNAL_PLUTOSDR_PATH}/board/tezuka/common/overlay_base ${BR2_EXTERNAL_PLUTOSDR_PATH}/board/tezuka/common/overlay_tezuka ${BR2_EXTERNAL_PLUTOSDR_PATH}/board/tezuka/common/overlay_maia ${BR2_EXTERNAL_PLUTOSDR_PATH}/board/tezuka/common/overlay_iqengine"
 BR2_ROOTFS_POST_BUILD_SCRIPT="${BR2_EXTERNAL_PLUTOSDR_PATH}/board/tezuka/common/post-build.sh"
-BR2_ROOTFS_POST_IMAGE_SCRIPT="${BR2_EXTERNAL_PLUTOSDR_PATH}/board/tezuka/signalsdrpro/post_image.sh ${BR2_EXTERNAL_PLUTOSDR_PATH}/board/tezuka/signalsdrpro/post_image-uboot.sh"
-BR2_PACKAGE_TEZUKA_COMMON_TOOLS=y
+BR2_ROOTFS_POST_IMAGE_SCRIPT="${BR2_EXTERNAL_PLUTOSDR_PATH}/board/tezuka/common/post-image.sh"
+BR2_ROOTFS_POST_IMAGE_SCRIPT_ARGS="${BR2_EXTERNAL_PLUTOSDR_PATH}/board/tezuka/signalsdrpro zynq-signalsdrpro.dtb"
+BR2_PACKAGE_MAIASDR_FW=y
 BR2_PACKAGE_SIGNALSDRPRO_FPGA=y
-BR2_PACKAGE_PLUTOPLUSMAIA_IIO_SYSTEM_TOP_BIT=y
+
