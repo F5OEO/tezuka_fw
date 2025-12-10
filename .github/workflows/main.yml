@@ -83,6 +83,8 @@ jobs:
         make fishball_maiasdr_defconfig  && make uboot-dirclean && make linux-reconfigure && make maia-kmod-reconfigure &&  make && mv ${{runner.workspace}}/build/buildroot/output/images/tezuka.zip ${{runner.workspace}}/build/fishball.zip
         rm output/images/sdimg/* -r
         make fishball_maiasdr_7020_defconfig  && make uboot-dirclean && make linux-reconfigure && make maia-kmod-reconfigure && make && mv ${{runner.workspace}}/build/buildroot/output/images/tezuka.zip ${{runner.workspace}}/build/fishball7020.zip
+        rm output/images/sdimg/* -r
+        make signalsdrpro_defconfig  && make uboot-dirclean && make linux-reconfigure && make maia-kmod-reconfigure && make && mv ${{runner.workspace}}/build/buildroot/output/images/tezuka.zip ${{runner.workspace}}/build/signalsrdro.zip
 
     - name: Save zip Archive
       uses: actions/upload-artifact@v4
