@@ -173,7 +173,7 @@
 
 				dma-channel@0 {
 					reg = <0>;
-					adi,source-bus-width = <32>;
+					adi,source-bus-width = <64>;
 					adi,source-bus-type = <2>;
 					adi,destination-bus-width = <64>;
 					adi,destination-bus-type = <0>;
@@ -196,7 +196,7 @@
 					reg = <0>;
 					adi,source-bus-width = <64>;
 					adi,source-bus-type = <0>;
-					adi,destination-bus-width = <32>;
+					adi,destination-bus-width = <64>;
 					adi,destination-bus-type = <2>;
 				};
 			};
@@ -260,7 +260,7 @@
 		  * 1 = SKIP TX
 		  * 2 = SKIP ALL
 		  */
-		//adi,digital-interface-tune-skip-mode = <0>;
+		adi,digital-interface-tune-skip-mode = <0>;
 
 		adi,pp-tx-swap-enable;
 		adi,pp-rx-swap-enable;
@@ -272,7 +272,7 @@
 		adi,full-port-enable;
 		adi,digital-interface-tune-fir-disable;
 
-		adi,digital-interface-tune-skip-mode = <0>; /* TUNE RX & TX */
+		
 		adi,tx-fb-clock-delay = <0>;
 		adi,tx-data-delay = <9>;
 		adi,swap-ports-enable;
@@ -300,7 +300,7 @@
 		 * 8 = RX1C_P and RX2C_P enabled; unbalanced
 		 */
 
-		adi,rx-rf-port-input-select = <1>; /* (RX1A_N &  RX1A_P) and (RX2A_N & RX2A_P) enabled; balanced */
+		adi,rx-rf-port-input-select = <0>; /* (RX1A_N &  RX1A_P) and (RX2A_N & RX2A_P) enabled; balanced */
 		adi,rx-rf-port-input-select-lock-enable;
 
 		/* adi,tx-rf-port-input-select:
@@ -498,7 +498,7 @@
 			adi,lo-freq-min = /bits/ 64 <0>;
 			adi,lo-freq-max = /bits/ 64 <3000000000>;
 			adi,gpio-settings = <0 1 _ _ 0 1 _ _>;
-			adi,band-ctl-post = <&ad9361_rx_ant_port_b 0>;
+			adi,band-ctl-post = <&ad9361_rx_ant_port_a 0>;
 		};
 
 		adi_rx_band_setting_1 {
@@ -512,7 +512,7 @@
 			adi,lo-freq-min = /bits/ 64 <0>;
 			adi,lo-freq-max = /bits/ 64 <3000000000>;
 			adi,gpio-settings = <_ _ 0 1 _ _ 0 1>;
-			adi,band-ctl-post = <&ad9361_tx_ant_port_b 0>;
+			adi,band-ctl-post = <&ad9361_tx_ant_port_a 0>;
 		};
 
 		adi_tx_band_setting_1 {
