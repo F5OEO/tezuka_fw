@@ -1,5 +1,83 @@
+# ⚠️ This is a Fork: GPIO2 PTT Mod
+
+This is a modified version of [F5OEO's tezuka_fw](https://github.com/F5OEO/tezuka_fw) with **PTT moved from GPIO0 to GPIO2**.
+
+## Why?
+
+I damaged GPIO0 on my PlutoSDR and needed an alternative. This mod moves the PTT output to GPIO2 as a workaround. Sharing in case others run into the same issue.
+
+## What Changed
+
+Modified `board/tezuka/common/overlay_tezuka/root/watchconsoletx.sh` to use GPIO2 instead of GPIO0.
+
+The script controls PTT by writing to AD9361 register `0x27` via the IIO debug interface. The change is in the bitmask:
+
+| GPIO Pin | Bitmask | Register 0x27 Bit |
+|----------|---------|-------------------|
+| GPIO0    | `0x10`  | Bit 4             |
+| GPIO2    | `0x40`  | Bit 6             |
+
+**Diff:**
+```diff
+- CLEAR_MASK=$((~0x10))
++ CLEAR_MASK=$((~0x40))
+
+- RESULT_VALUE=$((CURRENT_VALUE_CLEARED |0x10))
++ RESULT_VALUE=$((CURRENT_VALUE_CLEARED |0x40))
+```
+
+## Installation
+
+### Option 1: Full Firmware (recommended)
+
+**SD Card Boot:**
+1. Download `tezuka.zip` from [Releases](https://github.com/pumatrax/tezuka_fw/releases)
+2. Extract `sdimg/` folder contents to a FAT32-formatted SD card
+3. Insert card and boot
+
+**Flash to memory:**
+1. Copy `pluto.frm` to the Pluto drive
+2. Eject the drive
+3. Wait for the flash to complete
+
+### Option 2: Patch Method (keep existing firmware)
+
+If you want to keep your current tezuka firmware and just patch the PTT behavior:
+
+1. Copy the modified `watchconsoletx.sh` to `/mnt/jffs2/` on the Pluto
+
+2. Create `/mnt/jffs2/autorun.sh` with the following contents:
+   ```sh
+   #!/bin/sh
+   killall watchsdrconsole
+   /mnt/jffs2/watchconsoletx.sh &
+   ```
+
+3. Make it executable:
+   ```sh
+   chmod +x /mnt/jffs2/autorun.sh
+   ```
+
+4. Reboot the Pluto
+
+## Hardware
+
+- ADALM-PlutoSDR
+
+## Credits
+
+- [F5OEO (Evariste)](https://github.com/F5OEO) for the original tezuka firmware and guidance on this fix
+- 73 de KD2NFC
+
+---
+
+# Original tezuka_fw README
+
 ![tezuka banner](/doc/tezuka.png)
-# About tezuka_fw 
+
+[![Tezuka](https://github.com/F5OEO/tezuka_fw/actions/workflows/main.yml/badge.svg?branch=main)](https://github.com/F5OEO/tezuka_fw/actions/workflows/main.yml)
+
+# About tezuka_fw
 **tezuka** (name referenced to [pluto](https://en.wikipedia.org/wiki/Pluto:_Urasawa_x_Tezuka)) aims to be Universal Zynq/AD9363 firmware builder for plutosdr board and other boards: PlutoSDR, Pluto+, AntSDR (e200), LibreSDR.
 
 Target of **tezuka** firmware is to **maximize features** of the board and integrate interesting projects on multi-target boards.
@@ -9,7 +87,7 @@ Target of **tezuka** firmware is to **maximize features** of the board and integ
 - Switch **RX1/RX2 , TX1/TX2** seamlessly
 - Complex **8bit mode** to extend streaming bandwidth with host (**14Mhz** stable bandwidth through usb, **45MHz** through GbE network)
 - Audio gadget to be recognized as a soundcard (**virtual cable** not needed anymore)
-- SD boot support : easy update, no risk of flashing, high amount of memory 
+- SD boot support : easy update, no risk of flashing, high amount of memory
 - Include **Maia-sdr** transparently
 - Publish basic information about the current state on local mqtt server
 - Many other (need to be documented)
@@ -79,7 +157,7 @@ make list-defconfigs
 ```
 The items at the bottom are the ones supported by Tezuka.
 
-### Building on WSL2 
+### Building on WSL2
 Buildroot does not allow whitespaces in the PATH environment variable. On WSL several paths with whitespaces are added. The following script can be used to remove any path with whitespaces. It also deletes any leftover ':' at the end:
 ```bash
 export PATH=$(echo $PATH | tr ':' '\n' | grep -v ' ' | tr '\n' ':' | sed 's/:$//')
@@ -94,7 +172,3 @@ All materials are in buildroot/output/images
 - LamaBleu for helping me with buildroot and introduce me Plutosdr
 - https://github.com/hz12opensource/libresdr for overclock and fpga inspiration
 - All the opensource community !
-
-
-
-
