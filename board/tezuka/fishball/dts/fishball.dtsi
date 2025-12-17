@@ -9,6 +9,8 @@
 #include <dt-bindings/input/input.h>
 #include <dt-bindings/gpio/gpio.h>
 #include <dt-bindings/interrupt-controller/irq.h>
+#define AD9361_EXT_BAND_CTL_SHORTHANDS
+#include <dt-bindings/iio/adc/adi,ad9361.h>
 
 / {
 	model = "FISH Ball PlutoSDR Rev.A (Z7010/AD9361)";
@@ -167,7 +169,7 @@
 
 				dma-channel@0 {
 					reg = <0>;
-					adi,source-bus-width = <32>;
+					adi,source-bus-width = <64>;
 					adi,source-bus-type = <2>;
 					adi,destination-bus-width = <64>;
 					adi,destination-bus-type = <0>;
@@ -190,7 +192,7 @@
 					reg = <0>;
 					adi,source-bus-width = <64>;
 					adi,source-bus-type = <0>;
-					adi,destination-bus-width = <32>;
+					adi,destination-bus-width = <64>;
 					adi,destination-bus-type = <2>;
 				};
 			};
@@ -224,10 +226,19 @@
 			adi,axi-dds-default-scale = <0>;
 		};
 
-		mwipcore@43c00000 {
-			compatible = "mathworks,mwipcore-axi4lite-v1.00";
-			reg = <0x43c00000 0xffff>;
-		};
+		axi_uartlite_0:	serial@42C00000 {
+			compatible = "xlnx,xps-uartlite-1.00.a";
+			current-speed = <9600>;
+			device_type = "serial";
+			interrupt-names = "interrupt";
+			status = "okay";
+			reg = <0x42C00000 0x1000>;
+			interrupt-parent = <&intc>;
+			interrupts = <0 59 IRQ_TYPE_LEVEL_HIGH>;
+			clock = <100000000>;
+		};	
+
+		
 	};
 };
 
@@ -257,7 +268,7 @@
 		  * 1 = SKIP TX
 		  * 2 = SKIP ALL
 		  */
-		adi,digital-interface-tune-skip-mode = <2>;/* TUNE RX & TX */
+		adi,digital-interface-tune-skip-mode = <0>;/* TUNE RX & TX */
 
 		adi,pp-tx-swap-enable;
 		adi,pp-rx-swap-enable;
@@ -438,7 +449,7 @@
 		/* AuxADC Temp Sense Control */
 
 		adi,temp-sense-measurement-interval-ms = <1000>;
-		adi,temp-sense-offset-signed = <0xCE>;
+		adi,temp-sense-offset-signed = <0xB6>;
 		adi,temp-sense-periodic-measurement-enable;
 
 		/* AuxDAC Control */
@@ -463,6 +474,69 @@
 
 		en_agc-gpios = <&gpio0 66 0>;
 		reset-gpios = <&gpio0 67 0>;
+	
+		adi,band-ctl-0-gpio = <&gpio0 81 0>;
+		adi,band-ctl-1-gpio = <&gpio0 82 0>;
+        adi,band-ctl-2-gpio = <&gpio0 83 0>;
+
+		ad9361_rx_ant_port_a: ad9361_rx_ant_port_a {
+			adi,rx-rf-port-input-select = <0>; /* (RX1A_N &  RX1A_P) and (RX2A_N & RX2A_P) enabled; balanced */
+		};
+
+		ad9361_rx_ant_port_b: ad9361_rx_ant_port_b {
+			adi,rx-rf-port-input-select = <1>; /* (RX1B_N &  RX1B_P) and (RX2B_N & RX2B_P) enabled; balanced */
+		};
+
+		adi_rx_band_setting_0 {
+			adi,lo-freq-min = /bits/ 64 <0>;
+			adi,lo-freq-max = /bits/ 64 <30000000>;
+			adi,gpio-settings = <0 0 0>;
+			adi,band-ctl-post = <&ad9361_rx_ant_port_a 0>;
+		};
+
+		adi_rx_band_setting_1 {
+			adi,lo-freq-min = /bits/ 64 <30000001>;
+			adi,lo-freq-max = /bits/ 64 <100000000>;
+			adi,gpio-settings = <0 0 1>;
+			adi,band-ctl-post = <&ad9361_rx_ant_port_a 0>;
+		};
+
+		adi_rx_band_setting_2 {
+			adi,lo-freq-min = /bits/ 64 <100000001>;
+			adi,lo-freq-max = /bits/ 64 <200000000>;
+			adi,gpio-settings = <0 1 0>;
+			adi,band-ctl-post = <&ad9361_rx_ant_port_a 0>;
+		};
+		
+		adi_rx_band_setting_3 {
+			adi,lo-freq-min = /bits/ 64 <200000001>;
+			adi,lo-freq-max = /bits/ 64 <500000000>;
+			adi,gpio-settings = <0 1 1>;
+			adi,band-ctl-post = <&ad9361_rx_ant_port_a 0>;
+		};
+
+		adi_rx_band_setting_4 {
+			adi,lo-freq-min = /bits/ 64 <500000001>;
+			adi,lo-freq-max = /bits/ 64 <1500000000>;
+			adi,gpio-settings = <1 0 0>;
+			adi,band-ctl-post = <&ad9361_rx_ant_port_a 0>;
+		};
+
+		adi_rx_band_setting_5 {
+			adi,lo-freq-min = /bits/ 64 <1500000001>;
+			adi,lo-freq-max = /bits/ 64 <2400000000>;
+			adi,gpio-settings = <1 0 1>;
+			adi,band-ctl-post = <&ad9361_rx_ant_port_a 0>;
+		};
+
+		adi_rx_band_setting_6 {
+			adi,lo-freq-min = /bits/ 64 <2400000001>;
+			adi,lo-freq-max = /bits/ 64 <6000000000>;
+			adi,gpio-settings = <1 1 0>;
+			adi,band-ctl-post = <&ad9361_rx_ant_port_a 0>;
+		};
 
 	};
+
+
 };

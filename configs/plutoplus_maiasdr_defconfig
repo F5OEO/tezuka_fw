@@ -10,6 +10,7 @@ BR2_TOOLCHAIN_EXTERNAL_ARM_ARM=y
 BR2_KERNEL_HEADERS_6_1=y
 #BR2_DEFAULT_KERNEL_HEADERS="6.1.108"
 BR2_OPTIMIZE_2=y
+BR2_LINUX_KERNEL_PATCH="${BR2_EXTERNAL_PLUTOSDR_PATH}/board/tezuka/common/patches/linux/04fbdbb433faae8ffb3a5b24b7435509b11334cb"
 BR2_GLOBAL_PATCH_DIR="${BR2_EXTERNAL_PLUTOSDR_PATH}/board/tezuka/plutoplus/patches"
 BR2_TARGET_GENERIC_HOSTNAME="plutoplus"
 BR2_TARGET_GENERIC_ISSUE="Welcome to Tezuka"
@@ -28,7 +29,7 @@ BR2_LINUX_KERNEL_USE_CUSTOM_DTS=y
 
 BR2_LINUX_KERNEL_DTB_OVERLAY_SUPPORT=y
 BR2_PACKAGE_BUSYBOX_CONFIG="${BR2_EXTERNAL_PLUTOSDR_PATH}/board/tezuka/common/busybox.config"
-BR2_PACKAGE_STRACE=y
+#BR2_PACKAGE_STRACE=y
 BR2_PACKAGE_MTD=y
 # BR2_PACKAGE_MTD_NANDDUMP is not set
 # BR2_PACKAGE_MTD_NANDTEST is not set
@@ -122,12 +123,13 @@ BR2_PACKAGE_LIBINI=y
 ####### CUSTOME CONFIGS
 
 ##PLUTOPLUS MAIA_IIO
-BR2_LINUX_KERNEL_CUSTOM_CONFIG_FILE="$(BR2_EXTERNAL_PLUTOSDR_PATH)/board/tezuka/plutoplus/kernel/zynq_pluto_linux_defconfig"
+BR2_LINUX_KERNEL_CUSTOM_CONFIG_FILE="$(BR2_EXTERNAL_PLUTOSDR_PATH)/board/tezuka/common/kernel/zynq_pluto_linux_defconfig"
+BR2_LINUX_KERNEL_CONFIG_FRAGMENT_FILES="$(BR2_EXTERNAL_PLUTOSDR_PATH)/board/tezuka/plutoplus/kernel/fragment/frag1.config"
 BR2_TARGET_UBOOT_CUSTOM_CONFIG_FILE="$(BR2_EXTERNAL_PLUTOSDR_PATH)/board/tezuka/plutoplus/u-boot-config/zynq_pluto_defconfig"
 BR2_TARGET_UBOOT_CUSTOM_DTS_PATH="$(BR2_EXTERNAL_PLUTOSDR_PATH)/board/tezuka/plutoplus/u-boot-dts/zynq-pluto-sdr.dts $(BR2_EXTERNAL_PLUTOSDR_PATH)/board/tezuka/plutoplus/u-boot-dts/zynq-7000.dtsi"
 BR2_PACKAGE_HOST_UBOOT_TOOLS_ENVIMAGE_SOURCE="${BR2_EXTERNAL_PLUTOSDR_PATH}/board/tezuka/plutoplus/uboot-env.txt"
 BR2_LINUX_KERNEL_CUSTOM_DTS_PATH="$(BR2_EXTERNAL_PLUTOSDR_PATH)/board/tezuka/plutoplus/dts/zynq-plutoplus.dtsi $(BR2_EXTERNAL_PLUTOSDR_PATH)/board/tezuka/plutoplus/dts/maiasdr.dtsi $(BR2_EXTERNAL_PLUTOSDR_PATH)/board/tezuka/plutoplus/dts/plutoplus.dts $(BR2_EXTERNAL_PLUTOSDR_PATH)/board/tezuka/plutoplus/dts/zynq-7000.dtsi "
-BR2_ROOTFS_OVERLAY="${BR2_EXTERNAL_PLUTOSDR_PATH}/board/tezuka/common/overlay_base ${BR2_EXTERNAL_PLUTOSDR_PATH}/board/tezuka/common/overlay_tezuka ${BR2_EXTERNAL_PLUTOSDR_PATH}/board/tezuka/common/overlay_maia"
+BR2_ROOTFS_OVERLAY="${BR2_EXTERNAL_PLUTOSDR_PATH}/board/tezuka/common/overlay_base ${BR2_EXTERNAL_PLUTOSDR_PATH}/board/tezuka/common/overlay_tezuka ${BR2_EXTERNAL_PLUTOSDR_PATH}/board/tezuka/common/overlay_maia ${BR2_EXTERNAL_PLUTOSDR_PATH}/board/tezuka/common/overlay_iqengine"
 BR2_ROOTFS_POST_BUILD_SCRIPT="${BR2_EXTERNAL_PLUTOSDR_PATH}/board/tezuka/common/post-build.sh"
 BR2_ROOTFS_POST_IMAGE_SCRIPT="${BR2_EXTERNAL_PLUTOSDR_PATH}/board/tezuka/common/post-image.sh"
 BR2_ROOTFS_POST_IMAGE_SCRIPT_ARGS="${BR2_EXTERNAL_PLUTOSDR_PATH}/board/tezuka/plutoplus plutoplus.dtb"

@@ -1,0 +1,41 @@
+// SPDX-License-Identifier: GPL-2.0
+/*
+
+ * hdl_project: <signalsdrpro>
+ * board_revision: <B>
+ *
+ * Copyright (C) 2016-2021 MicroPhase Inc.
+ */
+/dts-v1/;
+#include "zynq-signalsdrpro.dtsi"
+#include <dt-bindings/input/input.h>
+#include <dt-bindings/gpio/gpio.h>
+#include <dt-bindings/interrupt-controller/irq.h>
+
+
+/ {
+	model = "Analog Devices PlutoSDR Rev.B (Z7010/AD9363)";
+
+	leds {
+		compatible = "gpio-leds";
+		led0 {
+			label = "led0:green";
+			gpios = <&gpio0 15 0>;
+			linux,default-trigger = "heartbeat";
+		};
+	};
+
+	gpio_keys {
+		compatible = "gpio-keys";
+		#address-cells = <1>;
+		#size-cells = <0>;
+
+		button {
+			interrupt-parent = <&gpio0>;
+			interrupts = <14 IRQ_TYPE_EDGE_FALLING>;
+			label = "Button";
+			linux,code = <BTN_MISC>;
+		};
+
+	};
+};

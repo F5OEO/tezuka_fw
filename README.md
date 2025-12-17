@@ -89,6 +89,8 @@ Target of **tezuka** firmware is to **maximize features** of the board and integ
 - Audio gadget to be recognized as a soundcard (**virtual cable** not needed anymore)
 - SD boot support : easy update, no risk of flashing, high amount of memory
 - Include **Maia-sdr** transparently
+- Fast sweep
+- Gpios handling (OpenSDRLab Pluto Sky)
 - Publish basic information about the current state on local mqtt server
 - Many other (need to be documented)
 
@@ -101,11 +103,16 @@ Thus, official firmware updates are no longer focus on new features for SDR enth
 - In release section (https://github.com/F5OEO/tezuka_fw/releases)
 - Choose your right firmware depending on hardware and software, depending on name.
 - Download your selected configuration on https://github.com/F5OEO/tezuka_fw/releases
-- Unzip it. If you have a board with SD card, prefere this way for updating your firmware.
-
-Use one the method :
-- Flash on memory : paste pluto.frm to pluto drive and eject (detailed update procedure https://wiki.analog.com/university/tools/pluto/users/firmware)
+- Unzip it.
+- **DO NOT USE standard method of flashing with frm**
 - Write SD card : Copy contents of sdimg folder to a fresh FAT32 card formated.
+  
+**ONLY FOR PLUTOSDR (no SD card) :**
+- Flash on memory : paste pluto.frm to pluto drive and eject (detailed update procedure https://wiki.analog.com/university/tools/pluto/users/firmware)
+
+# Disclaimer
+
+Most of boards use non protected flash memory. Flashing could break your card. **Until you know what you are doing, always boot in SD mode.** 
 
 # Configuring
 A soon as firmware is updated, you could see a usb drive with parameters in config.txt (orginal parameters are described at (https://wiki.analog.com/university/tools/pluto/users/customizing)
@@ -161,6 +168,15 @@ The items at the bottom are the ones supported by Tezuka.
 Buildroot does not allow whitespaces in the PATH environment variable. On WSL several paths with whitespaces are added. The following script can be used to remove any path with whitespaces. It also deletes any leftover ':' at the end:
 ```bash
 export PATH=$(echo $PATH | tr ':' '\n' | grep -v ' ' | tr '\n' ':' | sed 's/:$//')
+```
+### Compatibility with older build scripts
+
+If you encounter errors related to CMAKE policy version, it's because newer versions of CMAKE (3.27+) have stricter policy requirements. Setting CMAKE_POLICY_VERSION_MINIMUM=3.5 tells CMAKE to use policies from version 3.5 or newer, which helps maintain compatibility with older build scripts and dependencies that may not be fully compatible with the latest CMAKE policies. This is particularly important when building packages that haven't been updated to support newer CMAKE versions.
+
+Run the build with:
+
+```bash
+CMAKE_POLICY_VERSION_MINIMUM=3.5 make
 ```
 
 ### Result
