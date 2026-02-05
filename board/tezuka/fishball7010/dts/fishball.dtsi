@@ -44,6 +44,7 @@
 		view-port = <0x0170>;
 		drv-vbus;
 	};
+	
 	reserved-memory {
                 #address-cells = <1>;
                 #size-cells = <1>;
@@ -443,7 +444,9 @@
 		adi,rssi-duration = <1000>; /* 1ms */
 
 		/* Control Outputs */
-		adi,ctrl-outs-index = <0>;
+		/* https://wiki.analog.com/resources/tools-software/linux-drivers/iio-transceiver/ad9361-customization?&#clock_output_setup */
+
+		adi,ctrl-outs-index = <1>; // Want to see Lock of tx,rx,bb
 		adi,ctrl-outs-enable-mask = <0xFF>;
 
 		/* AuxADC Temp Sense Control */
