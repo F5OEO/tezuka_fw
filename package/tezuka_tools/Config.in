@@ -14,7 +14,7 @@ config BR2_PACKAGE_TEZUKA_COMMON_TOOLS
 	#USB ETHERNET
 	select BR2_PACKAGE_LINUX_FIRMWARE_RTL_815X
 	#kalibrate
-	select BR2_PACKAGE_KALIBRATE 	
+	#select BR2_PACKAGE_KALIBRATE 	
 #Bluetooth alsa	
 	#select BR2_PACKAGE_BLUEZ_ALSA
 	#select BR2_PACKAGE_LSUIO
@@ -25,14 +25,7 @@ select BR2_PACKAGE_BASH
 #gps
 select  BR2_PACKAGE_GPSD
 select BR2_PACKAGE_GPSD_UBX
-#DATV
 
-#select BR2_PACKAGE_JANSSON
-#select BR2_PACKAGE_FFTW 
-#select BR2_PACKAGE_NE10
-
-#select BR2_PACKAGE_SRT
-#select BR2_PACKAGE_SDONLY
 	help
 	  "Tezuka common tools"
 
