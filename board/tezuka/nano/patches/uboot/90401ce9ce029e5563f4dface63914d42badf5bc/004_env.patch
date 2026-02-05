@@ -1,0 +1,581 @@
+--- /dev/null	2025-04-17 12:32:52.825186896 +0200
++++ uboot-90401ce9ce029e5563f4dface63914d42badf5bc/include/configs/tezuka-common.h	2025-06-01 16:20:20.132378240 +0200
+@@ -0,0 +1,578 @@
++/*
++ * (C) Copyright 2012 Michal Simek <monstr@monstr.eu>
++ * (C) Copyright 2013 Xilinx, Inc.
++ *
++ * Common configuration options for all Zynq boards.
++ *
++ * SPDX-License-Identifier:	GPL-2.0+
++ */
++
++#ifndef __CONFIG_ZYNQ_COMMON_H
++#define __CONFIG_ZYNQ_COMMON_H
++
++/* #define CONFIG_MISC_INIT_R */
++/* CPU clock */
++#ifndef CONFIG_CPU_FREQ_HZ
++# define CONFIG_CPU_FREQ_HZ	800000000
++#endif
++/*#define CONFIG_ZYNQ_PS_CLK_FREQ	50000000UL*/
++#define	CONFIG_SYS_DEVICE_NULLDEV	1
++
++/* Cache options */
++#define CONFIG_SYS_CACHELINE_SIZE	32
++
++#define CONFIG_SYS_L2CACHE_OFF
++#ifndef CONFIG_SYS_L2CACHE_OFF
++# define CONFIG_SYS_L2_PL310
++# define CONFIG_SYS_PL310_BASE		0xf8f02000
++#endif
++
++#define ZYNQ_SCUTIMER_BASEADDR		0xF8F00600
++#define CONFIG_SYS_TIMERBASE		ZYNQ_SCUTIMER_BASEADDR
++#define CONFIG_SYS_TIMER_COUNTS_DOWN
++#define CONFIG_SYS_TIMER_COUNTER	(CONFIG_SYS_TIMERBASE + 0x4)
++
++/* Serial drivers */
++#define CONFIG_BAUDRATE		115200
++/* The following table includes the supported baudrates */
++#define CONFIG_SYS_BAUDRATE_TABLE  \
++	{300, 600, 1200, 2400, 4800, 9600, 19200, 38400, 57600, 115200, 230400}
++
++#define CONFIG_ARM_DCC
++#define CONFIG_ZYNQ_SERIAL
++
++/* Ethernet driver */
++#if defined(CONFIG_ZYNQ_GEM)
++# define CONFIG_MII
++# define CONFIG_SYS_FAULT_ECHO_LINK_DOWN
++# define CONFIG_PHY_MARVELL
++# define CONFIG_PHY_REALTEK
++# define CONFIG_PHY_XILINX
++# define CONFIG_BOOTP_BOOTPATH
++# define CONFIG_BOOTP_GATEWAY
++# define CONFIG_BOOTP_HOSTNAME
++# define CONFIG_BOOTP_MAY_FAIL
++#endif
++
++/* SPI */
++#ifdef CONFIG_ZYNQ_SPI
++#endif
++
++/* QSPI */
++#ifdef CONFIG_ZYNQ_QSPI
++# define CONFIG_SF_DEFAULT_SPEED	50000000
++# define CONFIG_SF_DUAL_FLASH
++#endif
++
++# define DFU_ALT_INFO_SF \
++"dfu_sf_info="\
++"set dfu_alt_info " \
++"${boot_image} raw 0x0 0xE0000\\\\;" \
++"${kernel_image} raw 0x100000 0x500000\\\\;" \
++"${devicetree_image} raw 0x600000 0x20000\\\\;" \
++"${ramdisk_image} raw 0x620000 0xCE0000\\\\;" \
++"${bitstream_image} raw 0x1300000 0xD00000\0" \
++"dfu_sf=run dfu_sf_info && dfu 0 sf 0:0:40000000:0\0"
++
++# define DFU_ALT_INFO_SF1 \
++"dfu_sf_info="\
++"set dfu_alt_info " \
++"boot.dfu raw 0x0 0x100000\\\\;" \
++"firmware.dfu raw 0x200000 0x0E00000\\\\;" \
++"uboot-extra-env.dfu raw 0xFF000 0x1000\\\\;" \
++"uboot-env.dfu raw 0x100000 0x20000\\\\;" \
++"spare.dfu raw 0x120000 0xE0000\0" \
++"dfu_sf=gpio set 15;set stdout serial@e0001000;echo Entering DFU SF mode ... && run dfu_sf_info && dfu 0 sf 0:0:40000000:0 && if test -n ${dfu_alt_num} && test ${dfu_alt_num} = 1; "\
++"then set fit_size ${filesize} && set dfu_alt_num && env save; fi;gpio clear 15;\0"
++
++
++/* NOR */
++#ifndef CONFIG_SYS_NO_FLASH
++# define CONFIG_SYS_FLASH_BASE		0xE2000000
++# define CONFIG_SYS_FLASH_SIZE		(16 * 1024 * 1024)
++# define CONFIG_SYS_MAX_FLASH_BANKS	1
++# define CONFIG_SYS_MAX_FLASH_SECT	512
++# define CONFIG_SYS_FLASH_ERASE_TOUT	1000
++# define CONFIG_SYS_FLASH_WRITE_TOUT	5000
++# define CONFIG_FLASH_SHOW_PROGRESS	10
++# define CONFIG_SYS_FLASH_CFI
++# undef CONFIG_SYS_FLASH_EMPTY_INFO
++# define CONFIG_FLASH_CFI_DRIVER
++# undef CONFIG_SYS_FLASH_PROTECTION
++# define CONFIG_SYS_FLASH_USE_BUFFER_WRITE
++# define CONFIG_ZYNQ_M29EW_WB_HACK
++#endif
++
++/* MMC */
++#if defined(CONFIG_ZYNQ_SDHCI)
++# define CONFIG_MMC
++# define CONFIG_GENERIC_MMC
++# define CONFIG_SDHCI
++# define CONFIG_ZYNQ_SDHCI_MAX_FREQ	52000000
++#endif
++
++#ifdef CONFIG_USB_EHCI_ZYNQ
++# define CONFIG_EHCI_IS_TDI
++# define CONFIG_USB_MAX_CONTROLLER_COUNT	2
++
++# define CONFIG_SYS_DFU_DATA_BUF_SIZE	0x600000
++# define DFU_DEFAULT_POLL_TIMEOUT	300
++# define CONFIG_USB_FUNCTION_DFU
++# define CONFIG_DFU_RAM
++# define CONFIG_USB_CABLE_CHECK
++# define CONFIG_CMD_THOR_DOWNLOAD
++# define CONFIG_THOR_RESET_OFF
++# define CONFIG_USB_FUNCTION_THOR
++# define DFU_ALT_INFO_RAM \
++	"dfu_ram_info=" \
++	"set dfu_alt_info " \
++	"dummy.dfu ram 0 0\\\\;" \
++	"firmware.dfu ram ${fit_load_address} 0x0E00000\0" \
++	"dfu_ram=echo Entering DFU RAM mode ... && run dfu_ram_info && dfu 0 ram 0\0" \
++	"thor_ram=run dfu_ram_info && thordown 0 ram 0\0"
++
++# if defined(CONFIG_ZYNQ_SDHCI)
++#  define CONFIG_DFU_MMC
++#  define DFU_ALT_INFO_MMC \
++	"dfu_mmc_info=" \
++	"set dfu_alt_info " \
++	"${kernel_image} fat 0 1\\\\;" \
++	"${devicetree_image} fat 0 1\\\\;" \
++	"${ramdisk_image} fat 0 1\0" \
++	"dfu_mmc=run dfu_mmc_info && dfu 0 mmc 0\0" \
++	"thor_mmc=run dfu_mmc_info && thordown 0 mmc 0\0"
++
++#  define DFU_ALT_INFO	\
++	DFU_ALT_INFO_RAM \
++	DFU_ALT_INFO_MMC
++# else
++#  define DFU_ALT_INFO	\
++	DFU_ALT_INFO_RAM
++# endif
++#endif
++
++#if !defined(DFU_ALT_INFO)
++# define DFU_ALT_INFO
++#endif
++
++#if defined(CONFIG_ZYNQ_SDHCI) || defined(CONFIG_ZYNQ_USB)
++# define CONFIG_SUPPORT_VFAT
++# define CONFIG_FAT_WRITE
++# define CONFIG_DOS_PARTITION
++#endif
++
++/* NAND */
++#ifdef CONFIG_NAND_ZYNQ
++# define CONFIG_CMD_NAND
++# define CONFIG_CMD_NAND_LOCK_UNLOCK
++# define CONFIG_SYS_MAX_NAND_DEVICE 1
++# define CONFIG_SYS_NAND_SELF_INIT
++# define CONFIG_SYS_NAND_ONFI_DETECTION
++# define CONFIG_MTD_DEVICE
++#endif
++
++#if defined(CONFIG_ZYNQ_I2C0) || defined(CONFIG_ZYNQ_I2C1)
++#define CONFIG_SYS_I2C_ZYNQ
++#endif
++
++/* I2C */
++#if defined(CONFIG_SYS_I2C_ZYNQ)
++# define CONFIG_SYS_I2C
++# define CONFIG_SYS_I2C_ZYNQ_SPEED		100000
++# define CONFIG_SYS_I2C_ZYNQ_SLAVE		0
++#endif
++
++/* EEPROM */
++#ifdef CONFIG_ZYNQ_EEPROM
++# define CONFIG_CMD_EEPROM
++# define CONFIG_SYS_I2C_EEPROM_ADDR_LEN		1
++# define CONFIG_SYS_I2C_EEPROM_ADDR		0x54
++# define CONFIG_SYS_EEPROM_PAGE_WRITE_BITS	4
++# define CONFIG_SYS_EEPROM_PAGE_WRITE_DELAY_MS	5
++# define CONFIG_SYS_EEPROM_SIZE			1024 /* Bytes */
++# define CONFIG_SYS_I2C_MUX_ADDR		0x74
++# define CONFIG_SYS_I2C_MUX_EEPROM_SEL		0x4
++#endif
++
++/* Total Size of Environment Sector */
++#define CONFIG_ENV_SIZE			(128 << 10)
++
++/* Allow to overwrite serial and ethaddr */
++#define CONFIG_ENV_OVERWRITE
++
++/* Environment */
++#ifndef CONFIG_ENV_IS_NOWHERE
++# ifndef CONFIG_SYS_NO_FLASH
++/* Environment in NOR flash */
++#  define CONFIG_ENV_IS_IN_FLASH
++# elif defined(CONFIG_ZYNQ_QSPI)
++/* Environment in Serial Flash */
++#  define CONFIG_ENV_IS_IN_SPI_FLASH
++# elif defined(CONFIG_NAND_ZYNQ)
++/* Environment in NAND flash */
++#  define CONFIG_ENV_IS_IN_NAND
++# elif defined(CONFIG_SYS_NO_FLASH)
++#  define CONFIG_ENV_IS_NOWHERE
++# endif
++
++# define CONFIG_ENV_SECT_SIZE		CONFIG_ENV_SIZE
++# ifndef CONFIG_ENV_OFFSET
++#  define CONFIG_ENV_OFFSET		0x100000
++# endif
++#endif
++
++/* enable preboot to be loaded before CONFIG_BOOTDELAY */
++#define CONFIG_PREBOOT
++
++
++/* Initial bootstrap JTAG u-boot
++#define CONFIG_ENV_IS_NOWHERE
++#define CONFIG_BOOTCOMMAND		"run jtagboot"
++*/
++
++/* Default environment */
++#ifndef CONFIG_EXTRA_ENV_SETTINGS
++#define CONFIG_EXTRA_ENV_SETTINGS	\
++	"ethaddr=00:0a:35:00:01:22\0"	\
++	"ipaddr=192.168.2.1\0"	\
++	"ipaddr_host=192.168.2.10\0"	\
++	"netmask=255.255.255.0\0"	\
++	"kernel_image=uImage\0"	\
++	"fit_load_address=0x2080000\0" \
++	"fit_config=config@0\0" \
++	"extraenv_load_address=0x207E000\0" \
++	"ramdisk_image=uramdisk.image.gz\0"	\
++	"ramdisk_load_address=0x4000000\0"	\
++	"devicetree_image=devicetree.dtb\0"	\
++	"devicetree_load_address=0x2000000\0"	\
++	"bitstream_image=system.bit.bin\0"	\
++	"boot_image=BOOT.bin\0"	\
++	"loadbit_addr=0x100000\0"	\
++	"loadbootenv_addr=0x2000000\0" \
++	"fit_size=0x900000\0"	\
++	"devicetree_size=0x20000\0"	\
++	"ramdisk_size=0x400000\0"	\
++	"bitstream_size=0x400000\0" \
++	"boot_size=0xF00000\0"	\
++	"fdt_high=0x20000000\0"	\
++	"initrd_high=0x20000000\0"	\
++	"bootenv=uEnv.txt\0" \
++	"maxcpus=2\0" \
++	"clear_reset_cause=mw f8000008 df0d && mw f8000258 00400000 && mw f8000004 767b\0" \
++	"loadbootenv=load mmc 0 ${loadbootenv_addr} ${bootenv}\0" \
++	"importbootenv=echo Importing environment from SD ...; " \
++		"env import -t ${loadbootenv_addr} $filesize\0" \
++	"sd_uEnvtxt_existence_test=test -e mmc 0 /uEnv.txt\0" \
++	"preboot=if test $modeboot = sdboot && env run sd_uEnvtxt_existence_test; " \
++			"then if env run loadbootenv; " \
++				"then env run importbootenv; " \
++			"fi; " \
++		"fi; \0" \
++	"refclk_source=internal\0" \
++	"mode=1r1t\0" \
++	"adi_loadvals_pluto=if test -n \"${ad936x_ext_refclk}\" && test ! -n \"${ad936x_skip_ext_refclk}\"; then " \
++			"fdt set /clocks/clock@0 clock-frequency ${ad936x_ext_refclk}; " \
++		"fi; " \
++		"if test -n \"${ad936x_ext_refclk_override}\"; then " \
++			"fdt set /clocks/clock@0 clock-frequency ${ad936x_ext_refclk_override}; " \
++		"fi; " \
++		"if test -n \"${refclk_source}\" && test ! \"${refclk_source}\" = \"internal\" && test ! \"${refclk_source}\" = \"external\"; then " \
++			"setenv refclk_source internal; " \
++			"saveenv; " \
++		"fi; " \
++		"if test \"${refclk_source}\" = \"internal\" && test \"${model}\" = \"Analog Devices PlutoSDR Rev.C (Z7010/AD9363)\" ; then " \
++			"fdt rm /amba/gpio@e000a000/clock_extern_en || fdt rm /axi/gpio@e000a000/clock_extern_en; " \
++		"fi; " \
++		"if test \"${refclk_source}\" = \"external\" && test \"${model}\" = \"Analog Devices PlutoSDR Rev.C (Z7010/AD9363)\" ; then " \
++			"fdt rm /amba/gpio@e000a000/clock_internal_en || fdt rm /axi/gpio@e000a000/clock_internal_en; " \
++		"fi; " \
++		"if test  \"${attr_val}\" = \"ad9361\" && test ! \"${model}\" = \"Analog Devices PlutoSDR Rev.C (Z7010/AD9363)\" ; then " \
++			"setenv attr_val ad9363a; " \
++			"saveenv; " \
++		"fi; " \
++		"if test -n \"${attr_val}\" && test ! \"${attr_val}\" = \"ad9361\" && test ! \"${attr_val}\" = \"ad9363a\" && test ! \"${attr_val}\" = \"ad9364\"; then " \
++			"setenv attr_val ad9363a; " \
++			"saveenv; " \
++		"fi; " \
++		"if test -n \"${mode}\" && test ! \"${mode}\" = \"1r1t\" && test ! \"${mode}\" = \"2r2t\"; then " \
++			"setenv mode 1r1t; " \
++			"saveenv; " \
++		"fi; " \
++		"if test -n \"${attr_name}\" && test -n \"${attr_val}\"; then " \
++			"fdt set /amba/spi@e0006000/ad9361-phy@0 ${attr_name} ${attr_val} || fdt set /axi/spi@e0006000/ad9361-phy@0 ${attr_name} ${attr_val}; " \
++                "fi; " \
++		"if test \"${mode}\" = \"1r1t\" && test \"${model}\" = \"Analog Devices PlutoSDR Rev.C (Z7010/AD9363)\"; then " \
++			"fdt rm /amba/spi@e0006000/ad9361-phy@0 adi,2rx-2tx-mode-enable || fdt rm /axi/spi@e0006000/ad9361-phy@0 adi,2rx-2tx-mode-enable; " \
++			"fdt set /fpga-axi/cf-ad9361-dds-core-lpc@79024000 compatible adi,axi-ad9364-dds-6.00.a; " \
++		"fi; " \
++		"if test -n \"${cs_gpio}\" && test \"${model}\" = \"Analog Devices PlutoSDR Rev.C (Z7010/AD9363)\"; then " \
++			"fdt set /amba/axi_quad_spi@7C430000/ cs-gpios \"<0x06 ${cs_gpio} 0>\" || fdt set /axi/axi_quad_spi@7C430000/ cs-gpios \"<0x06 ${cs_gpio} 0>\"; " \
++		"fi; " \
++		"if test -n \"${attr_val}\" && test \"${attr_val}\" = \"ad9364\"; then " \
++			"fdt set /fpga-axi/cf-ad9361-dds-core-lpc@79024000 compatible adi,axi-ad9364-dds-6.00.a; " \
++			"if test ! \"${mode}\" = \"1r1t\"; then " \
++				"fdt rm /amba/spi@e0006000/ad9361-phy@0 adi,2rx-2tx-mode-enable || fdt rm /axi/spi@e0006000/ad9361-phy@0 adi,2rx-2tx-mode-enable; " \
++				"setenv mode 1r1t; " \
++				"saveenv; " \
++			"fi; " \
++		"fi; \0" \
++	"adi_loadvals=fdt addr ${fit_load_address} && fdt get value fdt_choosen /configurations/${fit_config}/ fdt && " \
++		"fdt get addr fdtaddr /images/${fdt_choosen} data && fdt addr ${fdtaddr}; "\
++		"fdt get value model / model; " \
++		"if test \"${model}\" \> \"Analog Devices Pluto\"; then " \
++			"run adi_loadvals_pluto; " \
++		"fi; \0" \
++	"qspiboot_extraenv=sf read ${extraenv_load_address} 0xFF000 0x1000 && " \
++		"env import -c ${extraenv_load_address} 0x1000 || true \0" \
++	"read_sf=sf probe 0:0 50000000 0 && run qspiboot_extraenv &&" \
++		"sf read ${fit_load_address} 0x200000 ${fit_size} && " \
++		"iminfo ${fit_load_address} || " \
++		"sf read ${fit_load_address} 0x200000  0x0E00000; \0" \
++	"ramboot_verbose=adi_hwref;echo Copying Linux from DFU to RAM... && " \
++		"run dfu_ram;" \
++		"if run adi_loadvals; then " \
++		"echo Loaded AD936x refclk frequency and model into devicetree; " \
++		"fi; " \
++		"envversion;setenv bootargs console=ttyPS0,115200 maxcpus=${maxcpus} rootfstype=ramfs root=/dev/ram0 rw earlyprintk clk_ignore_unused uio_pdrv_genirq.of_id=uio_pdrv_genirq uboot=\"${uboot-version}\" && " \
++		"bootm ${fit_load_address}#${fit_config}\0" \
++	"qspiboot_verbose=adi_hwref;echo Copying Linux from QSPI flash to RAM... && " \
++		"run read_sf && " \
++		"if run adi_loadvals; then " \
++		"echo Loaded AD936x refclk frequency and model into devicetree; " \
++		"fi; " \
++		"envversion;setenv bootargs console=ttyPS0,115200 maxcpus=${maxcpus} rootfstype=ramfs root=/dev/ram0 rw earlyprintk clk_ignore_unused uio_pdrv_genirq.of_id=uio_pdrv_genirq uboot=\"${uboot-version}\" && " \
++		"bootm ${fit_load_address}#${fit_config} || echo BOOT failed entering DFU mode ... && run dfu_sf \0" \
++	"qspiboot=adi_hwref;test -n $PlutoRevA || gpio input 14 && set stdout serial@e0001000 && sf probe && sf protect lock 0 100000 && run dfu_sf;  " \
++		"set stdout serial@e0001000;" \
++		"itest *f8000258 == 480003 && run clear_reset_cause && run dfu_sf; " \
++		"itest *f8000258 == 480007 && run clear_reset_cause && run ramboot_verbose; " \
++		"itest *f8000258 == 480006 && run clear_reset_cause && run qspiboot_verbose; " \
++		"itest *f8000258 == 480002 && run clear_reset_cause && exit; " \
++		"echo Booting silently && set stdout nulldev; " \
++		"run read_sf && run adi_loadvals; " \
++		"envversion;setenv bootargs console=ttyPS0,115200 maxcpus=${maxcpus} rootfstype=ramfs root=/dev/ram0 rw quiet loglevel=4 clk_ignore_unused uio_pdrv_genirq.of_id=uio_pdrv_genirq uboot=\"${uboot-version}\" && " \
++		"bootm ${fit_load_address}#${fit_config} || set stdout serial@e0001000;echo BOOT failed entering DFU mode ... && sf protect lock 0 100000 && run dfu_sf \0" \
++	"jtagboot=env default -a;sf probe && sf protect unlock 0 100000 && run dfu_sf; \0" \
++	"uenvboot=" \
++		"if run loadbootenv; then " \
++			"echo Loaded environment from ${bootenv}; " \
++			"run importbootenv; " \
++		"fi; " \
++		"if test -n $uenvcmd; then " \
++			"echo Running uenvcmd ...; " \
++			"run uenvcmd; " \
++		"fi\0" \
++			"sdboot=if mmcinfo; then " \
++			"run uenvboot; " \
++			"echo Copying Linux from SD to RAM... && " \
++			"load mmc 0 ${fit_load_address} ${kernel_image} && " \
++			"load mmc 0 ${devicetree_load_address} ${devicetree_image} && " \
++			"load mmc 0 ${ramdisk_load_address} ${ramdisk_image} && " \
++			"bootm ${fit_load_address} ${ramdisk_load_address} ${devicetree_load_address}; " \
++		"fi\0" \
++	"usbboot=if usb start; then " \
++			"run uenvboot; " \
++			"echo Copying Linux from USB to RAM... && " \
++			"load usb 0 ${fit_load_address} ${kernel_image} && " \
++			"load usb 0 ${devicetree_load_address} ${devicetree_image} && " \
++			"load usb 0 ${ramdisk_load_address} ${ramdisk_image} && " \
++			"bootm ${fit_load_address} ${ramdisk_load_address} ${devicetree_load_address}; " \
++		"fi\0" \
++	DFU_ALT_INFO \
++	DFU_ALT_INFO_SF1
++	#endif
++
++/* default boot is according to the bootmode switch settings */
++#if defined(CONFIG_CMD_ZYNQ_RSA)
++#define CONFIG_BOOTCOMMAND		"run rsa_$modeboot"
++#else
++#define CONFIG_BOOTCOMMAND		"run $modeboot"
++#endif
++#define CONFIG_SYS_LOAD_ADDR		0 /* default? */
++
++/* Miscellaneous configurable options */
++
++#define CONFIG_CMDLINE_EDITING
++#define CONFIG_AUTO_COMPLETE
++#define CONFIG_BOARD_LATE_INIT
++/*#define CONFIG_DISPLAY_BOARDINFO*/
++#define CONFIG_SYS_LONGHELP
++#define CONFIG_CLOCKS
++#define CONFIG_CMD_CLK
++#define CONFIG_SYS_MAXARGS		32 /* max number of command args */
++#define CONFIG_SYS_CBSIZE		2048 /* Console I/O Buffer Size */
++#define CONFIG_SYS_PBSIZE		(CONFIG_SYS_CBSIZE + \
++					sizeof(CONFIG_SYS_PROMPT) + 16)
++
++/* Physical Memory map */
++#if defined(CONFIG_CSE_QSPI) || defined(CONFIG_CSE_NOR)
++# define CONFIG_SYS_TEXT_BASE		0xFFFC0000
++#elif defined(CONFIG_CSE_NAND)
++# define CONFIG_SYS_TEXT_BASE		0x00100000
++#elif defined(CONFIG_ZYNQ_OCM)
++# define CONFIG_SYS_TEXT_BASE		0xFFFC0000
++#else
++# define CONFIG_SYS_TEXT_BASE		0x4000000
++#endif
++
++#ifndef CONFIG_NR_DRAM_BANKS
++# define CONFIG_NR_DRAM_BANKS		1
++#endif
++
++#define CONFIG_SYS_MEMTEST_START	0
++#define CONFIG_SYS_MEMTEST_END		0x1000
++
++#define CONFIG_SYS_MALLOC_LEN		0x1400000
++
++#define CONFIG_SYS_INIT_RAM_ADDR	0xFFFF0000
++#define CONFIG_SYS_INIT_RAM_SIZE	0x1000
++#define CONFIG_SYS_INIT_SP_ADDR		(CONFIG_SYS_INIT_RAM_ADDR + \
++					CONFIG_SYS_INIT_RAM_SIZE - \
++					GENERATED_GBL_DATA_SIZE)
++
++/* Enable the PL to be downloaded */
++#define CONFIG_FPGA
++#define CONFIG_FPGA_XILINX
++
++/* Check to compare bitstream size with desc_xilinx->size fails with compressed bits */
++#define CONFIG_FPGA_XILINX_WA_BROKEN_PARTIAL_CONFIG_CHECK
++
++#define CONFIG_FPGA_ZYNQPL
++#define CONFIG_CMD_FPGA_LOADMK
++#define CONFIG_CMD_FPGA_LOADP
++#define CONFIG_CMD_FPGA_LOADBP
++#define CONFIG_CMD_FPGA_LOADFS
++
++/* FIT support */
++#define CONFIG_IMAGE_FORMAT_LEGACY /* enable also legacy image format */
++
++/* FDT support */
++#define CONFIG_DISPLAY_BOARDINFO_LATE
++
++/* Extend size of kernel image for uncompression */
++#define CONFIG_SYS_BOOTM_LEN	(60 * 1024 * 1024)
++
++/* Boot FreeBSD/vxWorks from an ELF image */
++#define CONFIG_SYS_MMC_MAX_DEVICE	1
++
++#define CONFIG_SYS_LDSCRIPT  "arch/arm/mach-zynq/u-boot.lds"
++
++/* Commands */
++#if defined(CONFIG_CMD_ZYNQ_RSA)
++# ifndef CONFIG_RSA
++#  define CONFIG_RSA
++# endif
++#define CONFIG_SHA256
++#endif
++
++#define CONFIG_CMD_BOOTZ
++#undef CONFIG_BOOTM_NETBSD
++
++#define CONFIG_SYS_HZ			1000
++
++/* For development/debugging */
++#ifdef DEBUG
++# define CONFIG_CMD_REGINFO
++# define CONFIG_PANIC_HANG
++#endif
++
++/* SPL part */
++#define CONFIG_CMD_SPL
++#define CONFIG_SPL_FRAMEWORK
++#define CONFIG_SPL_LIBCOMMON_SUPPORT
++#define CONFIG_SPL_LIBGENERIC_SUPPORT
++#define CONFIG_SPL_SERIAL_SUPPORT
++#define CONFIG_SPL_BOARD_INIT
++#define CONFIG_SPL_RAM_DEVICE
++
++#define CONFIG_SPL_LDSCRIPT	"arch/arm/mach-zynq/u-boot-spl.lds"
++
++/* FPGA support */
++#define CONFIG_SPL_FPGA_SUPPORT
++#define CONFIG_SPL_FPGA_LOAD_ADDR      0x1000000
++/* #define CONFIG_SPL_FPGA_BIT */
++#ifdef CONFIG_SPL_FPGA_BIT
++# define CONFIG_SPL_FPGA_LOAD_ARGS_NAME "download.bit"
++#else
++# define CONFIG_SPL_FPGA_LOAD_ARGS_NAME "fpga.bin"
++#endif
++
++/* MMC support */
++#ifdef CONFIG_ZYNQ_SDHCI
++#define CONFIG_SPL_MMC_SUPPORT
++#define CONFIG_SYS_MMCSD_RAW_MODE_U_BOOT_SECTOR 0x300 /* address 0x60000 */
++#define CONFIG_SYS_U_BOOT_MAX_SIZE_SECTORS      0x200 /* 256 KB */
++#define CONFIG_SYS_MMCSD_FS_BOOT_PARTITION     1
++#define CONFIG_SPL_LIBDISK_SUPPORT
++#define CONFIG_SPL_FAT_SUPPORT
++#define CONFIG_SPL_FS_LOAD_PAYLOAD_NAME     "u-boot.img"
++#endif
++
++/* Disable dcache for SPL just for sure */
++#ifdef CONFIG_SPL_BUILD
++#define CONFIG_SYS_DCACHE_OFF
++#undef CONFIG_FPGA
++#endif
++
++/* Address in RAM where the parameters must be copied by SPL. */
++#define CONFIG_SYS_SPL_ARGS_ADDR	0x10000000
++
++#define CONFIG_SPL_FS_LOAD_ARGS_NAME		"system.dtb"
++#define CONFIG_SPL_FS_LOAD_KERNEL_NAME		"uImage"
++
++/* Not using MMC raw mode - just for compilation purpose */
++#define CONFIG_SYS_MMCSD_RAW_MODE_ARGS_SECTOR	0
++#define CONFIG_SYS_MMCSD_RAW_MODE_ARGS_SECTORS	0
++#define CONFIG_SYS_MMCSD_RAW_MODE_KERNEL_SECTOR	0
++
++/* qspi mode is working fine */
++#ifdef CONFIG_ZYNQ_QSPI
++#define CONFIG_SPL_SPI_SUPPORT
++#define CONFIG_SPL_SPI_LOAD
++#define CONFIG_SPL_SPI_FLASH_SUPPORT
++#define CONFIG_SYS_SPI_U_BOOT_OFFS	0x100000
++#define CONFIG_SYS_SPI_ARGS_OFFS	0x200000
++#define CONFIG_SYS_SPI_ARGS_SIZE	0x80000
++#define CONFIG_SYS_SPI_KERNEL_OFFS	(CONFIG_SYS_SPI_ARGS_OFFS + \
++					CONFIG_SYS_SPI_ARGS_SIZE)
++#endif
++
++#define CONFIG_SPL_RAM_DEVICE
++
++#ifdef DEBUG
++#define CONFIG_SPL_NET_SUPPORT
++#define CONFIG_SPL_ETH_SUPPORT
++#define CONFIG_SPL_ENV_SUPPORT
++#define CONFIG_SPL_ETH_DEVICE "Gem.e000b000"
++#endif
++
++/* for booting directly linux */
++#define CONFIG_SPL_OS_BOOT
++
++/* SP location before relocation, must use scratch RAM */
++#define CONFIG_SPL_TEXT_BASE	0x0
++
++/* 3 * 64kB blocks of OCM - one is on the top because of bootrom */
++#define CONFIG_SPL_MAX_SIZE	0x30000
++
++/* The highest 64k OCM address */
++#define OCM_HIGH_ADDR	0xffff0000
++
++/* On the top of OCM space */
++#define CONFIG_SYS_SPL_MALLOC_START	OCM_HIGH_ADDR
++#define CONFIG_SYS_SPL_MALLOC_SIZE	0x2000
++
++/*
++ * SPL stack position - and stack goes down
++ * 0xfffffe00 is used for putting wfi loop.
++ * Set it up as limit for now.
++ */
++#define CONFIG_SPL_STACK	0xfffffe00
++
++/* BSS setup */
++#define CONFIG_SPL_BSS_START_ADDR	0x100000
++#define CONFIG_SPL_BSS_MAX_SIZE		0x100000
++
++#define CONFIG_SYS_UBOOT_START	CONFIG_SYS_TEXT_BASE
++
++#endif /* __CONFIG_ZYNQ_COMMON_H */
