@@ -13,7 +13,7 @@
 #include <dt-bindings/iio/adc/adi,ad9361.h>
 
 / {
-	model = "FISH Ball PlutoSDR Rev.A (Z7010/AD9361)";
+	model = "Nano PlutoSDR (Z7010/AD9361)";
 	memory {
 		device_type = "memory";
 		reg = <0x00000000 0x40000000>;
