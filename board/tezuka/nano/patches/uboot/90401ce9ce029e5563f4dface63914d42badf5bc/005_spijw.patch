@@ -1,0 +1,11 @@
+--- a/drivers/mtd/spi/sf_params.c
++++ b/drivers/mtd/spi/sf_params.c
+@@ -137,6 +137,7 @@
+ 	{"W25Q32DW",	   0xef6016, 0x0,	64 * 1024,    64, RD_FULL,	    WR_QPP | SECT_4K},
+ 	{"W25Q64DW",	   0xef6017, 0x0,	64 * 1024,   128, RD_FULL,	    WR_QPP | SECT_4K},
+ 	{"W25Q128FW",	   0xef6018, 0x0,	64 * 1024,   256, RD_FULL,	    WR_QPP | SECT_4K},
++	{"W25Q256JV",      0xef7019, 0x0,	64 * 1024,   512, RD_FULL,	    WR_QPP | SECT_4K},
+ #endif
+ #ifdef CONFIG_SPI_FLASH_ISSI
+ 	{"IS25LP032",	   0x9d6016, 0x0,	64 * 1024,    64, RD_EXTN | QUAD_IO_FAST,     WR_QPP},
+	
