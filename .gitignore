@@ -1,4 +1,6 @@
-buildroot*/
+/buildroot/
+/output/
+/build/
 app/fftclient/fftclient
 app/pluto_rx/plutorx
 app/sweep/sweepfft
