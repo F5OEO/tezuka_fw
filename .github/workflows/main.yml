@@ -1,125 +1,105 @@
+name: Build Tezuka Firmware
+
 on:
   workflow_dispatch:
     inputs:
-      logLevel:
-        description: 'Log level'
-        required: true
-        default: 'warning'
-        type: choice
-        options:
-        - info
-        - warning
-        - debug
       version:
-        description: 'Provide release tag, eg. 0.5.4'
+        description: 'Release tag (e.g. 0.6.0)'
         type: string
         required: true
-        
+      boards:
+        description: 'Boards to build (comma-separated, or "all")'
+        type: string
+        required: false
+        default: 'all'
+
 permissions:
   contents: write
-    
-env:
-  VERSION: ${{ inputs.version }}
-  GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-run-name: Build tezuka_fw run for tag - Tezuka_${{ inputs.version }}
+run-name: Build tezuka_fw - Tezuka_${{ inputs.version }}
+
 jobs:
-  build-x86_64:
-    # runs-on: self-hosted
+  prepare:
     runs-on: ubuntu-22.04
-    # environment: plutosdr-fw-ci
-    permissions: write-all
-    
+    outputs:
+      matrix: ${{ steps.set-matrix.outputs.matrix }}
     steps:
-    - uses: actions/checkout@v4.1.1
-      with:
-        clean: false
-        fetch-depth: 0
-    - name: Free Disk Space Before Build
-      run: |
-          echo "Disk space before cleanup:"
-          df -h
-          sudo rm -rf /usr/local/.ghcup
-          sudo rm -rf /opt/hostedtoolcache/CodeQL
-          sudo rm -rf /usr/local/lib/android/sdk/ndk
-          sudo rm -rf /usr/share/dotnet
-          sudo rm -rf /opt/ghc
-          sudo rm -rf /usr/local/share/boost
-          sudo apt-get clean
-          echo "Disk space after cleanup:"
-          df -h    
+      - id: set-matrix
+        run: |
+          # Mini variants share toolchain/kernel -- skip in CI to save runner time.
+          ALL='["pluto","plutoplus","e200","e310","libre","fishball","fishball7020","nano","signalsdrpro"]'
+          INPUT="${{ inputs.boards }}"
+          if [ "$INPUT" = "all" ] || [ -z "$INPUT" ]; then
+            echo "matrix={\"board\":${ALL}}" >> "$GITHUB_OUTPUT"
+          else
+            BOARDS=$(echo "$INPUT" | jq -Rc 'split(",")|map(ltrimstr(" ")|rtrimstr(" "))')
+            echo "matrix={\"board\":${BOARDS}}" >> "$GITHUB_OUTPUT"
+          fi
 
-    - name: Install dependencies
-      shell: bash
-      run: |
-        sudo apt-get update -q -y
-        sudo apt-get install -y make gcc g++ python3 python3-dev python3-pip \
-           python3-pytest python3-numpy python3-scipy iverilog wget curl \
-           default-jre libxrender-dev libxtst-dev libtinfo5 \
-           libgtk2.0-0 git \
-           zip unzip dfu-util fakeroot u-boot-tools device-tree-compiler mtools \
-           bison flex libncurses5-dev libssl-dev bc cpio rsync cmake \
-           libgtk-3-0 xz-utils libgmp-dev libmpc-dev bootgen-xlnx libclang-dev
-           
-      
-           
-    - name: Build Tezuka 
-      run: |
-        source sourceme.first
-        ./getbuildroot.sh
-
-        mkdir ${{runner.workspace}}/build && cd ${{runner.workspace}}/build
-        wget -O- https://buildroot.org/downloads/buildroot-2025.05.tar.gz | tar -xz --one-top-level=buildroot --strip-components=1
-               
-        cd  ${{runner.workspace}}/build/buildroot
-        make pluto_maiasdr_defconfig && make && mv ${{runner.workspace}}/build/buildroot/output/images/tezuka.zip ${{runner.workspace}}/build/pluto.zip
-        rm output/images/sdimg/* -r
-        make plutoplus_maiasdr_defconfig && make uboot-dirclean && make linux-reconfigure && make maia-kmod-reconfigure && make && mv ${{runner.workspace}}/build/buildroot/output/images/tezuka.zip ${{runner.workspace}}/build/plutoplus.zip
-        rm output/images/sdimg/* -r
-        make e200_maiasdr_defconfig && make uboot-dirclean && make linux-reconfigure && make maia-kmod-reconfigure && make && mv ${{runner.workspace}}/build/buildroot/output/images/tezuka.zip ${{runner.workspace}}/build/antsdr_e200.zip
-        rm output/images/sdimg/* -r
-        make libre_maiasdr_defconfig  && make uboot-dirclean && make linux-reconfigure && make maia-kmod-reconfigure && make && mv ${{runner.workspace}}/build/buildroot/output/images/tezuka.zip ${{runner.workspace}}/build/libresdr.zip
-        rm output/images/sdimg/* -r
-        make fishball_maiasdr_defconfig  && make uboot-dirclean && make linux-reconfigure && make maia-kmod-reconfigure &&  make && mv ${{runner.workspace}}/build/buildroot/output/images/tezuka.zip ${{runner.workspace}}/build/fishball.zip
-        rm output/images/sdimg/* -r
-        make fishball_maiasdr_7020_defconfig  && make uboot-dirclean && make linux-reconfigure && make maia-kmod-reconfigure && make && mv ${{runner.workspace}}/build/buildroot/output/images/tezuka.zip ${{runner.workspace}}/build/fishball7020.zip
-        rm output/images/sdimg/* -r
-        make signalsdrpro_defconfig  && make uboot-dirclean && make linux-reconfigure && make maia-kmod-reconfigure && make && mv ${{runner.workspace}}/build/buildroot/output/images/tezuka.zip ${{runner.workspace}}/build/signalsrdro.zip
-
-    - name: Save zip Archive
-      uses: actions/upload-artifact@v4
-      with:
-          name: tezuka_fw
-          path: ${{runner.workspace}}/build/*.zip
-
-  create_full_archive:
-    needs: ['build-x86_64']
+  build:
+    needs: prepare
     runs-on: ubuntu-22.04
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJson(needs.prepare.outputs.matrix) }}
 
     steps:
-    - name: Download All Builds
-      uses: actions/download-artifact@v4
+      - uses: actions/checkout@v4
 
-    - name: Create Archive
-      run: >
-        mkdir tezuka_all && 
-        mv tezuka_fw/*.zip tezuka_all/  
-        
-        
-    - uses: actions/upload-artifact@v4
-      with:
-        name: tezuka_all
-        path: tezuka_all/
+      - name: Free disk space
+        uses: jlumbroso/free-disk-space@main
+        with:
+          tool-cache: false
+          android: true
+          dotnet: true
+          haskell: true
+          large-packages: false
 
-  update_nightly_release:
-          needs: [create_full_archive]
-          runs-on: ubuntu-22.04
-        
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update -q -y
+          sudo apt-get install -y make gcc g++ \
+            zip unzip dfu-util fakeroot u-boot-tools device-tree-compiler \
+            mtools bison flex libncurses5-dev libssl-dev bc cpio rsync \
+            cmake xz-utils libgmp-dev libmpc-dev bootgen-xlnx libclang-dev
 
-          steps:
-          - name: Download All Builds
-            uses: actions/download-artifact@v4
+      - name: Cache Buildroot downloads
+        uses: actions/cache@v4
+        with:
+          path: ~/br-dl
+          key: br-dl-${{ hashFiles('configs/*') }}
+          restore-keys: br-dl-
 
-          - name: Update Nightly
-            run: gh release create ${{ inputs.version }} tezuka_all/* -R ${{github.repository}} --generate-notes
- 
+      - name: Build ${{ matrix.board }}
+        run: |
+          ./getbuildroot.sh
+          source sourceme.first
+          export BR2_DL_DIR=~/br-dl
+          ./build.sh "${{ matrix.board }}"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: tezuka-${{ matrix.board }}
+          path: build/${{ matrix.board }}.zip
+
+  release:
+    needs: build
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts/
+          pattern: tezuka-*
+          merge-multiple: true
+
+      - name: Create release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release create "Tezuka_${{ inputs.version }}" \
+            artifacts/*.zip \
+            -R "${{ github.repository }}" \
+            --generate-notes

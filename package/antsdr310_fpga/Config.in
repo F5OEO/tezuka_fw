@@ -1,6 +1,0 @@
-config BR2_PACKAGE_ANTSDR310_FPGA
-	bool "antsdr310_fpga"
-	help
-	  antsdr310_fpga default sytem_top.bit
-
-
