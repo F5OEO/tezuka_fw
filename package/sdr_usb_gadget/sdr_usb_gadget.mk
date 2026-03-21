@@ -1,4 +1,3 @@
-SDR_USB_GADGET_VERSION = 1.0
 SDR_USB_GADGET_SITE = https://github.com/pgreenland/pluto-sdr-usb-gadget.git
 SDR_USB_GADGET_SITE_METHOD = git
 SDR_USB_GADGET_VERSION = 7339ab52678459da4c52a457f3259d52e7adf007

@@ -1,10 +1,11 @@
 ################################################################################
 #
-# MaiaKmod
+# maia-httpd
 #
 ################################################################################
 
-MAIA_HTTPD_VERSION = sweep
+# Branch: sweep (pinned 2026-03-21)
+MAIA_HTTPD_VERSION = 2637b59891bdfe38d8c5bf52c84984b3da68064e
 MAIA_HTTPD_SITE = https://github.com/F5OEO/maia-sdr.git
 MAIA_HTTPD_SITE_METHOD = git
 MAIA_HTTPD_DEPENDENCIES = host-openssl
