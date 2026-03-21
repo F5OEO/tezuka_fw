@@ -1,6 +1,0 @@
-config BR2_PACKAGE_NANO_FPGA
-	bool "Nano_fpga"
-	help
-	  NanoMaia-iio default sytem_top.bit
-
-
