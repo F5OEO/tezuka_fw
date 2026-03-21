@@ -1,11 +1,11 @@
 ################################################################################
 #
-# MaiaKmod
+# maia-wasm
 #
 ################################################################################
 
-
-MAIA_WASM_VERSION = main
+# Branch: main (pinned 2026-03-21)
+MAIA_WASM_VERSION = c49db1fc6a4ffdf40e6c283b7d4dbbf1987298ad
 MAIA_WASM_SITE = https://github.com/F5OEO/maia-sdr.git
 MAIA_WASM_SITE_METHOD = git
 MAIA_WASM_DEPENDENCIES = rust-wasm wasm-pack 
