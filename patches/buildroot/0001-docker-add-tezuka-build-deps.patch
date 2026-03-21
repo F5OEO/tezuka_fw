@@ -1,0 +1,22 @@
+--- buildroot/support/docker/Dockerfile	2025-05-26 20:56:37.937741302 +0300
++++ Dockerfile	2025-05-26 20:58:22.255723815 +0300
+@@ -71,6 +71,10 @@
+         subversion \
+         unzip \
+         wget \
++        # Tezuka packages \
++        zip \
++        libclang-dev \
++        libssl-dev \
+         && \
+     apt-get -y autoremove && \
+     apt-get -y clean
+@@ -89,6 +93,9 @@
+ RUN sed -i 's/# \(en_US.UTF-8\)/\1/' /etc/locale.gen && \
+     /usr/sbin/locale-gen
+
++# Hide git warnings about safety
++RUN git config --global --add safe.directory '*'
++
+ RUN useradd -ms /bin/bash br-user && \
+     chown -R br-user:br-user /home/br-user
