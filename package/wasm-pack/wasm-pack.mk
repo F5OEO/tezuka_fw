@@ -1,6 +1,6 @@
 ################################################################################
 #
-# WASM_PACK
+# wasm-pack
 #
 ################################################################################
 
@@ -10,17 +10,16 @@ WASM_PACK_SITE_METHOD = git
 WASM_PACK_DEPENDENCIES = rust-wasm
 
 define WASM_PACK_BUILD_CMDS
-$(shell bash -c "PATH="$(HOST_DIR)/bin:$(PATH)" && cd $(WASM_PACK_SRCDIR) && \
-OPENSSL_DIR=$(HOST_DIR) cargo build --release ")
-
-
-endef 
+	cd $(@D) && \
+	PATH="$(HOST_DIR)/bin:$$PATH" \
+	OPENSSL_DIR="$(HOST_DIR)" \
+	cargo build --release
+endef
 
 define WASM_PACK_INSTALL_TARGET_CMDS
-    $(INSTALL) -D \
-            $(WASM_PACK_SRCDIR)/target/release/wasm-pack \
-            $(HOST_DIR)/bin/
-
+	$(INSTALL) -D \
+		$(@D)/target/release/wasm-pack \
+		$(HOST_DIR)/bin/
 endef
 
 $(eval $(generic-package))
