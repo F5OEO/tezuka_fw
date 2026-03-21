@@ -3,7 +3,8 @@
 # FutureSDR
 #
 ################################################################################
-FUTURESDR_VERSION = main
+# Branch: main (pinned 2026-03-21)
+FUTURESDR_VERSION = 96562fe5042c465b1a3a95a11805e6d30c1a5aeb
 FUTURESDR_SITE = https://github.com/FutureSDR/FutureSDR.git
 FUTURESDR_SITE_METHOD = git
 CROSS_COMPILE = arm-none-linux-gnueabihf-
