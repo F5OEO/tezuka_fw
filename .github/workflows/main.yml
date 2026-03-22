@@ -74,7 +74,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ~/.buildroot-ccache
-          key: ccache-${{ matrix.board }}-${{ github.sha }}
+          key: ccache-${{ matrix.board }}-week${{ github.run_number }}
           restore-keys: ccache-${{ matrix.board }}-
 
       - name: Build ${{ matrix.board }}
@@ -92,6 +92,7 @@ jobs:
 
   release:
     needs: build
+    if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
