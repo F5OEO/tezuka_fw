@@ -8,6 +8,20 @@ BOARD_DIR="$2"
 DTB_NAME="$3"
 dfu_suffix="$HOST_DIR/bin/dfu-suffix"
 
+# Buildroot's host-bootgen (xilinx_v2025.2) may be broken.
+# Test it, fall back to system bootgen if needed.
+BOOTGEN="$HOST_DIR/bin/bootgen"
+if ! "$BOOTGEN" -help >/dev/null 2>&1; then
+    if [ -x /usr/bin/bootgen ]; then
+        BOOTGEN=/usr/bin/bootgen
+        echo "WARNING: host-bootgen is broken, using /usr/bin/bootgen"
+    else
+        echo "ERROR: host-bootgen is broken and no system bootgen found."
+        echo "Install bootgen-xlnx: sudo apt-get install bootgen-xlnx"
+        exit 1
+    fi
+fi
+
 DEVICE_VID=0x0456
 DEVICE_PID=0xb673
 
@@ -28,7 +42,7 @@ echo "generating the boot.img"
 cp "$BOARD_DIR/bitstream/fsbl.elf" "$BIN_DIR"
 cp "$BIN_DIR/u-boot" "$BIN_DIR/u-boot.elf"
 echo "img : {[bootloader] $BIN_DIR/fsbl.elf $BIN_DIR/u-boot.elf}" > "$BIN_DIR/boot.bif"
-bootgen -image "$BIN_DIR/boot.bif" -w -o i "$BIN_DIR/boot.img"
+"$BOOTGEN" -image "$BIN_DIR/boot.bif" -w -o i "$BIN_DIR/boot.img"
 
 echo "generating the boot.frm"
 cat "$BIN_DIR/boot.img" "$BIN_DIR/uboot-env.bin" "$COMMON_DIR/target_mtd_info.key" | \
@@ -48,14 +62,14 @@ echo "generating sd"
 SDIMGDIR="$BIN_DIR/sdimg"
 mkdir -p "$SDIMGDIR"
 echo "img : {[bootloader] $BIN_DIR/fsbl.elf $BIN_DIR/system_top.bit $BIN_DIR/u-boot.elf}" > "$SDIMGDIR/boot.bif"
-bootgen -image "$SDIMGDIR/boot.bif" -w -o i "$SDIMGDIR/BOOT.bin"
+"$BOOTGEN" -image "$SDIMGDIR/boot.bif" -w -o i "$SDIMGDIR/BOOT.bin"
 
 if [ -e "$BOARD_DIR/bitstream/overclock/" ]; then
     mkdir -p "$SDIMGDIR/overclock"
     for filename in "$BOARD_DIR/bitstream/overclock/"*.elf ; do
         echo "img : {[bootloader] $filename $BIN_DIR/system_top.bit $BIN_DIR/u-boot.elf}" > "$SDIMGDIR/boot.bif"
         NAME=$(basename -- "$filename" .elf)
-        bootgen -image "$SDIMGDIR/boot.bif" -w -o i "$SDIMGDIR/overclock/BOOT_${NAME}"
+        "$BOOTGEN" -image "$SDIMGDIR/boot.bif" -w -o i "$SDIMGDIR/overclock/BOOT_${NAME}"
     done
 fi
 
