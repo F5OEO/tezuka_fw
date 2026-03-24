@@ -45,6 +45,7 @@ ptton()
     fi
 
     echo 1 > /sys/class/gpio/gpio906/value
+    gpioset  gpiochip0 80=1
     echo "$(date) watchconsoleTX PTT_ON" >> /tmp/lnb.txt    
 
 
@@ -93,6 +94,7 @@ pttoff()
         echo "0x27 $RESULT_VALUE_HEX" > /sys/kernel/debug/iio/iio:device1/direct_reg_access
     fi
     echo 0 > /sys/class/gpio/gpio906/value
+    gpioset  gpiochip0 80=0
     echo "$(date) watchconsoleTX PTT_OFF" >> /tmp/lnb.txt
 }
 
@@ -113,27 +115,30 @@ echo out > /sys/class/gpio/gpio906/direction
 
 pttoff
 
+check_tx_flux() {
+    A=$(grep "7c42" /proc/interrupts | awk '{print $2}')
+    sleep 0.5
+    B=$(grep "7c42" /proc/interrupts | awk '{print $2}')
+    DELTA=$((B - A))
+
+    if [ "$DELTA" -gt 0 ]; then
+
+        echo "SdrConsole PTT ON"
+        ptton
+    else
+        echo "SdrConsole PTT OFF"
+        pttoff
+    fi
+}
+
+
 loop()
 {
 
 
 while :
 do
-if [ "$adphys" = "ad9361-phy" ] ; then
-inotifywait -e modify /sys/bus/iio/devices/iio:device0/out_altvoltage1_TX_LO_powerdown
-txmute=$(cat /sys/bus/iio/devices/iio:device0/out_altvoltage1_TX_LO_powerdown)
-else
-inotifywait -e modify /sys/bus/iio/devices/iio:device1/out_altvoltage1_TX_LO_powerdown
-txmute=$(cat /sys/bus/iio/devices/iio:device1/out_altvoltage1_TX_LO_powerdown)
-fi
-if [ "$txmute" = "1" ] ; then
-echo "SdrConsole PTT OFF"
-pttoff
-else
-
-   echo "SdrConsole PTT ON"
-   ptton
-fi
+        check_tx_flux
 done
 }
 
