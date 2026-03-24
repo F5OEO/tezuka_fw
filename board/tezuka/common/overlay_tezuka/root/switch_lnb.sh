@@ -27,13 +27,18 @@ echo "Read actual config: ${actual}" >> /tmp/lnb.txt
 case $1 in
     off)
         PARAM_VALUE=0x00
+        gpioset  gpiochip0 78=0
         #echo "LNB select: OFF/0x00"
         ;;
     13V)
+        gpioset  gpiochip0 78=1
+        gpioset  gpiochip0 79=0
         PARAM_VALUE=0x80
         #echo "LNB select: 13V/0x80"
         ;;
     18V)
+        gpioset  gpiochip0 78=1
+        gpioset  gpiochip0 79=1
         PARAM_VALUE=0xC0
         #echo "LNB select: 18V/0xC0"
 
@@ -77,4 +82,3 @@ RESULT_VALUE_HEX=$(printf "0x%X" $RESULT_VALUE)
         echo "Command executed: echo 0x27 $RESULT_VALUE_HEX > /sys/kernel/debug/iio/iio:device1/direct_reg_access" >> /tmp/lnb.txt
 
     fi
-
