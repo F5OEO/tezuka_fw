@@ -45,6 +45,8 @@ adi_config_devicetree=\
     echo "Setting mode 1r1t"; \
     fdt rm /amba/spi@e0006000/ad9361-phy@0 adi,2rx-2tx-mode-enable; \
     fdt set /fpga-axi/cf-ad9361-dds-core-lpc@79024000 compatible adi,axi-ad9364-dds-6.00.a; \
+  else \
+    echo "Setting mode 2r2t";\  
   fi; \
   if test -n "${cs_gpio}"; then \
     fdt set /amba/axi_quad_spi@7C430000/ cs-gpios "<0x06 ${cs_gpio} 0>"; \
@@ -62,7 +64,7 @@ adi_loadvals=\
   run adi_config_rf_mode; \
   run adi_config_devicetree;
 
-
+clear_reset_cause=mw f8000008 df0d && mw f8000258 00400000 && mw f8000004 767b
 
 baudrate=115200
 bitstream_image=system.bit.bin
@@ -87,7 +89,7 @@ extraenv_load_address=0x207E000
 fdt_high=0x20000000
 fit_config=config@0
 fit_load_address=0x2080000
-fit_size=0x900000
+fit_size=0x1E00000
 fpgaload=fatload mmc 0 0xF000000 system_top.bit.bin;fpga load 0 0xF000000 ${filesize}
 importbootenv=echo Importing environment from SD ...; env import -t ${loadbootenv_addr} $filesize
 initrd_high=0x20000000
@@ -100,7 +102,7 @@ loadbootenv_addr=0x2000000
 loadbootenv=load mmc 0 ${loadbootenv_addr} ${bootenv}
 loaddfu=\
   if mmc rescan; then \
-    fatload mmc 0 ${fit_load_address} antsdre200.dfu; \
+    fatload mmc 0 ${fit_load_address} pluto.dfu; \
     sf probe; \
     sf update ${fit_load_address} 0x200000 0x0E00000; \
     fatload mmc 0 0x20000 uboot-env.dfu; \
@@ -150,7 +152,7 @@ ramboot_verbose=\
 ramdisk_image=uramdisk.image.gz
 ramdisk_load_address=0x4000000
 ramdisk_size=0x400000
-read_sf=sf probe 0:0 50000000 0 && run qspiboot_extraenv && sf read ${fit_load_address} 0x200000 0x0E00000 && iminfo ${fit_load_address} || sf read ${fit_load_address} 0x200000 0x0E00000;
+read_sf=sf probe 0:0 50000000 0 && run qspiboot_extraenv && sf read ${fit_load_address} 0x200000 ${fit_size} && iminfo ${fit_load_address} || sf read ${fit_load_address} 0x200000 0x1E00000;
 refclk_source=internal
 sdboot=\
   if test -n "${mode_rootfs}" && test "${mode_rootfs}" = "kuiper"; then \
@@ -205,5 +207,6 @@ usbboot=\
     && load usb 0 ${fit_load_address} ${kernel_image} \
     && load usb 0 ${devicetree_load_address} ${devicetree_image} \
     && load usb 0 ${ramdisk_load_address} ${ramdisk_image} \
+    && run fpgaload \
     && bootm ${fit_load_address} ${ramdisk_load_address} ${devicetree_load_address}; \
   fi
