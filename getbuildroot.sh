@@ -28,7 +28,8 @@ else
 fi
 
 echo "Extracting..."
-tar -xzf "${TARBALL}" --one-top-level=buildroot --strip-components=1
+mkdir -p "${BR_DIR}"
+tar -xzf "${TARBALL}" --strip-components=1 -C "${BR_DIR}"
 
 echo "Applying patches..."
 for patch in "${SCRIPT_DIR}"/patches/buildroot/*.patch; do
