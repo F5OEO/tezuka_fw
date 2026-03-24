@@ -7,7 +7,8 @@ case "$1" in
   start)
     /root/install_maia.sh
 	echo -n "Loading maia-sdr.ko: "
-	insmod /lib/modules/$kernel_version/extra/maia-sdr.ko
+	# Module may be in extra/ (Buildroot <2026) or updates/ (Buildroot 2026+)
+	modprobe maia-sdr || insmod /lib/modules/$kernel_version/extra/maia-sdr.ko
 	[ $? = 0 ] && echo "OK" || echo "FAIL"
 	;;
   stop)
