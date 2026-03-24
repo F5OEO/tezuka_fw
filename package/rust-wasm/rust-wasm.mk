@@ -6,7 +6,8 @@
 
 # When updating this version, check whether support/download/cargo-post-process
 # still generates the same archives.
-RUST_WASM_VERSION = 1.86.0
+# Must match Buildroot's host-rustc version (check with host/bin/rustc --version)
+RUST_WASM_VERSION = 1.88.0
 RUST_WASM_SITE = https://static.rust-lang.org/dist
 RUST_WASM_LICENSE = Apache-2.0 or MIT
 RUST_WASM_LICENSE_FILES = LICENSE-APACHE LICENSE-MIT
