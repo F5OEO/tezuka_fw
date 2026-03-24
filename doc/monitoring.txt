@@ -1,0 +1,61 @@
+From UG-570 (ad9361)
+iio_reg ad9361-phy 0x035 0x1
+https://wiki.analog.com/resources/tools-software/linux-drivers/iio-transceiver/ad9361-customization?&#clock_output_setup
+register 1 tell that we route CTRL_OUT to
+D7 Tx RF PLL Lock
+D6 Rx RF PLL Lock
+D5 BBPLL Lock
+D4 to D0 are 0
+
+outputing this crtl pin to gpio_pad allow us to monitoring time to switch frequencies
+
+monitoring Rx RF lock
+gpiomon gpiochip0 60
+
+sudo gpiomon -F %n gpiochip0 60
+Normal switch frequency is around 125us -> 8Khz
+
+At 60Mhz, 4096 samples is 0,000000017*4096 = 68.267us -> 14.648khz
+But depends of number of integrations :
+Measurement : with 60MS, 2 integrations (7324Hz in maia), measure time 272.4us fo 2 spectrums :(delta 13.7us)
+So 273/2=136.5us
+Only one integration is not working : pin_ctrl is always 1 -> maybe a bug in sweeper_it.v
+
+As we have 8 registers, if we want to update it we have 272us to writ a spi register(through hdl)
+Note : with a web interface, we have around 21MBytes in websocket
+
+So sweep with 60Mhz*14.648hkz= 
+
+ in_voltage_bb_dc_offset_tracking_en : main responsable of removing DC
+
+
+************** Observations ********************
+AD9361 adc_i0_enable seems always at 1 even when no channel present
+We can see it as adc_cpack is in overflow when no user read the channel ! 
+Solution disable them by direct register 
+https://wiki.analog.com/resources/fpga/docs/hdl/regmap
+
+busybox devmem 0x79020400 32 0x250
+busybox devmem 0x79020440 32 0x250
+busybox devmem 0x79020480 32 0x250
+busybox devmem 0x790204C0 32 0x250
+
+To empty fifo, maybe reset cpack by hand.
+https://github.com/analogdevicesinc/libiio/issues/108
+**************** Multi SYNC *********************
+https://ez.analog.com/rf/wide-band-rf-transceivers/design-support/f/q-a/78775/ad9361-multi-chip-synchronisation-mcs
+
+************** SYNC ************************
+pad_4 output sync_out (ad9361 rx_enable_i0)
+pad_6 input  sync_in  (to enable of slave)
+To allow sync input :
+busybox devmem 0x790200BC 32 2
+test it with 
+iio_readdev -u local: -b 16000 cf-ad9361-lpc -T 0| pv > /dev/null
+To send trigger on master 
+busybox devmem 0x790200BC 32 4
+
+********** TODO *****************
+- Automate to get a cross-correlation in realtime
+- Use iio_reg to be remotely accessible
+

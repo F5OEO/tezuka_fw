@@ -1,0 +1,14 @@
+https://ez.analog.com/rf/wide-band-rf-transceivers/design-support/w/documents/10074/ad9361-transmit-quadrature-calibration-tx-quad-cal
+
+
+
+Other Zynq models differ in the middle nibble:
+
+Zynq‑7010 → 0x04710093
+Zynq‑7020 → 0x04720093
+Zynq‑7030 → 0x04730093
+Zynq‑7045 → 0x04750093
+
+-> 0x23727093 -> Zynq‑7020
+
+
