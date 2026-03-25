@@ -7,6 +7,7 @@ STATEDIR="/mnt/jffs2/tailscale"
 SOCKET="/var/run/tailscale/tailscaled.sock"
 
 start() {
+    [ -x /usr/sbin/tailscaled ] || return 0
     printf "Starting tailscaled: "
     mkdir -p /var/run/tailscale "$STATEDIR"
     start-stop-daemon -S -b -x /usr/sbin/tailscaled -- \
@@ -16,6 +17,7 @@ start() {
 }
 
 stop() {
+    [ -x /usr/sbin/tailscaled ] || return 0
     printf "Stopping tailscaled: "
     start-stop-daemon -K -x /usr/sbin/tailscaled 2>/dev/null
     echo "OK"
