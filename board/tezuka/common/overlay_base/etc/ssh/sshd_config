@@ -25,4 +25,4 @@ ClientAliveCountMax 2
 
 # Disable unnecessary features
 X11Forwarding no
-PrintMotd yes
+PrintMotd no
