@@ -1,14 +1,14 @@
 #!/bin/sh
-nfs_server=`fw_printenv -n nfs_server 2> /dev/null`
+nfs_server=$(fw_printenv -n nfs_server 2> /dev/null)
 SD_FILE="/dev/mmcblk0p1"
 
 start() {
-   if [[ -n $nfs_server ]]
+   if [ -n "$nfs_server" ]
 	then
 		
 		echo "mounting NFS volume : $nfs_server on /mnt/nfs"		
 		mkdir -p /mnt/nfs
-		mount -o nolock -t nfs $nfs_server /mnt/nfs
+		mount -o nolock -t nfs "$nfs_server" /mnt/nfs
 		#ex:   fw_setenv  nfs_server "192.168.2.10:/home/linuxdev/prog"
 		
 	else
@@ -24,7 +24,7 @@ start() {
 
 stop() {
 
-	if [[ -n $nfs_server ]]
+	if [ -n "$nfs_server" ]
 	then
 		echo "Stopping NFS"
 		umount /mnt/nfs

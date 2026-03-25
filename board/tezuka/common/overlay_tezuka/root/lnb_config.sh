@@ -9,13 +9,13 @@ sleep 0.5
 
  case $lnb_setting in
     off)
-        $(/root/switch_lnb.sh $lnb_setting)
+        /root/switch_lnb.sh "$lnb_setting"
         ;;
     13V)
-        $(/root/switch_lnb.sh $lnb_setting)
+        /root/switch_lnb.sh "$lnb_setting"
         ;;
     18V)
-        $(/root/switch_lnb.sh $lnb_setting)
+        /root/switch_lnb.sh "$lnb_setting"
         ;;
     auto)
         
