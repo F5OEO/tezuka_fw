@@ -1,15 +1,16 @@
 #!/bin/sh
 # Server-side demuxing by default
 
-source /etc/device_config
-ETH_IPADDR=`fw_printenv -n ipaddr_eth 2> /dev/null`
+# shellcheck source=/dev/null
+. /etc/device_config
+ETH_IPADDR=$(fw_printenv -n ipaddr_eth 2> /dev/null)
 
 case "$1" in
 	start)
-		echo -n "Starting dhcpd Daemon & httpd Server: "
-		start-stop-daemon -S -q -p /var/run/udhcpd.pid -x /usr/sbin/udhcpd -- $UDHCPD_CONF
+		printf "Starting dhcpd Daemon & httpd Server: "
+		start-stop-daemon -S -q -p /var/run/udhcpd.pid -x /usr/sbin/udhcpd -- "$UDHCPD_CONF"
 		start-stop-daemon -S -q -p /var/run/udhcpdwan.pid -x /usr/sbin/udhcpd -- /etc/udhcpdwan.conf
-		if [ "$ETH_IPADDR" == "AP" ]; then
+		if [ "$ETH_IPADDR" = "AP" ]; then
 			start-stop-daemon -S -q -p /var/run/udhcpdlan.pid -x /usr/sbin/udhcpd -- /etc/udhcpdlan.conf
 		fi	
 		#httpd -h /www
@@ -18,7 +19,7 @@ case "$1" in
 		;;
 
 	stop)
-		echo -n "Stopping dhcpd Daemon & httpd Server: "
+		printf "Stopping dhcpd Daemon & httpd Server: "
 		killall -7 websrv
 		start-stop-daemon -K -q -p /var/run/udhcpd.pid 2>/dev/null
 		start-stop-daemon -K -q -p /var/run/udhcpdwan.pid 2>/dev/null

@@ -2,7 +2,7 @@
 
 case "$1" in
 	start|"")
-		echo -n "Starting host keys backup: "
+		printf "Starting host keys backup: "
 		# Save OpenSSH host keys to jffs2
 		mkdir -p /mnt/jffs2/etc/ssh
 		for key in /etc/ssh/ssh_host_*; do

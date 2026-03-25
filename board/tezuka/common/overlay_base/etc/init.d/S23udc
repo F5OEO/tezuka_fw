@@ -1,23 +1,24 @@
 #!/bin/sh
 
-source /etc/device_config
+# shellcheck source=/dev/null
+. /etc/device_config
 
 CONFIGFS=/sys/kernel/config/usb_gadget
 GADGET=$CONFIGFS/composite_gadget
 IIOD_OPTS="-D -n $ENDPOINTS -F /dev/iio_ffs"
-UDC_HANDLE_SUSPEND=`fw_printenv -n udc_handle_suspend 2> /dev/null || echo 0 | tr -cd '[a-zA-Z0-9]._-'`
-USB_ETH_MODE=`fw_printenv -n usb_ethernet_mode 2> /dev/null || echo rndis | tr -cd '[a-zA-Z0-9]._-'`
-AUDIO_MODE=`fw_printenv -n audio_mode 2> /dev/null || echo off | tr -cd '[a-zA-Z0-9]._-'`
-NB_CORE=`nproc 2> /dev/null || 1`
+UDC_HANDLE_SUSPEND=$(fw_printenv -n udc_handle_suspend 2> /dev/null || echo 0 | tr -cd '[a-zA-Z0-9]._-')
+USB_ETH_MODE=$(fw_printenv -n usb_ethernet_mode 2> /dev/null || echo rndis | tr -cd '[a-zA-Z0-9]._-')
+AUDIO_MODE=$(fw_printenv -n audio_mode 2> /dev/null || echo off | tr -cd '[a-zA-Z0-9]._-')
+NB_CORE=$(nproc 2> /dev/null || echo 1)
 #serial should be set in /etc/serial
-ETCSERIAL=`cat /etc/serial | tr -cd '[a-zA-Z0-9]._-'`
-[[ "$ETCSERIAL" == "" ]] && ETCSERIAL="tezukafw" && echo -n "Serial missing in /etc/serial. Using serial: tezukafw "
-FORCE_MODEL=`fw_printenv -n force_model 2> /dev/null || echo off | tr -cd '[a-zA-Z0-9]._-'`
-DISABLE_USB_CONSOLE=`fw_printenv -n disable_usb_console 2> /dev/null || echo off | tr -cd '[a-zA-Z0-9]._-'`
-if [ "$USB_ETH_MODE" == "ncm" ]
+ETCSERIAL=$(cat /etc/serial | tr -cd '[a-zA-Z0-9]._-')
+[ "$ETCSERIAL" = "" ] && ETCSERIAL="tezukafw" && printf "Serial missing in /etc/serial. Using serial: tezukafw "
+FORCE_MODEL=$(fw_printenv -n force_model 2> /dev/null || echo off | tr -cd '[a-zA-Z0-9]._-')
+DISABLE_USB_CONSOLE=$(fw_printenv -n disable_usb_console 2> /dev/null || echo off | tr -cd '[a-zA-Z0-9]._-')
+if [ "$USB_ETH_MODE" = "ncm" ]
 then
 	USB_NET_FUNCTION=ncm.usb0
-elif [ "$USB_ETH_MODE" == "ecm" ]
+elif [ "$USB_ETH_MODE" = "ecm" ]
 then
 	USB_NET_FUNCTION=ecm.usb0
 else
@@ -29,15 +30,15 @@ create_iiod_context_attributes() {
 	serial=$2
 	model_variant=$3
 
-	if [ "$USBPID" == "0xb673" ]; then
+	if [ "$USBPID" = "0xb673" ]; then
 		# ADALM-PLUTO
 		for dev in /sys/bus/iio/devices/*; do
-			[ `cat ${dev}/name` == "ad9361-phy" ] && DEV_NAME=`basename ${dev}`
+			[ "$(cat "${dev}"/name)" = "ad9361-phy" ] && DEV_NAME=$(basename "${dev}")
 		done
 
-		AD936X_TYPE=$(cat /sys/bus/iio/devices/${DEV_NAME}/of_node/compatible | sed 's/adi,//g')
-		AD936X_TYPE_CAP=$(echo $AD936X_TYPE | tr a-z A-Z)
-		MODEL=$(echo $model | sed "s/AD936[34]/$AD936X_TYPE_CAP/")
+		AD936X_TYPE=$(cat /sys/bus/iio/devices/"${DEV_NAME}"/of_node/compatible | sed 's/adi,//g')
+		AD936X_TYPE_CAP=$(echo "$AD936X_TYPE" | tr '[:lower:]' '[:upper:]')
+		MODEL=$(echo "$model" | sed "s/AD936[34]/$AD936X_TYPE_CAP/")
 	else
 		MODEL=$model
 	fi
@@ -45,36 +46,36 @@ create_iiod_context_attributes() {
 	echo "[Context Attributes]" > /etc/libiio.ini
 	echo "hw_model=$MODEL" >> /etc/libiio.ini
 
-	if [ "$model_variant" == "n25q256a" ]
+	if [ "$model_variant" = "n25q256a" ]
 	then
 		echo "hw_model_variant=0" >> /etc/libiio.ini
 	else
 		echo "hw_model_variant=1" >> /etc/libiio.ini
 	fi
 
-	echo -e "hw_serial=$serial\n" >> /etc/libiio.ini
-	echo "fw_version=`grep device-fw /opt/VERSIONS | cut -d ' ' -f 2`" >> /etc/libiio.ini
-	if [ "$USBPID" == "0xb673" ]; then
-		echo ad9361-phy,xo_correction=`cat /sys/bus/iio/devices/${DEV_NAME}/xo_correction` >> /etc/libiio.ini
-		echo ad9361-phy,model=$AD936X_TYPE >> /etc/libiio.ini
+	printf "hw_serial=%s\n\n" "$serial" >> /etc/libiio.ini
+	echo "fw_version=$(grep device-fw /opt/VERSIONS | cut -d ' ' -f 2)" >> /etc/libiio.ini
+	if [ "$USBPID" = "0xb673" ]; then
+		echo "ad9361-phy,xo_correction=$(cat /sys/bus/iio/devices/"${DEV_NAME}"/xo_correction)" >> /etc/libiio.ini
+		echo "ad9361-phy,model=$AD936X_TYPE" >> /etc/libiio.ini
 
-	elif [ "$USBPID" == "0xb672" ]; then
-		cat /opt/${CALIBFILENAME} | grep ^cal,* >> /etc/libiio.ini
-		cat /opt/${CALIBFILENAME_TEMP_LUT} | grep ^cal,* >> /etc/libiio.ini
+	elif [ "$USBPID" = "0xb672" ]; then
+		cat /opt/"${CALIBFILENAME}" | grep '^cal,' >> /etc/libiio.ini
+		cat /opt/"${CALIBFILENAME_TEMP_LUT}" | grep '^cal,' >> /etc/libiio.ini
 	fi
 }
 
 case "$1" in
   start)
-	echo -n "Starting UDC Gadgets: "
+	printf "Starting UDC Gadgets: "
 	mount configfs -t configfs /sys/kernel/config 2> /dev/null
 
 	mkdir -p $GADGET
 
-	if [ "$FORCE_MODEL" == "off" ]; then
+	if [ "$FORCE_MODEL" = "off" ]; then
 
-	model=`cat /sys/firmware/devicetree/base/model | tr / -`
-	model_variant=`dmesg | grep m25p80 | grep Kbytes | cut -d ' ' -f 3`
+	model=$(cat /sys/firmware/devicetree/base/model | tr / -)
+	model_variant=$(dmesg | grep m25p80 | grep Kbytes | cut -d ' ' -f 3)
 
 	else
 		model=$FORCE_MODEL
@@ -85,21 +86,21 @@ case "$1" in
 
 	create_iiod_context_attributes "$model" "$serial" "$model_variant"
 
-	sha1=`echo $serial | sha1sum`
+	sha1=$(echo "$serial" | sha1sum)
 
 	echo 0x0456 > $GADGET/idVendor
-	echo $USBPID > $GADGET/idProduct
+	echo "$USBPID" > $GADGET/idProduct
 
 	mkdir -p $GADGET/strings/0x409
 	echo "Analog Devices Inc." > $GADGET/strings/0x409/manufacturer
-	echo $PRODUCT > $GADGET/strings/0x409/product
-	echo $serial > $GADGET/strings/0x409/serialnumber
+	echo "$PRODUCT" > $GADGET/strings/0x409/product
+	echo "$serial" > $GADGET/strings/0x409/serialnumber
 
 	mkdir -p $GADGET/functions/ffs.iio_ffs
 	mkdir -p $GADGET/functions/acm.usb0
 	mkdir -p $GADGET/functions/$USB_NET_FUNCTION
 	mkdir -p $GADGET/functions/mass_storage.0
-	if [ "$AUDIO_MODE" == "on" ]
+	if [ "$AUDIO_MODE" = "on" ]
 	then
 	mkdir -p $GADGET/functions/uac2.usb0
 	mkdir -p $GADGET/functions/hid.keyboard
@@ -109,18 +110,18 @@ case "$1" in
 #	echo /opt/vfat.img > $GADGET/functions/mass_storage.0/lun.0/file
 	echo Y > $GADGET/functions/mass_storage.0/lun.0/removable
 
-	host_addr=`echo -n 00:E0:22; echo $sha1 | dd bs=1 count=6 2>/dev/null | hexdump -v -e '/1 ":%01c""%c"'`
-	dev_addr=`echo -n 00:05:F7; echo $sha1 | dd bs=1 count=6 skip=6 2>/dev/null | hexdump -v -e '/1 ":%01c""%c"'`
+	host_addr=$(printf '00:E0:22'; echo "$sha1" | dd bs=1 count=6 2>/dev/null | hexdump -v -e '/1 ":%01c""%c"')
+	dev_addr=$(printf '00:05:F7'; echo "$sha1" | dd bs=1 count=6 skip=6 2>/dev/null | hexdump -v -e '/1 ":%01c""%c"')
 
-	echo $host_addr > $GADGET/functions/$USB_NET_FUNCTION/host_addr
-	echo $dev_addr > $GADGET/functions/$USB_NET_FUNCTION/dev_addr
+	echo "$host_addr" > $GADGET/functions/$USB_NET_FUNCTION/host_addr
+	echo "$dev_addr" > $GADGET/functions/$USB_NET_FUNCTION/dev_addr
 
 	mkdir -p $GADGET/configs/c.1
 	mkdir -p $GADGET/configs/c.1/strings/0x409
 	echo "RNDIS/MSD/ACM/IIOUSBD" > $GADGET/configs/c.1/strings/0x409/configuration
 	echo 500 > $GADGET/configs/c.1/MaxPower
 	
-if [ "$AUDIO_MODE" == "on" ]
+if [ "$AUDIO_MODE" = "on" ]
 	then
 	
 	echo "1" > $GADGET/functions/uac2.usb0/c_chmask
@@ -145,15 +146,14 @@ if [ "$AUDIO_MODE" == "on" ]
 
 	# Write the report descriptor
 	# Source: https://www.kernel.org/doc/html/latest/usb/gadget_hid.html
-	echo -ne \\x05\\x01\\x09\\x06\\xa1\\x01\\x05\\x07\\x19\\xe0\\x29\\xe7\\x15\\x00\\x25\\x01\\x75\\x01\\x95\\x08\\x81\\x02\\x95\\x01\\x75\\x08\\x81\\x03\\x95\\x05\\x75\\x01\\x05\\x08\\x19\\x01\\x29\\x05\\x91\\x02\\x95\\x01\\x75\\x03\\x91\\x03\\x95\\x06\\x75\\x08\\x15\\x00\\x25\\x65\\x05\\x07\\x19\\x00\\x29\\x65\\x81\\x00\\xc0 > "$GADGET/functions/hid.keyboard/report_desc"
-	#echo -ne \\x05\\x01\\x09\\x06\\xa1\\x01\\x05\\x07\\x19\\xe0\\x29\\xe7\\x15\\x00\\x25\\x01\\x75\\x01\\x95\\x08\\x81\\x02\\x95\\x01\\x75\\x08\\x81\\x03\\x95\\x05\\x75\\x01\\x05\\x08\\x19\\x01\\x29\\x05\\x91\\x02\\x95\\x01\\x75\\x03\\x91\\x03\\x95\\x06\\x75\\x08\\x15\\x00\\x25\\x65\\x05\\x07\\x19\\x00\\x29\\x65\\x81\\x00\\xc0 > functions/hid.usb0/report_desc
+	printf '\x05\x01\x09\x06\xa1\x01\x05\x07\x19\xe0\x29\xe7\x15\x00\x25\x01\x75\x01\x95\x08\x81\x02\x95\x01\x75\x08\x81\x03\x95\x05\x75\x01\x05\x08\x19\x01\x29\x05\x91\x02\x95\x01\x75\x03\x91\x03\x95\x06\x75\x08\x15\x00\x25\x65\x05\x07\x19\x00\x29\x65\x81\x00\xc0' > "$GADGET/functions/hid.keyboard/report_desc"
 	fi
 
 	ln -s $GADGET/functions/$USB_NET_FUNCTION $GADGET/configs/c.1
 	ln -s $GADGET/functions/mass_storage.0 $GADGET/configs/c.1
 	ln -s $GADGET/functions/acm.usb0 $GADGET/configs/c.1
 	ln -s $GADGET/functions/ffs.iio_ffs $GADGET/configs/c.1/ffs.iio_ffs
-	if [ "$AUDIO_MODE" == "on" ]
+	if [ "$AUDIO_MODE" = "on" ]
 	then
 	ln -s $GADGET/functions/uac2.usb0 $GADGET/configs/c.1
 	echo "Config 1: ECM network" > $GADGET/configs/c.1/strings/0x409/configuration
@@ -162,17 +162,19 @@ if [ "$AUDIO_MODE" == "on" ]
 	
 	mkdir -p /dev/iio_ffs
 	mount iio_ffs -t functionfs /dev/iio_ffs 2> /dev/null
-	if [ "$NB_CORE" == "2" ]
+	if [ "$NB_CORE" = "2" ]
 	then
+		# shellcheck disable=SC2086
 		start-stop-daemon -S -b -q -m -p /var/run/iiod.pid -x /usr/bin/chrt -- -r 99 /usr/bin/taskset -c 1 /usr/sbin/iiod $IIOD_OPTS
 	else	
+		# shellcheck disable=SC2086
 		start-stop-daemon -S -b -q -m -p /var/run/iiod.pid -x  /usr/sbin/iiod  -- $IIOD_OPTS
 	fi	
 	sleep 0.2
 
 	echo ci_hdrc.0 > $GADGET/UDC
 
-	if [ "$DISABLE_USB_CONSOLE" == "off" ]
+	if [ "$DISABLE_USB_CONSOLE" = "off" ]
 	then
 		echo "Enable console on ttyGS0"
 	
@@ -184,7 +186,7 @@ if [ "$AUDIO_MODE" == "on" ]
 	
 	[ $? = 0 ] && echo "OK" || echo "FAIL"
 
-	if [ "$UDC_HANDLE_SUSPEND" == "1" ]; then
+	if [ "$UDC_HANDLE_SUSPEND" = "1" ]; then
 		start-stop-daemon -S -b -q -m -p /var/run/udc_handle_suspend.pid -x  /sbin/udc_handle_suspend.sh
 	fi
 
@@ -192,7 +194,7 @@ if [ "$AUDIO_MODE" == "on" ]
   stop)
 	echo "Stopping UDC Gadgets"
 
-	if [ "$UDC_HANDLE_SUSPEND" == "1" ]; then
+	if [ "$UDC_HANDLE_SUSPEND" = "1" ]; then
 		start-stop-daemon -K -q -p /var/run/udc_handle_suspend.pid 2>/dev/null
 	fi
 
@@ -204,7 +206,7 @@ if [ "$AUDIO_MODE" == "on" ]
 	rm $GADGET/configs/c.1/acm.usb0
 	rm $GADGET/configs/c.1/ffs.iio_ffs
 
-	if [ "$AUDIO_MODE" == "on" ]
+	if [ "$AUDIO_MODE" = "on" ]
 	then
 	
 	rm $GADGET/configs/c.1/uac2.usb0
@@ -234,9 +236,3 @@ if [ "$AUDIO_MODE" == "on" ]
 esac
 
 exit $?
-
-
-
-
-
-
