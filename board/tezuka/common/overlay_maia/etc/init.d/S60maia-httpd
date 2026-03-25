@@ -2,17 +2,17 @@
 
 case "$1" in
   start)
-	echo -n "Starting maia-httpd: "
+	printf "Starting maia-httpd: "
           if [ -f /usr/bin/maia-httpd.xz ]; then
             xz -d /usr/bin/maia-httpd.xz
         fi
-        cd /root
+        cd /root || exit
         start-stop-daemon -S -b -q -m -p /var/run/maia-httpd.pid -x /usr/bin/maia-httpd -- --ssl-cert /mnt/jffs2/maia-httpd.crt --ssl-key /mnt/jffs2/maia-httpd.key --ca-cert /mnt/jffs2/maia-sdr-ca.crt
-        cd - > /dev/null
+        cd - > /dev/null || exit
 	[ $? = 0 ] && echo "OK" || echo "FAIL"
 	;;
   stop)
-        echo -n "Stopping maia-httpd: "
+        printf "Stopping maia-httpd: "
         start-stop-daemon -K -q -p /var/run/maia-httpd.pid 2>/dev/null
         [ $? = 0 ] && echo "OK" || echo "FAIL"
 	;;
