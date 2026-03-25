@@ -11,7 +11,7 @@ BR2_KERNEL_HEADERS_6_12=y
 #BR2_DEFAULT_KERNEL_HEADERS="6.1.108"
 BR2_OPTIMIZE_3=y
 BR2_ARM_FPU_NEON=y
-BR2_TARGET_OPTIMIZATION=-mfpu=neon -ftree-vectorize -funsafe-math-optimizations
+BR2_TARGET_OPTIMIZATION="-mcpu=cortex-a9 -mfpu=neon -ftree-vectorize -funsafe-math-optimizations"
 BR2_LINUX_KERNEL_PATCH="${BR2_EXTERNAL_PLUTOSDR_PATH}/board/tezuka/common/patches/linux/7330e07cf42e58e994bc37948263e5f720ab3530"
 BR2_GLOBAL_PATCH_DIR="${BR2_EXTERNAL_PLUTOSDR_PATH}/board/tezuka/fishball7010/patches"
 BR2_TARGET_GENERIC_HOSTNAME="fishball7020"
