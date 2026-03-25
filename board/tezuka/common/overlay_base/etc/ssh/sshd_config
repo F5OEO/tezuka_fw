@@ -1,0 +1,28 @@
+# Tezuka firmware OpenSSH server configuration
+
+# Listen on all interfaces — firewall restricts source IPs
+Port 22
+ListenAddress 0.0.0.0
+
+# Host keys
+HostKey /etc/ssh/ssh_host_ed25519_key
+HostKey /etc/ssh/ssh_host_rsa_key
+
+# Authentication
+PermitRootLogin yes
+PasswordAuthentication yes
+PubkeyAuthentication yes
+AuthorizedKeysFile .ssh/authorized_keys
+
+# Subsystems
+Subsystem sftp /usr/libexec/sftp-server
+
+# Security
+MaxAuthTries 3
+LoginGraceTime 30
+ClientAliveInterval 300
+ClientAliveCountMax 2
+
+# Disable unnecessary features
+X11Forwarding no
+PrintMotd yes
