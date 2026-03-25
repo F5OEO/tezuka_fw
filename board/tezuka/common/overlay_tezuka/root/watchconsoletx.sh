@@ -123,10 +123,10 @@ check_tx_flux() {
 
     if [ "$DELTA" -gt 0 ]; then
 
-        echo "SdrConsole PTT ON"
+        #echo "SdrConsole PTT ON"
         ptton
     else
-        echo "SdrConsole PTT OFF"
+        #echo "SdrConsole PTT OFF"
         pttoff
     fi
 }
