@@ -2,23 +2,23 @@
 
 xo_correction() {
 
-	XO_ENV_VAL=`fw_printenv -n xo_correction 2> /dev/null`
+	XO_ENV_VAL=$(fw_printenv -n xo_correction 2> /dev/null)
 	if [ $? -eq 0 ]; then
 
 		for dev in /sys/bus/iio/devices/*; do
-			[ `cat ${dev}/name` == "ad9361-phy" ] && DEV_NAME=`basename ${dev}`
+			[ "$(cat "${dev}"/name)" = "ad9361-phy" ] && DEV_NAME=$(basename "${dev}")
 		done
 
-		echo ${XO_ENV_VAL} > /sys/bus/iio/devices/${DEV_NAME}/xo_correction
+		echo "${XO_ENV_VAL}" > /sys/bus/iio/devices/"${DEV_NAME}"/xo_correction
 	fi
 }
 
 
 case "$1" in
 	start|"")
-		echo -n "Starting miscellaneous setup: "
+		printf "Starting miscellaneous setup: "
 		# Restore saved password and SSH keys
-		[[ -d /mnt/jffs2/etc ]] && [[ -f /mnt/jffs2/etc/passwd ]] && [[ -f /mnt/jffs2/etc/shadow ]] && [[ -f /mnt/jffs2/etc/group ]] && cd /mnt/jffs2/etc && md5sum -s -c password.md5 && cp passwd shadow group /etc
+		[ -d /mnt/jffs2/etc ] && [ -f /mnt/jffs2/etc/passwd ] && [ -f /mnt/jffs2/etc/shadow ] && [ -f /mnt/jffs2/etc/group ] && cd /mnt/jffs2/etc && md5sum -s -c password.md5 && cp passwd shadow group /etc
 		# Restore OpenSSH host keys from jffs2
 		if [ -d /mnt/jffs2/etc/ssh ]; then
 			for key in /mnt/jffs2/etc/ssh/ssh_host_*; do
@@ -30,8 +30,8 @@ case "$1" in
 		[ -f /mnt/jffs2/etc/ssh/authorized_keys ] && [ ! -f /root/.ssh/authorized_keys ] && cp /mnt/jffs2/etc/ssh/authorized_keys /root/.ssh/authorized_keys && chmod 600 /root/.ssh/authorized_keys
 
 		xo_correction
-		MAX_BS=`fw_printenv -n iio_max_block_size 2> /dev/null || echo 67108864`
-		echo ${MAX_BS} > /sys/module/industrialio_buffer_dma/parameters/max_block_size
+		MAX_BS=$(fw_printenv -n iio_max_block_size 2> /dev/null || echo 67108864)
+		echo "${MAX_BS}" > /sys/module/industrialio_buffer_dma/parameters/max_block_size
 		[ $? = 0 ] && echo "OK" || echo "FAIL"
 		;;
 	stop)

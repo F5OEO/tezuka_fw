@@ -5,7 +5,7 @@
 
 case "$1" in
  start)
-	echo -n "Starting watchdog: "
+	printf "Starting watchdog: "
 	watchdog -t 5 -T 10 /dev/watchdog
 	[ $? = 0 ] && echo "OK" || echo "FAIL"
 	;;
