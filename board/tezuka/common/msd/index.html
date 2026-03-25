@@ -10,6 +10,7 @@
 <body>
 
 <header>
+  <a href="https://github.com/F5OEO/tezuka_fw" class="logo-link">
 <pre class="logo">
 ___________                  __
 \__    ___/___ __________ __|  | _______
@@ -17,12 +18,15 @@ ___________                  __
   |    |\  ___/ /    /|  |  /    &lt;  / __ \_
   |____| \___  >_____ \____/|__|_ \(____  /
              \/      \/          \/     \/</pre>
+  </a>
   <p class="subtitle">#MODEL# &mdash; #HOSTNAME#</p>
 </header>
 
 <nav>
-  <a href="sweep/index.html">SweepFFT</a>
-  <a id="maia-link" href="#">Maia SDR</a>
+  <a class="btn" href="sweep/index.html">SweepFFT</a>
+  <a class="btn" id="maia-link" href="#">Maia SDR</a>
+  <a class="btn-secondary" href="https://github.com/F5OEO/tezuka_fw">tezuka_fw</a>
+  <a class="btn-secondary" href="LICENSE.html">License</a>
 </nav>
 
 <section>
@@ -58,12 +62,6 @@ ___________                  __
     <tr><th>Wi-Fi IP</th>       <td>#IPADDR_WLAN#</td></tr>
   </table>
 </section>
-
-<footer>
-  <a href="https://github.com/F5OEO/tezuka_fw">tezuka_fw</a>
-  &mdash;
-  <a href="LICENSE.html">License</a>
-</footer>
 
 <script>
   document.getElementById('maia-link').href =
