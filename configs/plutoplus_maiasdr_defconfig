@@ -120,6 +120,9 @@ BR2_PACKAGE_POLL_SYSFS=y
 BR2_PACKAGE_LIBINI=y
 
 ####### CUSTOM CONFIGS
+BR2_CCACHE=y
+BR2_CCACHE_DIR="$(HOME)/.buildroot-ccache"
+
 
 ##PLUTOPLUS MAIA_IIO
 BR2_LINUX_KERNEL_CUSTOM_CONFIG_FILE="$(BR2_EXTERNAL_PLUTOSDR_PATH)/board/tezuka/common/kernel/zynq_pluto_linux_defconfig"
