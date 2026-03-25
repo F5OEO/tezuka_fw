@@ -24,10 +24,10 @@ if [ "$lnb_mode" = "auto" ] ; then
 
         if [ "$rxfrequency" -le "740500000" ] ; then
 #        echo "QO100 Narrow Band"
-        $(/root/switch_lnb.sh 13V)
+        /root/switch_lnb.sh 13V
         else
 #        echo "QO100 Wide Band"
-        $(/root/switch_lnb.sh 18V)
+        /root/switch_lnb.sh 18V
         fi
 fi
 done

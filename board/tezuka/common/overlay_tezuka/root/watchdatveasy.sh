@@ -26,6 +26,7 @@ if [ "$adphys" = "ad9361-phy" ] ; then
 else
     echo 1 > /sys/bus/iio/devices/iio:device1/out_altvoltage1_TX_LO_powerdown     
 fi
+fi
 
 if [ "$ensmode" = "tx" ] ; then
 if [ "$adphys" = "ad9361-phy" ] ; then
