@@ -70,6 +70,13 @@ jobs:
           key: br-dl-${{ hashFiles('configs/*') }}
           restore-keys: br-dl-
 
+      - name: Cache ccache
+        uses: actions/cache@v4
+        with:
+          path: ~/.buildroot-ccache
+          key: ccache-${{ matrix.board }}-${{ github.sha }}
+          restore-keys: ccache-${{ matrix.board }}-
+
       - name: Build ${{ matrix.board }}
         run: |
           ./getbuildroot.sh
