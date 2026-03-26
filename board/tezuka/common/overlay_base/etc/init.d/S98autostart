@@ -6,7 +6,7 @@
 case "$1" in
   start)
 	if test -f /mnt/jffs2/autorun.sh; then
-		source /mnt/jffs2/autorun.sh
+		. /mnt/jffs2/autorun.sh
 	fi
 	;;
   stop)

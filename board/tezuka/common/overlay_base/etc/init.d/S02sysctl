@@ -1,0 +1,3 @@
+#!/bin/sh
+# Apply kernel tuning parameters
+[ -f /etc/sysctl.conf ] && sysctl -p /etc/sysctl.conf >/dev/null 2>&1

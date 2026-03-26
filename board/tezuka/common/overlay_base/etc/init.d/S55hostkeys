@@ -1,16 +1,18 @@
-#! /bin/sh
-
+#!/bin/sh
 
 case "$1" in
 	start|"")
-		echo -n "Starting host keys backup: "
-		# Save  Dropbear keys
-		[[ ! -f /mnt/jffs2/dropbear_ed25519_host_key ]] && [[ -f /etc/dropbear/dropbear_ed25519_host_key ]] && [[ -d /mnt/jffs2 ]] && cp /etc/dropbear/dropbear_ed25519_host_key /mnt/jffs2/dropbear_ed25519_host_key
-		# Save ssh authorized keys
-		[[ ! -f /mnt/jffs2/authorized_keys ]] && [[ -f /root/.ssh/authorized_keys ]] && [[ -d /mnt/jffs2 ]] && cp /root/.ssh/authorized_keys /mnt/jffs2/authorized_keys
+		printf "Starting host keys backup: "
+		# Save OpenSSH host keys to jffs2
+		mkdir -p /mnt/jffs2/etc/ssh
+		for key in /etc/ssh/ssh_host_*; do
+			[ -f "$key" ] && cp "$key" /mnt/jffs2/etc/ssh/
+		done
+		# Save authorized keys
+		[ -f /root/.ssh/authorized_keys ] && cp /root/.ssh/authorized_keys /mnt/jffs2/etc/ssh/authorized_keys
+		echo "OK"
 		;;
 	stop)
-		
 		;;
 	*)
 		echo "Usage: $0 {start|stop}" >&2
