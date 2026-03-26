@@ -5,7 +5,7 @@
 
 case "$1" in
   start)
-	echo -n "Starting mdev: "
+	printf "Starting mdev: "
 	echo /sbin/mdev >/proc/sys/kernel/hotplug
 	/sbin/mdev -s
 	# coldplug modules

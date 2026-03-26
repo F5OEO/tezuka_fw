@@ -3,23 +3,25 @@
 # FutureSDR
 #
 ################################################################################
-FUTURESDR_VERSION = main
-FUTURESDR_SITE = https://github.com/FutureSDR/FutureSDR.git
-FUTURESDR_SITE_METHOD = git
-CROSS_COMPILE = arm-none-linux-gnueabihf-
-TOOLCHAIN = $(HOST_DIR)/bin/$(CROSS_COMPILE)gcc
+# Branch: main (pinned 2026-03-21)
+FUTURESDR_VERSION = 96562fe5042c465b1a3a95a11805e6d30c1a5aeb
+FUTURESDR_SITE = https://github.com/FutureSDR/FutureSDR/archive
+FUTURESDR_SOURCE = $(FUTURESDR_VERSION).tar.gz
 
 define FUTURESDR_BUILD_CMDS
-$(shell bash -c "PATH="$(HOST_DIR)/bin:$(PATH)" && cd $(FUTURESDR_SRCDIR) && \
-    $(HOST_DIR)/bin/cargo generate-lockfile && \
-	  cargo build --release --target armv7-unknown-linux-gnueabihf \
-	  --config target.armv7-unknown-linux-gnueabihf.linker='"' $(TOOLCHAINS)'"' ")
+	cd $(@D) && \
+	PATH="$(HOST_DIR)/bin:$$PATH" \
+	$(HOST_DIR)/bin/cargo generate-lockfile && \
+	cd $(@D) && \
+	PATH="$(HOST_DIR)/bin:$$PATH" \
+	cargo build --release --target armv7-unknown-linux-gnueabihf \
+		--config "target.armv7-unknown-linux-gnueabihf.linker=\"$(HOST_DIR)/bin/arm-none-linux-gnueabihf-gcc\""
 endef
 
 define FUTURESDR_INSTALL_TARGET_CMDS
-    $(INSTALL) -D \
-            $(FUTURESDR_SRCDIR)/target/armv7-unknown-linux-gnueabihf/release/libfuturesdr.rlib \
-           $(TARGET_DIR)/usr/lib/libfuturesdr.rlib
+	$(INSTALL) -D \
+		$(@D)/target/armv7-unknown-linux-gnueabihf/release/libfuturesdr.rlib \
+		$(TARGET_DIR)/usr/lib/libfuturesdr.rlib
 endef
 
 $(eval $(generic-package))

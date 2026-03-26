@@ -5,9 +5,8 @@
 ################################################################################
 
 PLUTO_FPGA_VERSION = 1978df2985ce230f3a50b717accd7066609866ec
-#PLUTO_FPGA_SOURCE = https://github.com/analogdevicesinc/hdl.git
-PLUTO_FPGA_SITE = https://github.com/analogdevicesinc/hdl.git
-PLUTO_FPGA_SITE_METHOD = git
+PLUTO_FPGA_SITE = https://github.com/analogdevicesinc/hdl/archive
+PLUTO_FPGA_SOURCE = $(PLUTO_FPGA_VERSION).tar.gz
 
 PLUTO_FPGA_INSTALL_IMAGES = YES
 PLUTO_FPGA_INSTALL_STAGING = NO

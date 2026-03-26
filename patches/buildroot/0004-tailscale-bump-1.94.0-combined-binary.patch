@@ -1,0 +1,46 @@
+tailscale: bump 1.78.1 -> 1.94.0, build combined binary
+
+- Single binary embeds CLI + daemon via ts_include_cli tag
+- Strip debug info with -s -w ldflags
+- 1.94.0 is latest compatible with Buildroot Go 1.25.x
+
+diff -ruN a/package/tailscale/tailscale.hash b/package/tailscale/tailscale.hash
+--- a/package/tailscale/tailscale.hash	2026-03-26 04:10:35
++++ b/package/tailscale/tailscale.hash	2026-03-26 04:10:35
+@@ -1,3 +1,3 @@
+ # Locally computed
+-sha256  4830cd822a838d5d44fd5eeebd07a2aacaf0255fb3fb7d3852d57659f54e51bc  tailscale-1.78.1-go2.tar.gz
++sha256  c876321810f68de23c263dbd5d8915a9c61dc1c0b8869aafb9a1b4432f352982  tailscale-1.94.0-go2.tar.gz
+ sha256  d1ee1c7947d4b2c1963ea214d5324f1d4c89f2f1d0f0224889b4dfb868dad725  LICENSE
+diff -ruN a/package/tailscale/tailscale.mk b/package/tailscale/tailscale.mk
+--- a/package/tailscale/tailscale.mk	2026-03-26 04:10:35
++++ b/package/tailscale/tailscale.mk	2026-03-26 04:10:35
+@@ -4,14 +4,18 @@
+ #
+ ################################################################################
+ 
+-TAILSCALE_VERSION = 1.78.1
++TAILSCALE_VERSION = 1.94.0
+ TAILSCALE_SITE = $(call github,tailscale,tailscale,v$(TAILSCALE_VERSION))
+ TAILSCALE_LICENSE = BSD-3-Clause
+ TAILSCALE_LICENSE_FILES = LICENSE
+ TAILSCALE_GOMOD = tailscale.com
+ TAILSCALE_CPE_ID_VENDOR = tailscale
+-TAILSCALE_BUILD_TARGETS = cmd/tailscale cmd/tailscaled
++# Build combined binary (tailscaled embeds tailscale CLI via ts_include_cli).
++# Invoke as "tailscale" or "tailscaled" depending on argv[0] — like busybox.
++TAILSCALE_BUILD_TARGETS = cmd/tailscaled
++TAILSCALE_TAGS = ts_include_cli
+ TAILSCALE_LDFLAGS = \
++	-s -w \
+ 	-X tailscale.com/version.longStamp=$(TAILSCALE_VERSION) \
+ 	-X tailscale.com/version.shortStamp=$(TAILSCALE_VERSION)
+ 
+@@ -24,6 +28,7 @@
+ 
+ define TAILSCALE_INSTALL_SYMLINK
+ 	ln -f -s ../bin/tailscaled $(TARGET_DIR)/usr/sbin/tailscaled
++	ln -f -s tailscaled $(TARGET_DIR)/usr/bin/tailscale
+ endef
+ TAILSCALE_POST_INSTALL_TARGET_HOOKS += TAILSCALE_INSTALL_SYMLINK
+ 

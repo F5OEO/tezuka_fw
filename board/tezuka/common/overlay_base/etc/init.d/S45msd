@@ -29,7 +29,7 @@ patch_html_page() {
 
 	sed -i -e "s/#LINUX#/$LINUX/g" -e "s/#MODEL#/$MODEL/g" -e "s/#SERIAL#/$SERIAL/g" -e "s/#MACHOST#/$MACHOST/g" -e "s/#MAC#/$MAC/g" -e "s/#IIO#/$IIO/g" -e "s/#BUILD#/$BUILD/g" -e "s/#FPGA#/$FPGA/g" -e "s/#ROOTFS#/$ROOTFS/g" -e "s/#UBOOT#/$UBOOT_VERSION/g" -e "s/#UBOOT_MODEBOOT#/$UBOOT_MODEBOOT/g" -e "s/#NETWORKUSB#/$NETWORKUSB/g" "$1"
 
-	sed -i -e "s/#BUILD#/$BUILD/g" "$2" /etc/motd.plain
+	sed -i -e "s/#BUILD#/$BUILD/g" "$2" /etc/motd
 }
 
 

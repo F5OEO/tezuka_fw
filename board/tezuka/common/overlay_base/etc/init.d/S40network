@@ -5,7 +5,10 @@
 
 # Debian ifupdown needs the /run/network lock directory
 
-source /etc/device_config
+# shellcheck source=/dev/null
+. /etc/device_config
+
+CR=$(printf '\r')
 
 create_system_files () {
 
@@ -15,46 +18,46 @@ create_system_files () {
 	CONF=/opt/config.txt
 	IFAC=/etc/network/interfaces
 	HOSTAPD=/etc/hostapd.conf
-	HOSTNAME=`fw_printenv -n hostname 2> /dev/null || cat /etc/hostname | tr -cd '[a-zA-Z0-9 \\/]._-'`
-	echo $HOSTNAME > /etc/hostname
-	SERIAL=`cat /etc/serial | tr -cd '[a-zA-Z0-9]._-'`
-	[[ "$SERIAL" == "" ]] && SERIAL="tezukafw" && echo -n "Serial missing in /etc/serial. Using serial for eth0 mac: tezukafw "
+	HOSTNAME=$(fw_printenv -n hostname 2> /dev/null || cat /etc/hostname | tr -cd '[a-zA-Z0-9 \\/]._-')
+	echo "$HOSTNAME" > /etc/hostname
+	SERIAL=$(cat /etc/serial | tr -cd '[a-zA-Z0-9]._-')
+	[ "$SERIAL" = "" ] && SERIAL="tezukafw" && printf "Serial missing in /etc/serial. Using serial for eth0 mac: tezukafw "
 
-	IPADDR=`fw_printenv -n ipaddr 2> /dev/null || echo 192.168.2.1 | tr -cd '[a-zA-Z0-9]._-'`
-	IPADDR_HOST=`fw_printenv -n ipaddr_host 2> /dev/null || echo 192.168.2.10 | tr -cd '[a-zA-Z0-9]._-'`
-	NETMASK=`fw_printenv -n netmask 2> /dev/null || echo 255.255.255.0 | tr -cd '[a-zA-Z0-9]._-'`
+	IPADDR=$(fw_printenv -n ipaddr 2> /dev/null || echo 192.168.2.1 | tr -cd '[a-zA-Z0-9]._-')
+	IPADDR_HOST=$(fw_printenv -n ipaddr_host 2> /dev/null || echo 192.168.2.10 | tr -cd '[a-zA-Z0-9]._-')
+	NETMASK=$(fw_printenv -n netmask 2> /dev/null || echo 255.255.255.0 | tr -cd '[a-zA-Z0-9]._-')
 
-	ETH_IPADDR=`fw_printenv -n ipaddr_eth 2> /dev/null | tr -cd '[a-zA-Z0-9]._-'`
-	ETH_NETMASK=`fw_printenv -n netmask_eth 2> /dev/null || echo 255.255.255.0 | tr -cd '[a-zA-Z0-9]._-'`
-	ETH_GW=`fw_printenv -n gateway_eth 2> /dev/null | tr -cd '[a-zA-Z0-9]._-'`
-	sha1=`echo ${SERIAL} | sha1sum`
-	ETH_MAC=`echo -n 00:60:88; echo $sha1 | dd bs=1 count=6 2>/dev/null | hexdump -v -e '/1 ":%01c""%c"'`
+	ETH_IPADDR=$(fw_printenv -n ipaddr_eth 2> /dev/null | tr -cd '[a-zA-Z0-9]._-')
+	ETH_NETMASK=$(fw_printenv -n netmask_eth 2> /dev/null || echo 255.255.255.0 | tr -cd '[a-zA-Z0-9]._-')
+	ETH_GW=$(fw_printenv -n gateway_eth 2> /dev/null | tr -cd '[a-zA-Z0-9]._-')
+	sha1=$(echo "${SERIAL}" | sha1sum)
+	ETH_MAC=$(printf '00:60:88'; echo "$sha1" | dd bs=1 count=6 2>/dev/null | hexdump -v -e '/1 ":%01c""%c"')
 
-	WLAN_SSID=`fw_printenv -n ssid_wlan 2> /dev/null | tr -cd '[a-zA-Z0-9 \\/]._-'`
-	WLAN_PWD=`fw_printenv -n pwd_wlan 2> /dev/null | tr -cd '[a-zA-Z0-9]._-'`
-	WLAN_IPADDR=`fw_printenv -n ipaddr_wlan 2> /dev/null | tr -cd '[a-zA-Z0-9]._-'`
+	WLAN_SSID=$(fw_printenv -n ssid_wlan 2> /dev/null | tr -cd '[a-zA-Z0-9 \\/]._-')
+	WLAN_PWD=$(fw_printenv -n pwd_wlan 2> /dev/null | tr -cd '[a-zA-Z0-9]._-')
+	WLAN_IPADDR=$(fw_printenv -n ipaddr_wlan 2> /dev/null | tr -cd '[a-zA-Z0-9]._-')
 
-	XO_CORRECTION=`fw_printenv -n xo_correction 2> /dev/null | tr -cd '[a-zA-Z0-9]._-'`
-	UDC_HANDLE_SUSPEND=`fw_printenv -n udc_handle_suspend 2> /dev/null || echo 0 | tr -cd '[a-zA-Z0-9]._-'`
-	USB_ETH_MODE=`fw_printenv -n usb_ethernet_mode 2> /dev/null || echo rndis | tr -cd '[a-zA-Z0-9]._-'`
-	LNB_POWER=`fw_printenv -n lnb_power 2> /dev/null || echo off | tr -cd '[a-zA-Z0-9]._-'`
-	REFCLK_SOURCE=`fw_printenv -n refclk_source 2>/dev/null || echo internal | tr -cd '[a-zA-Z0-9]._-'`
-	MAXCPUS=`fw_printenv -n maxcpus 2> /dev/null || echo 2 | tr -cd '[a-zA-Z0-9]._-'`
-	ATTR_NAME=`fw_printenv -n attr_name 2> /dev/null || echo compatible | tr -cd '[a-zA-Z0-9]._-'`
-	ATTR_VAL=`fw_printenv -n attr_val 2> /dev/null || echo ad9361 | tr -cd '[a-zA-Z0-9]._-'`
-	MODE=`fw_printenv -n mode 2> /dev/null || echo 1r1t | tr -cd '[a-zA-Z0-9]._-'`
-	AUDIO_MODE=`fw_printenv -n audio_mode 2> /dev/null || echo off | tr -cd '[a-zA-Z0-9]._-'`
-	RF_INPUT=`fw_printenv -n rf_input 2> /dev/null || echo rx1 | tr -cd '[a-zA-Z0-9]._-'`
-	RF_OUTPUT=`fw_printenv -n rf_output 2> /dev/null || echo tx1 | tr -cd '[a-zA-Z0-9]._-'`
-	SERIAL_FORCE=`fw_printenv -n serial_force 2> /dev/null || echo off | tr -cd '[a-zA-Z0-9 \\/]._-'`
-	CALLSIGN=`fw_printenv -n callsign 2> /dev/null || echo NOCALL | tr -cd '[a-zA-Z0-9 \\/]._-'`
-	LOCATOR=`fw_printenv -n locator 2> /dev/null || echo NOLOCATOR | tr -cd '[a-zA-Z0-9]._-'`
-	NFS_SERVER=`fw_printenv -n nfs_server 2> /dev/null | tr -cd '[a-zA-Z0-9 \\/:]._-'`
-	FORCE_MODEL=`fw_printenv -n force_model 2> /dev/null || echo off | tr -cd '[a-zA-Z0-9 \\/]._-'`
-	DISABLE_USB_CONSOLE=`fw_printenv -n disable_usb_console 2> /dev/null || echo off | tr -cd '[a-zA-Z0-9 \\/]._-'`
-	ENABLE_IPV6=`fw_printenv -n enable_ipv6 2> /dev/null || echo no | tr -cd '[a-zA-Z0-9 \\/]._-'`
+	XO_CORRECTION=$(fw_printenv -n xo_correction 2> /dev/null | tr -cd '[a-zA-Z0-9]._-')
+	UDC_HANDLE_SUSPEND=$(fw_printenv -n udc_handle_suspend 2> /dev/null || echo 0 | tr -cd '[a-zA-Z0-9]._-')
+	USB_ETH_MODE=$(fw_printenv -n usb_ethernet_mode 2> /dev/null || echo rndis | tr -cd '[a-zA-Z0-9]._-')
+	LNB_POWER=$(fw_printenv -n lnb_power 2> /dev/null || echo off | tr -cd '[a-zA-Z0-9]._-')
+	REFCLK_SOURCE=$(fw_printenv -n refclk_source 2>/dev/null || echo internal | tr -cd '[a-zA-Z0-9]._-')
+	MAXCPUS=$(fw_printenv -n maxcpus 2> /dev/null || echo 2 | tr -cd '[a-zA-Z0-9]._-')
+	ATTR_NAME=$(fw_printenv -n attr_name 2> /dev/null || echo compatible | tr -cd '[a-zA-Z0-9]._-')
+	ATTR_VAL=$(fw_printenv -n attr_val 2> /dev/null || echo ad9361 | tr -cd '[a-zA-Z0-9]._-')
+	MODE=$(fw_printenv -n mode 2> /dev/null || echo 1r1t | tr -cd '[a-zA-Z0-9]._-')
+	AUDIO_MODE=$(fw_printenv -n audio_mode 2> /dev/null || echo off | tr -cd '[a-zA-Z0-9]._-')
+	RF_INPUT=$(fw_printenv -n rf_input 2> /dev/null || echo rx1 | tr -cd '[a-zA-Z0-9]._-')
+	RF_OUTPUT=$(fw_printenv -n rf_output 2> /dev/null || echo tx1 | tr -cd '[a-zA-Z0-9]._-')
+	SERIAL_FORCE=$(fw_printenv -n serial_force 2> /dev/null || echo off | tr -cd '[a-zA-Z0-9 \\/]._-')
+	CALLSIGN=$(fw_printenv -n callsign 2> /dev/null || echo NOCALL | tr -cd '[a-zA-Z0-9 \\/]._-')
+	LOCATOR=$(fw_printenv -n locator 2> /dev/null || echo NOLOCATOR | tr -cd '[a-zA-Z0-9]._-')
+	NFS_SERVER=$(fw_printenv -n nfs_server 2> /dev/null | tr -cd '[a-zA-Z0-9 \\/:]._-')
+	FORCE_MODEL=$(fw_printenv -n force_model 2> /dev/null || echo off | tr -cd '[a-zA-Z0-9 \\/]._-')
+	DISABLE_USB_CONSOLE=$(fw_printenv -n disable_usb_console 2> /dev/null || echo off | tr -cd '[a-zA-Z0-9 \\/]._-')
+	ENABLE_IPV6=$(fw_printenv -n enable_ipv6 2> /dev/null || echo no | tr -cd '[a-zA-Z0-9 \\/]._-')
 
-	if [ "$ENABLE_IPV6" == "yes" ]; then
+	if [ "$ENABLE_IPV6" = "yes" ]; then
 		echo 0 > /proc/sys/net/ipv6/conf/all/disable_ipv6
 	else
 		echo 1 > /proc/sys/net/ipv6/conf/all/disable_ipv6
@@ -82,50 +85,50 @@ create_system_files () {
 	echo "pidfile /var/run/udhcpdlan.pid" >> $UDHCPDLAN_CONF
 
 	### /etc/network/interfaces ###
-	echo -e "auto lo\n""iface lo inet loopback\n" > $IFAC
-	echo -e "auto usb0\n""iface usb0 inet static" >> $IFAC
-	echo -e "\taddress $IPADDR\n""\tnetmask $NETMASK\n" >> $IFAC
-	echo -e "auto usb1\n""iface usb1 inet dhcp\n" >> $IFAC
+	printf "auto lo\niface lo inet loopback\n\n" > $IFAC
+	printf "auto usb0\niface usb0 inet static\n" >> $IFAC
+	printf "\taddress %s\n\tnetmask %s\n\n" "$IPADDR" "$NETMASK" >> $IFAC
+	printf "auto usb1\niface usb1 inet dhcp\n\n" >> $IFAC
 
-	echo -e "auto eth0" >> $IFAC
+	printf "auto eth0\n" >> $IFAC
 	if [ -n "$ETH_IPADDR" ]
 	then
-		if [ "$ETH_IPADDR" == "AP" ]; then
-			echo -e "iface eth0 inet static\n\taddress 192.168.4.1\n\tnetmask 255.255.255.0" >>$IFAC
+		if [ "$ETH_IPADDR" = "AP" ]; then
+			printf "iface eth0 inet static\n\taddress 192.168.4.1\n\tnetmask 255.255.255.0\n" >>$IFAC
 		else
-			echo -e "iface eth0 inet static\n\taddress $ETH_IPADDR\n\tnetmask $ETH_NETMASK" >> $IFAC
+			printf "iface eth0 inet static\n\taddress %s\n\tnetmask %s\n" "$ETH_IPADDR" "$ETH_NETMASK" >> $IFAC
 			if [ -n "$ETH_GW" ]; then
-				echo -e "\tgateway $ETH_GW" >> $IFAC
+				printf "\tgateway %s\n" "$ETH_GW" >> $IFAC
 			fi
 		fi	
-		echo -e "\thwaddress ether $ETH_MAC\n" >> $IFAC
+		printf "\thwaddress ether %s\n\n" "$ETH_MAC" >> $IFAC
 	else
-		echo -e "iface eth0 inet dhcp" >> $IFAC
-		echo -e "\thwaddress ether $ETH_MAC\n" >> $IFAC
+		printf "iface eth0 inet dhcp\n" >> $IFAC
+		printf "\thwaddress ether %s\n\n" "$ETH_MAC" >> $IFAC
 	fi
 
 	### /etc/wpa.conf ###
 	if [ -n "$WLAN_SSID" ]
 	then
-        if [ "$WLAN_SSID" == "AP" ]; then
+        if [ "$WLAN_SSID" = "AP" ]; then
     # We are in access point mode
-        echo -e "auto wlan0" >> $IFAC
-        echo -e "\tiface wlan0 inet static" >>$IFAC
-        echo -e "\taddress 192.168.3.1" >>$IFAC
-        echo -e "\tnetmask 255.255.255.0" >>$IFAC
+        printf "auto wlan0\n" >> $IFAC
+        printf "\tiface wlan0 inet static\n" >>$IFAC
+        printf "\taddress 192.168.3.1\n" >>$IFAC
+        printf "\tnetmask 255.255.255.0\n" >>$IFAC
 
 		#Make hostapd
-		echo -e "interface=wlan0\n" > $HOSTAPD
-		echo -e "driver=nl80211\n" >> $HOSTAPD
-		echo -e "ssid=PlutoAP\n" >> $HOSTAPD
-		echo -e "hw_mode=g\n" >> $HOSTAPD
-		echo -e "channel=11\n" >> $HOSTAPD
+		printf "interface=wlan0\n\n" > $HOSTAPD
+		printf "driver=nl80211\n\n" >> $HOSTAPD
+		printf "ssid=PlutoAP\n\n" >> $HOSTAPD
+		printf "hw_mode=g\n\n" >> $HOSTAPD
+		printf "channel=11\n\n" >> $HOSTAPD
 
 		hostapd -B /etc/hostapd.conf
         else
 		    if [ -n "$WLAN_PWD" ]
 		    then
-			    wpa_passphrase $WLAN_SSID $WLAN_PWD > /etc/wpa.conf
+			    wpa_passphrase "$WLAN_SSID" "$WLAN_PWD" > /etc/wpa.conf
 		    else
 			    echo "network={" > /etc/wpa.conf
 			    echo "    ssid=\"$WLAN_SSID\"" >> /etc/wpa.conf
@@ -133,81 +136,81 @@ create_system_files () {
 			    echo "}" >> /etc/wpa.conf
 		    fi
 
-		    echo -e "auto wlan0" >> $IFAC
+		    printf "auto wlan0\n" >> $IFAC
 
 		    if [ -n "$WLAN_IPADDR" ]
 		    then
-			    echo -e "iface wlan0 inet static" >> $IFAC
-			    echo -e "\taddress $WLAN_IPADDR\n""\tnetmask 255.255.255.0" >> $IFAC
+			    printf "iface wlan0 inet static\n" >> $IFAC
+			    printf "\taddress %s\n\tnetmask 255.255.255.0\n" "$WLAN_IPADDR" >> $IFAC
 		    else
-			    echo -e "iface wlan0 inet dhcp" >> $IFAC
+			    printf "iface wlan0 inet dhcp\n" >> $IFAC
 		    fi
-		    echo -e "\twpa-conf /etc/wpa.conf\n" >> $IFAC
+		    printf "\twpa-conf /etc/wpa.conf\n\n" >> $IFAC
         fi
 	fi
 
 	#switch RF input
 	echo "Switching to rfinput $RF_INPUT" 
-	/root/switch_rfinput.sh $RF_INPUT
+	/root/switch_rfinput.sh "$RF_INPUT"
 	#switch RF input
 	echo "Switching to rfoutput $RF_OUTPUT" 
-	/root/switch_rfoutput.sh $RF_OUTPUT
+	/root/switch_rfoutput.sh "$RF_OUTPUT"
 
 	### /opt/config.txt ###
-	echo "# $(cat /sys/firmware/devicetree/base/model | tr / -)"$'\r' > $CONF
-	echo "# Device Configuration File"$'\r' >> $CONF
-	echo "#   1. Open with an Editor"$'\r' >> $CONF
-	echo "#   2. Edit this file"$'\r' >> $CONF
-	echo "#   3. Save this file on the device USB drive"$'\r' >> $CONF
-	echo "#   4. Eject the device USB Drive"$'\r' >> $CONF
-	echo "# Doc: https://wiki.analog.com/university/tools/pluto/users/customizing"$'\r' >> $CONF
-	echo ""$'\r'>> $CONF
-	echo "[NETWORK]"$'\r' >> $CONF
-	echo "hostname = $HOSTNAME"$'\r' >> $CONF
-	echo "ipaddr = $IPADDR"$'\r' >> $CONF
-	echo "ipaddr_host = $IPADDR_HOST"$'\r' >> $CONF
-	echo "netmask = $NETMASK"$'\r' >> $CONF
-	echo ""$'\r'>> $CONF
-	echo "[WLAN]"$'\r' >> $CONF
-	echo "ssid_wlan = $WLAN_SSID"$'\r' >> $CONF
-	echo "pwd_wlan = $WLAN_PWD"$'\r' >> $CONF
-	echo "ipaddr_wlan = $WLAN_IPADDR"$'\r' >> $CONF
-	echo ""$'\r'>> $CONF
-	echo "[USB_ETHERNET]"$'\r' >> $CONF
-	echo "ipaddr_eth = $ETH_IPADDR"$'\r' >> $CONF
-	echo "netmask_eth = $ETH_NETMASK"$'\r' >> $CONF
-	echo "gateway_eth = $ETH_GW"$'\r' >> $CONF
-	echo ""$'\r'>> $CONF
-	echo "[SYSTEM]"$'\r' >> $CONF
-	echo "xo_correction = $XO_CORRECTION"$'\r' >> $CONF
-	echo "udc_handle_suspend = $UDC_HANDLE_SUSPEND"$'\r' >> $CONF
-	echo "# USB Communication Device Class Compatibility Mode [rndis|ncm|ecm]"$'\r' >> $CONF
-	echo "usb_ethernet_mode = $USB_ETH_MODE"$'\r' >> $CONF
-	echo ""$'\r'>> $CONF
-	echo "[ACTIONS]"$'\r' >> $CONF
-	echo "diagnostic_report = 0"$'\r' >> $CONF
-	echo "dfu = 0"$'\r' >> $CONF
-	echo "reset = 0"$'\r' >> $CONF
-	echo "calibrate = 0"$'\r' >> $CONF
-	echo ""$'\r'>> $CONF
-	echo "[TEZUKA]"$'\r' >> $CONF
-	echo "callsign = $CALLSIGN"$'\r' >> $CONF
-	echo "locator = $LOCATOR"$'\r' >> $CONF
-	echo "lnb_power = $LNB_POWER"$'\r' >> $CONF
-	echo "refclk_source = $REFCLK_SOURCE"$'\r' >> $CONF
-	echo "maxcpus = $MAXCPUS"$'\r' >> $CONF
-	echo "attr_name = $ATTR_NAME"$'\r' >> $CONF
-	echo "attr_val = $ATTR_VAL"$'\r' >> $CONF
-	echo "mode = $MODE"$'\r' >> $CONF
-	echo "audio_mode = $AUDIO_MODE"$'\r' >> $CONF
-	echo "rf_input = $RF_INPUT"$'\r' >> $CONF
-	echo "rf_output = $RF_OUTPUT"$'\r' >> $CONF
-	echo "serial_force = $SERIAL_FORCE"$'\r' >> $CONF
-	echo "nfs_server = $NFS_SERVER"$'\r' >> $CONF
-	echo "force_model = $FORCE_MODEL"$'\r' >> $CONF
-	echo "disable_usb_console = $DISABLE_USB_CONSOLE"$'\r' >> $CONF
-	echo "enable_ipv6 = $ENABLE_IPV6"$'\r' >> $CONF
-	echo ""$'\r'>> $CONF
+	printf "# %s%s\n" "$(cat /sys/firmware/devicetree/base/model | tr / -)" "$CR" > $CONF
+	printf "# Device Configuration File%s\n" "$CR" >> $CONF
+	printf "#   1. Open with an Editor%s\n" "$CR" >> $CONF
+	printf "#   2. Edit this file%s\n" "$CR" >> $CONF
+	printf "#   3. Save this file on the device USB drive%s\n" "$CR" >> $CONF
+	printf "#   4. Eject the device USB Drive%s\n" "$CR" >> $CONF
+	printf "# Doc: https://wiki.analog.com/university/tools/pluto/users/customizing%s\n" "$CR" >> $CONF
+	printf "%s\n" "$CR" >> $CONF
+	printf "[NETWORK]%s\n" "$CR" >> $CONF
+	printf "hostname = %s%s\n" "$HOSTNAME" "$CR" >> $CONF
+	printf "ipaddr = %s%s\n" "$IPADDR" "$CR" >> $CONF
+	printf "ipaddr_host = %s%s\n" "$IPADDR_HOST" "$CR" >> $CONF
+	printf "netmask = %s%s\n" "$NETMASK" "$CR" >> $CONF
+	printf "%s\n" "$CR" >> $CONF
+	printf "[WLAN]%s\n" "$CR" >> $CONF
+	printf "ssid_wlan = %s%s\n" "$WLAN_SSID" "$CR" >> $CONF
+	printf "pwd_wlan = %s%s\n" "$WLAN_PWD" "$CR" >> $CONF
+	printf "ipaddr_wlan = %s%s\n" "$WLAN_IPADDR" "$CR" >> $CONF
+	printf "%s\n" "$CR" >> $CONF
+	printf "[USB_ETHERNET]%s\n" "$CR" >> $CONF
+	printf "ipaddr_eth = %s%s\n" "$ETH_IPADDR" "$CR" >> $CONF
+	printf "netmask_eth = %s%s\n" "$ETH_NETMASK" "$CR" >> $CONF
+	printf "gateway_eth = %s%s\n" "$ETH_GW" "$CR" >> $CONF
+	printf "%s\n" "$CR" >> $CONF
+	printf "[SYSTEM]%s\n" "$CR" >> $CONF
+	printf "xo_correction = %s%s\n" "$XO_CORRECTION" "$CR" >> $CONF
+	printf "udc_handle_suspend = %s%s\n" "$UDC_HANDLE_SUSPEND" "$CR" >> $CONF
+	printf "# USB Communication Device Class Compatibility Mode [rndis|ncm|ecm]%s\n" "$CR" >> $CONF
+	printf "usb_ethernet_mode = %s%s\n" "$USB_ETH_MODE" "$CR" >> $CONF
+	printf "%s\n" "$CR" >> $CONF
+	printf "[ACTIONS]%s\n" "$CR" >> $CONF
+	printf "diagnostic_report = 0%s\n" "$CR" >> $CONF
+	printf "dfu = 0%s\n" "$CR" >> $CONF
+	printf "reset = 0%s\n" "$CR" >> $CONF
+	printf "calibrate = 0%s\n" "$CR" >> $CONF
+	printf "%s\n" "$CR" >> $CONF
+	printf "[TEZUKA]%s\n" "$CR" >> $CONF
+	printf "callsign = %s%s\n" "$CALLSIGN" "$CR" >> $CONF
+	printf "locator = %s%s\n" "$LOCATOR" "$CR" >> $CONF
+	printf "lnb_power = %s%s\n" "$LNB_POWER" "$CR" >> $CONF
+	printf "refclk_source = %s%s\n" "$REFCLK_SOURCE" "$CR" >> $CONF
+	printf "maxcpus = %s%s\n" "$MAXCPUS" "$CR" >> $CONF
+	printf "attr_name = %s%s\n" "$ATTR_NAME" "$CR" >> $CONF
+	printf "attr_val = %s%s\n" "$ATTR_VAL" "$CR" >> $CONF
+	printf "mode = %s%s\n" "$MODE" "$CR" >> $CONF
+	printf "audio_mode = %s%s\n" "$AUDIO_MODE" "$CR" >> $CONF
+	printf "rf_input = %s%s\n" "$RF_INPUT" "$CR" >> $CONF
+	printf "rf_output = %s%s\n" "$RF_OUTPUT" "$CR" >> $CONF
+	printf "serial_force = %s%s\n" "$SERIAL_FORCE" "$CR" >> $CONF
+	printf "nfs_server = %s%s\n" "$NFS_SERVER" "$CR" >> $CONF
+	printf "force_model = %s%s\n" "$FORCE_MODEL" "$CR" >> $CONF
+	printf "disable_usb_console = %s%s\n" "$DISABLE_USB_CONSOLE" "$CR" >> $CONF
+	printf "enable_ipv6 = %s%s\n" "$ENABLE_IPV6" "$CR" >> $CONF
+	printf "%s\n" "$CR" >> $CONF
 	### /www/index.html ###
 
 	sed -i -e "s/#IP#/$IPADDR/g" -e "s/#HOSTIP#/$IPADDR_HOST/g" -e "s/#NETMASK#/$NETMASK/g" -e "s/#HOSTNAME#/$HOSTNAME/g" -e "s/#SSID_WLAN#/$WLAN_SSID/g" -e "s/#IPADDR_WLAN#/$WLAN_IPADDR/g" -e "s/#IPADDR_ETH#/$ETH_IPADDR/g" -e "s/#NETMASK_ETH#/$ETH_NETMASK/g" -e "s/#GW_ETH#/$ETH_GW/g" -e "s/#MAC_ETH#/$ETH_MAC/g" /www/index.html
@@ -239,4 +242,3 @@ case "$1" in
 esac
 
 exit $?
-

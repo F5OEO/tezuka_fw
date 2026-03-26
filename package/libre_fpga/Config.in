@@ -1,6 +1,0 @@
-config BR2_PACKAGE_LIBRE_FPGA
-	bool "libre_fpga"
-	help
-	  LibreMaia-iio default sytem_top.bit
-
-
