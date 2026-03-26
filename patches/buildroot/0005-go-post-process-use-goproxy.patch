@@ -1,0 +1,16 @@
+go-post-process: use Go module proxy for vendoring
+
+Some Go modules (e.g. github.com/hexops/gotextdiff) can't be fetched
+directly from GitHub because git prompts for credentials. The Go module
+proxy at proxy.golang.org has cached copies.
+
+--- a/support/download/go-post-process
++++ b/support/download/go-post-process
+@@ -30,6 +30,7 @@
+     exit 1
+ fi
+ 
++export GOPROXY="${GOPROXY:-https://proxy.golang.org,direct}"
+ go mod vendor -v -modcacherw
+ popd > /dev/null
+ 
