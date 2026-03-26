@@ -1,6 +1,0 @@
-config BR2_PACKAGE_FISHBALL_FPGA_7020
-	bool "fishball_fpga_7020"
-	help
-	  FishballMaia-iio_7020 default sytem_top.bit
-
-

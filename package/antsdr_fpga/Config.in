@@ -1,6 +1,0 @@
-config BR2_PACKAGE_ANTSDR_FPGA
-	bool "antsdr_fpga"
-	help
-	  PlutoplusMaia-iio default sytem_top.bit
-
-

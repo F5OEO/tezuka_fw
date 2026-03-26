@@ -82,18 +82,30 @@ cd tezuka_fw
 ```
 ### Build
 ```bash
+# Build a single board (each board gets its own output directory):
+./build.sh fishball
+
+# Build multiple boards:
+./build.sh pluto plutoplus fishball
+
+# Build all boards:
+./build.sh all
+
+# Build with parallel jobs and clean output first:
+./build.sh -j8 -c fishball
+```
+
+Or build manually using Buildroot directly:
+```bash
 source sourceme.first
 cd buildroot
-# If you want to use the build in a Docker container, then run the following command here:
-#  utils/docker-run
 make pluto_maiasdr_defconfig && make
 ```
 
-For a list all supported boards run (this might take a while):
+For a list all supported boards run:
 ```bash
-make list-defconfigs
+./build.sh -h
 ```
-The items at the bottom are the ones supported by Tezuka.
 
 ### Building on WSL2 
 Buildroot does not allow whitespaces in the PATH environment variable. On WSL several paths with whitespaces are added. The following script can be used to remove any path with whitespaces. It also deletes any leftover ':' at the end:
