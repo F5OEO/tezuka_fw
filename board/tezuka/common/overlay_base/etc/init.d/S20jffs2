@@ -1,0 +1,48 @@
+#!/bin/sh
+# Ensure JFFS2 (/mnt/jffs2) is formatted and mounted.
+# On first boot the partition contains raw blank flash and must be erased
+# with JFFS2 cleanmarkers before it can be mounted.
+# SAFE: only formats if the partition has never been written (blank flash).
+# A partition with existing data that fails to mount is left alone.
+
+is_blank() {
+    # JFFS2 magic is 0x19 0x85 (little-endian); blank flash is 0xFF 0xFF
+    # Returns 0 (true) if the first 2 bytes are JFFS2 magic (already formatted)
+    # or 0xFF 0xFF (blank) — we only auto-format if blank (0xFF)
+    first_bytes=$(dd if=/dev/mtd2 bs=2 count=1 2>/dev/null | hexdump -e '"%02x"' | head -c4)
+    [ "$first_bytes" = "ffff" ]
+}
+
+start() {
+    if mount | grep -q mtd2; then
+        return 0
+    fi
+    printf "Mounting JFFS2 (/mnt/jffs2): "
+    mkdir -p /mnt/jffs2
+    if mount -t jffs2 /dev/mtd2 /mnt/jffs2 2>/dev/null; then
+        echo "OK"
+        return 0
+    fi
+    # Mount failed. Only format if partition is blank (first boot).
+    if is_blank; then
+        printf "blank partition, formatting... "
+        flash_erase -j /dev/mtd2 0 0 2>/dev/null
+        if mount -t jffs2 /dev/mtd2 /mnt/jffs2 2>/dev/null; then
+            echo "OK (first boot)"
+        else
+            echo "FAIL"
+        fi
+    else
+        echo "FAIL (partition has data but could not be mounted)"
+    fi
+}
+
+case "$1" in
+    start)   start ;;
+    stop)    ;;
+    restart) start ;;
+    *)
+        echo "Usage: $0 {start|stop|restart}"
+        exit 1
+        ;;
+esac
