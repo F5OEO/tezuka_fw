@@ -6,11 +6,12 @@ proxy at proxy.golang.org has cached copies.
 
 --- a/support/download/go-post-process
 +++ b/support/download/go-post-process
-@@ -30,6 +30,7 @@
+@@ -30,7 +30,7 @@
      exit 1
  fi
  
-+export GOPROXY="${GOPROXY:-https://proxy.golang.org,direct}"
- go mod vendor -v -modcacherw
+-go mod vendor -v -modcacherw
++GOPROXY=https://proxy.golang.org,direct go mod vendor -v -modcacherw
  popd > /dev/null
  
+ post_process_repack $(pwd) "${base_name}" "${output}"
