@@ -1,0 +1,19 @@
+Fix USB_ULPI link failure on kernel 6.12
+
+USB_ULPI calls usb_add_phy_dev/usb_remove_phy from the USB_PHY
+subsystem but doesn't select it, causing undefined references at
+link time on ARM. Replace the USB_PHY dependency with a select to
+break the circular dependency while ensuring the PHY core is built.
+
+--- a/drivers/usb/phy/Kconfig
++++ b/drivers/usb/phy/Kconfig
+@@ -16,7 +16,8 @@ config NOP_USB_XCEIV
+ 
+ config USB_ULPI
+ 	bool "Generic ULPI Transceiver Driver"
+-	depends on ARM || ARM64 || COMPILE_TEST || USB_PHY
++	depends on ARM || ARM64 || COMPILE_TEST
++	select USB_PHY
+ 	select USB_ULPI_VIEWPORT
+ 	help
+ 	  Enable this to support ULPI connected USB OTG transceivers which

@@ -1,0 +1,47 @@
+#!/bin/sh
+# Firewall: restrict SSH to local networks and Tailscale tailnet.
+# All other services (HTTP, IIO, mDNS) remain open — users need those.
+
+start() {
+    printf "Starting firewall: "
+
+    # Flush existing rules
+    iptables -F INPUT 2>/dev/null
+
+    # Allow loopback
+    iptables -A INPUT -i lo -j ACCEPT
+
+    # Allow established/related connections
+    iptables -A INPUT -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
+
+    # Allow Tailscale interface (all traffic)
+    iptables -A INPUT -i tailscale0 -j ACCEPT
+
+    # Allow SSH from local networks (RFC 1918 + link-local)
+    iptables -A INPUT -p tcp --dport 22 -s 10.0.0.0/8 -j ACCEPT
+    iptables -A INPUT -p tcp --dport 22 -s 192.168.0.0/16 -j ACCEPT
+    iptables -A INPUT -p tcp --dport 22 -s 172.16.0.0/12 -j ACCEPT
+    iptables -A INPUT -p tcp --dport 22 -s 169.254.0.0/16 -j ACCEPT
+
+    # Drop SSH from public internet
+    # (Tailscale SSH arrives on tailscale0, already allowed above)
+    iptables -A INPUT -p tcp --dport 22 -j DROP
+
+    echo "OK"
+}
+
+stop() {
+    printf "Stopping firewall: "
+    iptables -F INPUT 2>/dev/null
+    echo "OK"
+}
+
+case "$1" in
+    start)  start ;;
+    stop)   stop ;;
+    restart) stop; start ;;
+    *)
+        echo "Usage: $0 {start|stop|restart}"
+        exit 1
+        ;;
+esac

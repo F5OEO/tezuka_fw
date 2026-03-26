@@ -21,24 +21,23 @@ index 84aee568537c..816e066e9a02 100644
  	bool "ST-Ericsson AB8500 GPADC driver"
  	depends on AB8500_CORE && REGULATOR_AB8500
 diff --git a/drivers/iio/adc/Makefile b/drivers/iio/adc/Makefile
-index 339ddf2d0ea3..44880b8ae544 100644
 --- a/drivers/iio/adc/Makefile
 +++ b/drivers/iio/adc/Makefile
-@@ -11,6 +11,8 @@ obj-$(CONFIG_AD400X) += ad400x.o
- obj-$(CONFIG_AD4130) += ad4130.o
- obj-$(CONFIG_AD4134) += ad4134.o
+@@ -15,6 +15,8 @@ obj-$(CONFIG_AD4134) += ad4134.o
  obj-$(CONFIG_AD4630) += ad4630.o
+ obj-$(CONFIG_AD4695) += ad4695.o
+ obj-$(CONFIG_AD6676) += ad6676.o
 +obj-$(CONFIG_AD5660_MP) += ad5660_mp.o
 +obj-$(CONFIG_E200_GPIO) += mpiio_io.o
- obj-$(CONFIG_AD6676) += ad6676.o
- obj-$(CONFIG_AD7173) += ad7173.o
- obj-$(CONFIG_AD7091R5) += ad7091r5.o ad7091r-base.o
+ obj-$(CONFIG_AD7091R) += ad7091r-base.o
+ obj-$(CONFIG_AD7091R5) += ad7091r5.o
+ obj-$(CONFIG_AD7091R8) += ad7091r8.o
 diff --git a/drivers/iio/adc/ad5660_mp.c b/drivers/iio/adc/ad5660_mp.c
 new file mode 100644
 index 000000000000..0f97c1e815c4
 --- /dev/null
 +++ b/drivers/iio/adc/ad5660_mp.c
-@@ -0,0 +1,272 @@
+@@ -0,0 +1,271 @@
 +/*
 + * AD5660: ad5660 control
 + *
@@ -282,7 +281,7 @@ index 000000000000..0f97c1e815c4
 +}
 +
 +
-+static int ad5660_removed(struct platform_device *pdev)
++static void ad5660_removed(struct platform_device *pdev)
 +{
 +    struct ad5660_data *ad5660;
 +	struct iio_dev *indio_dev;
@@ -294,7 +293,6 @@ index 000000000000..0f97c1e815c4
 +		iounmap(ad5660->control_virtualaddr);
 +
 +	iio_device_unregister(indio_dev);
-+	return 0;
 +}
 +
 +static struct platform_driver lpf1600_driver = {
@@ -310,14 +308,13 @@ index 000000000000..0f97c1e815c4
 +
 +MODULE_AUTHOR("loneboy <995586238@qq.com>");
 +MODULE_DESCRIPTION("ad5660mp driver");
-+MODULE_LICENSE("GPL V2");
-\ No newline at end of file
++MODULE_LICENSE("GPL v2");
 diff --git a/drivers/iio/adc/mpiio_io.c b/drivers/iio/adc/mpiio_io.c
 new file mode 100644
 index 000000000000..22ff13b399c0
 --- /dev/null
 +++ b/drivers/iio/adc/mpiio_io.c
-@@ -0,0 +1,184 @@
+@@ -0,0 +1,183 @@
 +#include <linux/init.h>
 +#include <linux/module.h>
 +#include <linux/kernel.h>
@@ -483,12 +480,11 @@ index 000000000000..22ff13b399c0
 +    return 0;
 +}
 +
-+static int my_pdrv_remove(struct platform_device *pdev)
++static void my_pdrv_remove(struct platform_device *pdev)
 +{
 +    struct iio_dev *indio_dev = platform_get_drvdata(pdev);
 +    iio_device_unregister(indio_dev);
 +    free_gpio(indio_dev);
-+    return 0;
 +}
 +static struct platform_driver mypdrv = {
 +    .probe      = my_pdrv_probe,
@@ -503,36 +499,25 @@ index 000000000000..22ff13b399c0
 +MODULE_AUTHOR("lone_boy 995586238@qq.com");
 +MODULE_LICENSE("GPL");
 diff --git a/drivers/mtd/spi-nor/core.c b/drivers/mtd/spi-nor/core.c
-index 47c49589f81f..0ee59de76363 100644
 --- a/drivers/mtd/spi-nor/core.c
 +++ b/drivers/mtd/spi-nor/core.c
-@@ -424,6 +424,7 @@ int spi_nor_read_id(struct spi_nor *nor, u8 naddr, u8 ndummy, u8 *id,
- 		    enum spi_nor_protocol proto)
- {
- 	int ret;
-+
- #define SPI_NOR_MAX_EDID_LEN    20
- 
- 	if (nor->spimem) {
-@@ -623,7 +624,8 @@ static int spi_nor_write_ear(struct spi_nor *nor, u32 addr)
+@@ -674,7 +674,8 @@ static int spi_nor_write_ear(struct spi_nor *nor, u32 addr)
  		code = SPINOR_OP_BRWR;
- 	if (nor->info->id[0] == CFI_MFR_ST ||
- 	    nor->info->id[0] == CFI_MFR_MACRONIX ||
--	    nor->info->id[0] == CFI_MFR_PMC) {
-+	    nor->info->id[0] == CFI_MFR_PMC ||
-+	    nor->info->id[0] == CFI_MFR_WINBND) {
+ 	if (nor->info->id->bytes[0] == CFI_MFR_ST ||
+ 	    nor->info->id->bytes[0] == CFI_MFR_MACRONIX ||
+-	    nor->info->id->bytes[0] == CFI_MFR_PMC) {
++	    nor->info->id->bytes[0] == CFI_MFR_PMC ||
++	    nor->info->id->bytes[0] == CFI_MFR_WINBOND) {
  		spi_nor_write_enable(nor);
  		code = SPINOR_OP_WREAR;
  	}
-@@ -669,7 +671,8 @@ static int read_ear(struct spi_nor *nor, struct flash_info *info)
+@@ -721,7 +722,8 @@ static int read_ear(struct spi_nor *nor, struct flash_info *info)
  	/* This is actually Micron */
- 	else if (nor->info->id[0] == CFI_MFR_ST ||
- 		 nor->info->id[0] == CFI_MFR_MACRONIX ||
--		 nor->info->id[0] == CFI_MFR_PMC)
-+		 nor->info->id[0] == CFI_MFR_PMC ||
-+		 nor->info->id[0] == CFI_MFR_WINBND)
+ 	else if (nor->info->id->bytes[0] == CFI_MFR_ST ||
+ 		 nor->info->id->bytes[0] == CFI_MFR_MACRONIX ||
+-		 nor->info->id->bytes[0] == CFI_MFR_PMC)
++		 nor->info->id->bytes[0] == CFI_MFR_PMC ||
++		 nor->info->id->bytes[0] == CFI_MFR_WINBOND)
  		code = SPINOR_OP_RDEAR;
  	else
  		return -EINVAL;
--- 
-2.34.1
