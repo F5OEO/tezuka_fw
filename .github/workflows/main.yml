@@ -83,12 +83,17 @@ jobs:
           source sourceme.first
           export BR2_DL_DIR=~/br-dl
           ./build.sh "${{ matrix.board }}"
+          REV="${GITHUB_SHA::7}"
+          mkdir -p "artifacts/tezuka-${{ matrix.board }}-${REV}"
+          unzip -q "build/${{ matrix.board }}.zip" -d "artifacts/tezuka-${{ matrix.board }}-${REV}"
+          echo "REV=${REV}" >> "$GITHUB_ENV"
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: tezuka-${{ matrix.board }}
-          path: build/${{ matrix.board }}.zip
+          name: tezuka-${{ matrix.board }}-${{ env.REV }}
+          path: artifacts/tezuka-${{ matrix.board }}-${{ env.REV }}/
+          if-no-files-found: error
 
   release:
     needs: build
@@ -101,13 +106,19 @@ jobs:
         with:
           path: artifacts/
           pattern: tezuka-*
-          merge-multiple: true
 
       - name: Create release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          cd artifacts
+          for dir in tezuka-*/; do
+            name="${dir%/}"
+            zip -r "../${name}.zip" "${dir}"
+            echo "Packaged ${name}.zip"
+          done
+          cd ..
           gh release create "Tezuka_${{ inputs.version }}" \
-            artifacts/*.zip \
+            tezuka-*.zip \
             -R "${{ github.repository }}" \
             --generate-notes
