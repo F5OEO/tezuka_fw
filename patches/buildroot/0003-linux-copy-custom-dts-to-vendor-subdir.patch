@@ -1,0 +1,38 @@
+linux.mk: handle custom DTS with kernel vendor subdirectories
+
+Since Linux 6.1, ARM device trees moved to vendor subdirectories
+(e.g. arch/arm/boot/dts/xilinx/). Buildroot copies custom DTS to
+the top-level dts/ dir, but the kernel only builds DTS listed in
+vendor subdir Makefiles.
+
+Fix: copy custom DTS into xilinx/ and append dtb-y rules, try
+xilinx/-prefixed DTB targets if plain names fail, and check
+xilinx/ path when installing built DTBs.
+
+--- a/linux/linux.mk
++++ b/linux/linux.mk
+@@ -488,7 +488,7 @@
+ endef
+ 
+ define LINUX_BUILD_DTB
+-	$(LINUX_MAKE_ENV) $(BR2_MAKE) $(LINUX_MAKE_FLAGS) -C $(@D) $(LINUX_DTBS)
++	$(LINUX_MAKE_ENV) $(BR2_MAKE) $(LINUX_MAKE_FLAGS) -C $(@D) $(LINUX_DTBS) 2>/dev/null || $(LINUX_MAKE_ENV) $(BR2_MAKE) $(LINUX_MAKE_FLAGS) -C $(@D) $(addprefix xilinx/,$(LINUX_DTBS))
+ endef
+ ifeq ($(BR2_LINUX_KERNEL_APPENDED_DTB),)
+ define LINUX_INSTALL_DTB
+@@ -493,7 +493,7 @@
+ 	# dtbs moved from arch/<ARCH>/boot to arch/<ARCH>/boot/dts since 3.8-rc1
+ 	$(foreach dtb,$(LINUX_DTBS), \
+ 		install -D \
+-			$(or $(wildcard $(LINUX_ARCH_PATH)/boot/dts/$(dtb)),$(LINUX_ARCH_PATH)/boot/$(dtb)) \
++			$(or $(wildcard $(LINUX_ARCH_PATH)/boot/dts/$(dtb)),$(wildcard $(LINUX_ARCH_PATH)/boot/dts/xilinx/$(dtb)),$(LINUX_ARCH_PATH)/boot/$(dtb)) \
+ 			$(1)/$(if $(BR2_LINUX_KERNEL_DTB_KEEP_DIRNAME),$(dtb),$(notdir $(dtb)))
+ 	)
+ endef
+@@ -545,5 +545,6 @@
+ 	$(foreach dts,$(call qstrip,$(BR2_LINUX_KERNEL_CUSTOM_DTS_PATH)), \
+ 		cp -f $(dts) $(LINUX_ARCH_PATH)/boot/dts/
+ 	)
++	$(Q)if [ -d $(LINUX_ARCH_PATH)/boot/dts/xilinx ]; then for f in $(LINUX_ARCH_PATH)/boot/dts/*.dts $(LINUX_ARCH_PATH)/boot/dts/*.dtsi; do [ -f "$$f" ] && cp -f "$$f" $(LINUX_ARCH_PATH)/boot/dts/xilinx/; done; for f in $(LINUX_ARCH_PATH)/boot/dts/*.dts; do [ -f "$$f" ] && echo "dtb-y += $$(basename $$f .dts).dtb" >> $(LINUX_ARCH_PATH)/boot/dts/xilinx/Makefile; done; fi
+ 	$(LINUX_COPY_CUSTOM_DTS_FILES)
+ 	$(LINUX_MAKE_ENV) $(BR2_MAKE) $(LINUX_MAKE_FLAGS) -C $(@D) all

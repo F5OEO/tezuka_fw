@@ -13,9 +13,9 @@ case "$1" in
             # do nothing if the certificates are already present
             exit 0
         fi
-        echo -n "Generating Maia SDR certificates: "
+        printf "Generating Maia SDR certificates: "
         # obtain pluto serial number
-        serial=`dmesg | grep SPI-NOR-UniqueID`
+        serial=$(dmesg | grep SPI-NOR-UniqueID)
         serial=${serial#*SPI-NOR-UniqueID }
         # generate CA certificate and key
         openssl req -x509 -nodes -days 36500 -newkey rsa:2048 \
