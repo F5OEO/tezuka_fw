@@ -1,6 +1,0 @@
-config BR2_PACKAGE_SIGNALSDRPRO_FPGA
-	bool "signalsdrpro_fpga"
-	help
-	  PlutoplusMaia-iio default sytem_top.bit
-
-
