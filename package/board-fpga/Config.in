@@ -1,0 +1,12 @@
+config BR2_PACKAGE_BOARD_FPGA
+	bool "board-fpga"
+	help
+	  Install pre-built FPGA bitstream for the target board.
+
+config BR2_PACKAGE_BOARD_FPGA_BOARD
+	string "Board name for bitstream path"
+	depends on BR2_PACKAGE_BOARD_FPGA
+	help
+	  Name of the board directory under board/tezuka/ containing
+	  the bitstream in bitstream/maia-iio/system_top.xsa.
+	  Examples: pluto, plutoplus, e200, fishball7010, fishball7020

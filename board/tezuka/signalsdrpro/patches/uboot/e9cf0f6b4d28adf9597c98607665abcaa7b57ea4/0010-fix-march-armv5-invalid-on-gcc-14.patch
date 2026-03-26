@@ -1,0 +1,21 @@
+arm: fix invalid -march=armv5 for GCC 14+
+
+GCC 14 no longer accepts bare '-march=armv5' — only armv5t/armv5te/armv5tej
+are valid. Fix the fallback chain in arch/arm/Makefile and the ARM1136
+entry to use armv5te instead.
+
+--- a/arch/arm/Makefile
++++ b/arch/arm/Makefile
+@@ -14,10 +14,10 @@
+ arch-$(CONFIG_CPU_ARM946ES)	=-march=armv5te
+ arch-$(CONFIG_CPU_SA1100)	=-march=armv4
+ arch-$(CONFIG_CPU_PXA)		=
+-arch-$(CONFIG_CPU_ARM1136)	=-march=armv5
++arch-$(CONFIG_CPU_ARM1136)	=-march=armv5te
+ arch-$(CONFIG_CPU_ARM1176)	=-march=armv5t
+ arch-$(CONFIG_CPU_V7)		=$(call cc-option, -march=armv7-a, \
+-				 $(call cc-option, -march=armv7, -march=armv5))
++				 $(call cc-option, -march=armv7, -march=armv5te))
+ arch-$(CONFIG_ARM64)		=-march=armv8-a
+ 
+ # Evaluate arch cc-option calls now
