@@ -10,13 +10,13 @@ PIDFILE=/var/run/$NAME.pid
 GPSD_OPTIONS="-G -n -r"
 
 start() {
-        printf "Starting $NAME: "
-        start-stop-daemon -S -q -p $PIDFILE --exec $DAEMON -- -P $PIDFILE $DEVICES $GPSD_OPTIONS && echo "OK" || echo "Failed"
+        printf 'Starting %s: ' "$NAME"
+        start-stop-daemon -S -q -p $PIDFILE --exec $DAEMON -- -P $PIDFILE $DEVICES "$GPSD_OPTIONS" && echo "OK" || echo "Failed"
         sleep 3
         gpsctl --nmea 
 }
 stop() {
-        printf "Stopping $NAME: "
+        printf 'Stopping %s: ' "$NAME"
         start-stop-daemon -K -q -p $PIDFILE && echo "OK" || echo "Failed"
         rm -f $PIDFILE
 }

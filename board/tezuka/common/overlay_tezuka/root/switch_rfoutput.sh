@@ -42,13 +42,13 @@ tx1()
         
                echo 1 >/sys/kernel/debug/iio/iio:device0/adi,1rx-1tx-mode-use-tx-num
                setnewvalue 64
-               echo 0x2 $RESULT_VALUE_HEX > /sys/kernel/debug/iio/iio:device0/direct_reg_access 
+               echo 0x2 "$RESULT_VALUE_HEX" > /sys/kernel/debug/iio/iio:device0/direct_reg_access 
                 
         else
         #REVB no RF on tx2
                echo 1 >/sys/kernel/debug/iio/iio:device1/adi,1rx-1tx-mode-use-tx-num
                setnewvalue 64
-               echo 0x2 $RESULT_VALUE_HEX > /sys/kernel/debug/iio/iio:device1/direct_reg_access 
+               echo 0x2 "$RESULT_VALUE_HEX" > /sys/kernel/debug/iio/iio:device1/direct_reg_access 
                
         fi
  
@@ -62,13 +62,13 @@ tx2()
         if [ "$adphys" = "ad9361-phy" ] ; then
                echo 2 >/sys/kernel/debug/iio/iio:device0/adi,1rx-1tx-mode-use-tx-num
                setnewvalue 128
-               echo 0x2 $RESULT_VALUE_HEX> /sys/kernel/debug/iio/iio:device0/direct_reg_access 
+               echo 0x2 "$RESULT_VALUE_HEX" > /sys/kernel/debug/iio/iio:device0/direct_reg_access 
                 
         else
         #REVB no RF on tx2
                echo 2 >/sys/kernel/debug/iio/iio:device1/adi,1rx-1tx-mode-use-tx-num
                setnewvalue 128
-               echo 0x2 $RESULT_VALUE_HEX> /sys/kernel/debug/iio/iio:device1/direct_reg_access 
+               echo 0x2 "$RESULT_VALUE_HEX" > /sys/kernel/debug/iio/iio:device1/direct_reg_access 
                
         fi
  
