@@ -33,9 +33,9 @@ create_system_files () {
 	sha1=$(echo "${SERIAL}" | sha1sum)
 	ETH_MAC=$(printf '00:60:88'; echo "$sha1" | dd bs=1 count=6 2>/dev/null | hexdump -v -e '/1 ":%01c""%c"')
 
-	WLAN_SSID=$(fw_printenv -n ssid_wlan 2> /dev/null | tr -cd '[a-zA-Z0-9 \\/]._-')
-	WLAN_PWD=$(fw_printenv -n pwd_wlan 2> /dev/null | tr -cd '[a-zA-Z0-9]._-')
-	WLAN_IPADDR=$(fw_printenv -n ipaddr_wlan 2> /dev/null | tr -cd '[a-zA-Z0-9]._-')
+	WLAN_SSID=`fw_printenv -n ssid_wlan 2> /dev/null | tr -cd '\040-\176'`
+	WLAN_PWD=`fw_printenv -n pwd_wlan 2> /dev/null | tr -cd '\040-\176'`
+	WLAN_IPADDR=`fw_printenv -n ipaddr_wlan 2> /dev/null | tr -cd '[a-zA-Z0-9]._-'`
 
 	XO_CORRECTION=$(fw_printenv -n xo_correction 2> /dev/null | tr -cd '[a-zA-Z0-9]._-')
 	UDC_HANDLE_SUSPEND=$(fw_printenv -n udc_handle_suspend 2> /dev/null || echo 0 | tr -cd '[a-zA-Z0-9]._-')
