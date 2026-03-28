@@ -17,6 +17,7 @@ declare -A BOARDS=(
     [fishball_mini_7020]=fishball_mini_7020_defconfig
     [nano]=nano_defconfig
     [signalsdrpro]=signalsdrpro_defconfig
+    [plutoskyr2]=plutoskyr2_defconfig
 )
 
 usage() {
