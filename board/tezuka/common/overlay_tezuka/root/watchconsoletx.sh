@@ -11,10 +11,12 @@ ptton()
 
                 echo 0x27 > /sys/kernel/debug/iio/iio:device0/direct_reg_access
                 CURRENT_VALUE=$(cat  /sys/kernel/debug/iio/iio:device0/direct_reg_access | grep -o '0x[0-9a-fA-F]\+')
+                echo 0 > /sys/bus/iio/devices/iio:device0/out_altvoltage1_TX_LO_powerdown  
         else
 
                 echo 0x27 > /sys/kernel/debug/iio/iio:device1/direct_reg_access
                 CURRENT_VALUE=$(cat  /sys/kernel/debug/iio/iio:device1/direct_reg_access | grep -o '0x[0-9a-fA-F]\+')
+                echo 0 > /sys/bus/iio/devices/iio:device1/out_altvoltage1_TX_LO_powerdown  
         fi
         
         if [ -z "$CURRENT_VALUE" ]; then
@@ -59,10 +61,12 @@ pttoff()
 
                 echo 0x27 > /sys/kernel/debug/iio/iio:device0/direct_reg_access
                 CURRENT_VALUE=$(cat  /sys/kernel/debug/iio/iio:device0/direct_reg_access | grep -o '0x[0-9a-fA-F]\+')
+                echo 1 > /sys/bus/iio/devices/iio:device0/out_altvoltage1_TX_LO_powerdown  
         else
 
                 echo 0x27 > /sys/kernel/debug/iio/iio:device1/direct_reg_access
                 CURRENT_VALUE=$(cat  /sys/kernel/debug/iio/iio:device1/direct_reg_access | grep -o '0x[0-9a-fA-F]\+')
+                echo 1 > /sys/bus/iio/devices/iio:device1/out_altvoltage1_TX_LO_powerdown  
         fi
 
 
