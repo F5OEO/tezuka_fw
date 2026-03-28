@@ -30,7 +30,7 @@
 		compatible = "gpio-leds";
 		led0 {
 			label = "led0:green";
-			gpios = <&gpio0 0 0>;
+			gpios = <&gpio0 7 0>;
 			linux,default-trigger = "heartbeat";
 		};
 	};
@@ -39,7 +39,14 @@
 		compatible = "gpio-keys";
 		#address-cells = <1>;
 		#size-cells = <0>;
-		autorepeat;
+
+		button {
+			interrupt-parent = <&gpio0>;
+			interrupts = <10 IRQ_TYPE_EDGE_FALLING>;
+			label = "Button";
+			linux,code = <BTN_MISC>;
+		};
+
 	};
 
 	
