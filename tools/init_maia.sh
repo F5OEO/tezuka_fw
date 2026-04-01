@@ -1,4 +1,4 @@
-
+#!/usr/bin/env bash
 
 freq=110000000
 decim=48
