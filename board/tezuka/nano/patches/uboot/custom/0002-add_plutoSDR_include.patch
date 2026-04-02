@@ -1,0 +1,34 @@
+--- /dev/null
++++ uboot-a09d2660433d3d1ade6a14a82b21a13c2bbb3821/include/configs/zynq_pluto-sdr.h
+@@ -0,0 +1,31 @@
++/*
++ * (C) Copyright 2019 Gwenhael Goavec-Merou
++ *
++ * Configuration settings for the Xilinx Zynq Pluto SDR board
++ * See zynq-common.h for Zynq common configs
++ *
++ * SPDX-License-Identifier:	GPL-2.0+
++ */
++
++#ifndef __CONFIG_ZYNQ_PLUTO_SDR_H
++#define __CONFIG_ZYNQ_PLUTO_SDR_H
++
++#define CONFIG_ZYNQ_I2C0
++#define CONFIG_ZYNQ_EEPROM
++
++#include <configs/tezuka-common.h>
++
++/* To maintain compatility with official
++ * SF map all uboot stuff must be
++ * between 0 and 0x100000
++ */
++
++#undef CFG_SYS_SPI_U_BOOT_OFFS
++#undef CFG_SYS_SPI_ARGS_OFFS
++#undef CFG_SYS_SPI_ARGS_SIZE
++
++#define CFG_SYS_SPI_U_BOOT_OFFS 0x40000
++#define CFG_SYS_SPI_ARGS_OFFS   0x100000
++#define CFG_SYS_SPI_ARGS_SIZE   0x20000
++
++#endif /* __CONFIG_ZYNQ_PLUTO_SDR_H */
