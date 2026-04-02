@@ -84,7 +84,6 @@ dfu_ram=echo Entering DFU RAM mode ... && run dfu_ram_info && dfu 0 ram 0
 dfu_ram_info=set dfu_alt_info dummy.dfu ram 0 0\\;firmware.dfu ram ${fit_load_address} 0x1E00000
 dfu_sf=gpio set 0;set stdout serial@e0000000;echo Entering DFU SF mode ... && run dfu_sf_info && dfu 0 sf 0:0:40000000:0 && if test -n ${dfu_alt_num} && test ${dfu_alt_num} = 1; then set fit_size ${filesize} && set dfu_alt_num && env save; fi;gpio clear 0;
 dfu_sf_info=set dfu_alt_info boot.dfu raw 0x0 0x100000\\;firmware.dfu raw 0x200000 0x0E00000\\;uboot-extra-env.dfu raw 0xFF000 0x1000\\;uboot-env.dfu raw 0x100000 0x20000\\;spare.dfu raw 0x120000 0xE0000
-ethaddr=00:0a:35:00:01:22
 extraenv_load_address=0x207E000
 fdt_high=0x20000000
 fit_config=config@0
@@ -127,7 +126,6 @@ qspiboot=\
   echo Booting silently; \
   set stdout nulldev; \
   run read_sf; run adi_loadvals; run qspiboot_extraenv; \
-  envversion; \
   setenv bootargs console=ttyPS0,115200 maxcpus=${maxcpus} rootfstype=ramfs root=/dev/ram0 rw quiet loglevel=4 UBOOT_MODEBOOT=$modeboot UBOOT_VERSION='\"'${uboot-version}'\"' \
   && bootm ${fit_load_address}#${fit_config} || set stdout serial@e0000000;
 
@@ -136,7 +134,6 @@ qspiboot_verbose=\
   echo Copying Linux from QSPI flash to RAM... && run read_sf && if run adi_loadvals; then \
     echo Loaded AD936x refclk frequency and model into devicetree; \
   fi; \
-  envversion; \
   setenv bootargs console=ttyPS0,115200 maxcpus=${maxcpus} rootfstype=ramfs root=/dev/ram0 rw earlyprintk UBOOT_MODEBOOT=$modeboot UBOOT_VERSION='\"'${uboot-version}'\"' \
   && bootm ${fit_load_address}#${fit_config} || echo BOOT failed entering DFU mode ...
 
@@ -145,7 +142,6 @@ ramboot_verbose=\
   echo Copying Linux from DFU to RAM... && run dfu_ram;if run adi_loadvals; then \
     echo Loaded AD936x refclk frequency and model into devicetree; \
   fi; \
-  envversion; \
   setenv bootargs console=ttyPS0,115200 maxcpus=${maxcpus} rootfstype=ramfs root=/dev/ram0 rw earlyprintk UBOOT_MODEBOOT=$modeboot UBOOT_VERSION='\"'${uboot-version}'\"' \
   && bootm ${fit_load_address}#${fit_config}
 
@@ -168,8 +164,7 @@ sdboot_ram=\
     && load mmc 0 ${fit_load_address} ${kernel_image} \
     && load mmc 0 ${devicetree_load_address} ${devicetree_image} \
     && load mmc 0 ${ramdisk_load_address} ${ramdisk_image} \
-    && envversion; \
-    run adi_loadvals; \
+    && run adi_loadvals; \
     setenv bootargs console=ttyPS0,115200 rootfstype=ramfs root=/dev/ram0 rw rootwait earlycon clk_ignore_unused cpuidle.off=1 uio_pdrv_genirq.of_id=uio_pdrv_genirq UBOOT_MODEBOOT=$modeboot UBOOT_VERSION='"\'${uboot-version}'\"' \
     && bootm ${fit_load_address} ${ramdisk_load_address} ${devicetree_load_address}; \
   fi
@@ -181,8 +176,7 @@ sdboot_kuiper=if mmcinfo; then \
     echo Copying Linux from SD to RAM...\
     && load mmc 0 ${fit_load_address} ${kernel_image} \
     && load mmc 0 ${devicetree_load_address} ${devicetree_image} \
-    && envversion; \
-    run adi_loadvals; \
+    && run adi_loadvals; \
     setenv bootargs console=ttyPS0,115200 rootfstype=ext4 root=/dev/mmcblk0p2 rootwait rw earlycon clk_ignore_unused cpuidle.off=1 uio_pdrv_genirq.of_id=uio_pdrv_genirq UBOOT_MODEBOOT=$modeboot UBOOT_VERSION='\"'${uboot-version}'\"' \
     && bootm ${fit_load_address} - ${devicetree_load_address}; \
     fi
