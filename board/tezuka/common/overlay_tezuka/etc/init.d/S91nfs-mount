@@ -17,8 +17,9 @@ start() {
 	fi
 
 	if [ -e "$SD_FILE" ]; then
-   		echo "Mounting SD on /mnt/sd"
-		mount $SD_FILE /mnt/sd
+   		echo "Mounting SD on /boot"
+		mkdir -p /boot
+		mount $SD_FILE /boot
 	fi
 }
 
@@ -32,7 +33,7 @@ stop() {
 
 	if [ -e "$SD_FILE" ]; then
 		echo "Stopping SD"
-		umount /mnt/sd
+		umount /boot
 	fi	
 	
 }
