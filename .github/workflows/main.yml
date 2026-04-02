@@ -27,7 +27,7 @@ jobs:
       - id: set-matrix
         run: |
           # Mini variants share toolchain/kernel -- skip in CI to save runner time.
-          ALL='["pluto","plutoplus","e200","e310","libre","fishball","fishball7020","nano","signalsdrpro"]'
+          ALL='["pluto","plutoplus","e200","e310","libre","fishball","fishball7020","nano","signalsdrpro","plutoskyr2"]'
           INPUT="${{ inputs.boards }}"
           if [ "$INPUT" = "all" ] || [ -z "$INPUT" ]; then
             echo "matrix={\"board\":${ALL}}" >> "$GITHUB_OUTPUT"
