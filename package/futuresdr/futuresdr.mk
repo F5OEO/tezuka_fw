@@ -15,7 +15,7 @@ define FUTURESDR_BUILD_CMDS
 	cd $(@D) && \
 	PATH="$(HOST_DIR)/bin:$$PATH" \
 	cargo build --release --target armv7-unknown-linux-gnueabihf \
-		--config "target.armv7-unknown-linux-gnueabihf.linker=\"$(HOST_DIR)/bin/arm-none-linux-gnueabihf-gcc\""
+		--config "target.armv7-unknown-linux-gnueabihf.linker=\"$(TARGET_CROSS)gcc\""
 endef
 
 define FUTURESDR_INSTALL_TARGET_CMDS
