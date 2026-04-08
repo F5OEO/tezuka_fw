@@ -26,8 +26,12 @@ jobs:
     steps:
       - id: set-matrix
         run: |
-          # Mini variants share toolchain/kernel -- skip in CI to save runner time.
-          ALL='["pluto","plutoplus","e200","e310","libre","fishball","fishball7020","nano","signalsdrpro","plutoskyr2"]'
+          # Full board matrix.  Mini variants share kernel/U-Boot with their
+          # non-mini siblings but exercise different defconfigs and
+          # board-specific patches, so build them in CI to catch defconfig
+          # regressions early.  plutoskyr2 was added by upstream ee6c27a;
+          # this commit adds the mini variants on top.
+          ALL='["pluto","plutoplus","e200","e310","libre","fishball","fishball7020","fishball_mini","fishball_mini_7020","nano","plutoskyr2","signalsdrpro"]'
           INPUT="${{ inputs.boards }}"
           if [ "$INPUT" = "all" ] || [ -z "$INPUT" ]; then
             echo "matrix={\"board\":${ALL}}" >> "$GITHUB_OUTPUT"
