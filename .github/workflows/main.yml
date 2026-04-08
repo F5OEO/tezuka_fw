@@ -1,12 +1,15 @@
 name: Build Tezuka Firmware
 
 on:
+  # Tag pushes produce publishable pre-releases.  Artifacts are named
+  # tezuka-<board>-<tag>.zip and attached to the GitHub Release.
+  push:
+    tags:
+      - 'v*'
+  # Manual dispatch for smoke testing without publishing.  The release
+  # job is skipped for dispatch runs; only artifacts are produced.
   workflow_dispatch:
     inputs:
-      version:
-        description: 'Release tag (e.g. 0.6.0)'
-        type: string
-        required: true
       boards:
         description: 'Boards to build (comma-separated, or "all")'
         type: string
@@ -16,7 +19,10 @@ on:
 permissions:
   contents: write
 
-run-name: Build tezuka_fw - Tezuka_${{ inputs.version }}
+run-name: >-
+  ${{ github.event_name == 'push'
+      && format('Release {0}', github.ref_name)
+      || format('Test build ({0})', inputs.boards || 'all') }}
 
 jobs:
   prepare:
@@ -60,6 +66,9 @@ jobs:
   build:
     needs: prepare
     runs-on: ubuntu-22.04
+    # Override the default matrix job name ("build (board, defconfig)")
+    # to show only the defconfig, which uniquely identifies the target.
+    name: build (${{ matrix.defconfig }})
     strategy:
       fail-fast: false
       matrix: ${{ fromJson(needs.prepare.outputs.matrix) }}
@@ -71,10 +80,10 @@ jobs:
       OUTPUT_DIR: ${{ github.workspace }}/output/${{ matrix.board }}
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Free disk space
-        uses: jlumbroso/free-disk-space@main
+        uses: jlumbroso/free-disk-space@v1.3.1
         with:
           tool-cache: false
           android: true
@@ -91,14 +100,14 @@ jobs:
             cmake xz-utils libgmp-dev libmpc-dev bootgen-xlnx libclang-dev
 
       - name: Cache Buildroot downloads
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: /home/runner/br-dl
           key: br-dl-${{ hashFiles('configs/*') }}
           restore-keys: br-dl-
 
       - name: Cache ccache
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: /home/runner/.buildroot-ccache
           key: ccache-${{ matrix.board }}-week${{ github.run_number }}
@@ -153,36 +162,52 @@ jobs:
           echo "REV=${REV}" >> "$GITHUB_ENV"
 
       - name: Upload artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: tezuka-${{ matrix.board }}-${{ env.REV }}
           path: artifacts/tezuka-${{ matrix.board }}-${{ env.REV }}/
           if-no-files-found: error
 
   release:
+    # Publish a pre-release only on tag pushes.  Manual (workflow_dispatch)
+    # runs build and upload artifacts but do not publish a release so they
+    # can be used for smoke testing without polluting the release stream.
     needs: build
-    if: github.event_name == 'workflow_dispatch'
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
     runs-on: ubuntu-22.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           path: artifacts/
           pattern: tezuka-*
 
-      - name: Create release
+      - name: Create pre-release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.ref_name }}
         run: |
           cd artifacts
+          # Repackage per-board artifact dirs as tezuka-<board>-<tag>.zip.
+          # The inner directory name is tezuka-<board>-<rev7>, which we
+          # rename to tezuka-<board>-<tag> so the zip content matches the
+          # published name.
           for dir in tezuka-*/; do
-            name="${dir%/}"
-            zip -r "../${name}.zip" "${dir}"
-            echo "Packaged ${name}.zip"
+            inner="${dir%/}"
+            # Strip the trailing -<rev7> (7 hex chars) to extract the board.
+            board="${inner%-*}"
+            board="${board#tezuka-}"
+            zipname="tezuka-${board}-${TAG}.zip"
+            # Rename the inner dir so the zip contains a predictable path.
+            mv "${inner}" "tezuka-${board}-${TAG}"
+            zip -r "../${zipname}" "tezuka-${board}-${TAG}"
+            echo "Packaged ${zipname}"
           done
           cd ..
-          gh release create "Tezuka_${{ inputs.version }}" \
+          gh release create "${TAG}" \
             tezuka-*.zip \
             -R "${{ github.repository }}" \
+            --prerelease \
+            --title "${TAG}" \
             --generate-notes
