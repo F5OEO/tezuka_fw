@@ -26,19 +26,36 @@ jobs:
     steps:
       - id: set-matrix
         run: |
-          # Full board matrix.  Mini variants share kernel/U-Boot with their
-          # non-mini siblings but exercise different defconfigs and
+          # Board -> defconfig mapping mirrors build.sh's BOARDS[] associative
+          # array.  Each matrix entry carries its own defconfig so subsequent
+          # build steps reference matrix.defconfig directly, no runtime lookup.
+          # Mini variants and plutoskyr2 exercise different defconfigs and
           # board-specific patches, so build them in CI to catch defconfig
-          # regressions early.  plutoskyr2 was added by upstream ee6c27a;
-          # this commit adds the mini variants on top.
-          ALL='["pluto","plutoplus","e200","e310","libre","fishball","fishball7020","fishball_mini","fishball_mini_7020","nano","plutoskyr2","signalsdrpro"]'
+          # regressions early.
+          ALL='[
+            {"board":"pluto",              "defconfig":"pluto_maiasdr_defconfig"},
+            {"board":"plutoplus",          "defconfig":"plutoplus_maiasdr_defconfig"},
+            {"board":"e200",               "defconfig":"e200_maiasdr_defconfig"},
+            {"board":"e310",               "defconfig":"e310_maiasdr_defconfig"},
+            {"board":"libre",              "defconfig":"libre_maiasdr_defconfig"},
+            {"board":"fishball",           "defconfig":"fishball_maiasdr_defconfig"},
+            {"board":"fishball7020",       "defconfig":"fishball_maiasdr_7020_defconfig"},
+            {"board":"fishball_mini",      "defconfig":"fishball_mini_defconfig"},
+            {"board":"fishball_mini_7020", "defconfig":"fishball_mini_7020_defconfig"},
+            {"board":"nano",               "defconfig":"nano_defconfig"},
+            {"board":"plutoskyr2",         "defconfig":"plutoskyr2_defconfig"},
+            {"board":"signalsdrpro",       "defconfig":"signalsdrpro_defconfig"}
+          ]'
           INPUT="${{ inputs.boards }}"
           if [ "$INPUT" = "all" ] || [ -z "$INPUT" ]; then
-            echo "matrix={\"board\":${ALL}}" >> "$GITHUB_OUTPUT"
+            INCLUDE=$(echo "$ALL" | jq -c .)
           else
-            BOARDS=$(echo "$INPUT" | jq -Rc 'split(",")|map(ltrimstr(" ")|rtrimstr(" "))')
-            echo "matrix={\"board\":${BOARDS}}" >> "$GITHUB_OUTPUT"
+            # Filter ALL by the requested board names (comma-separated).
+            WANTED=$(echo "$INPUT" | jq -Rc 'split(",")|map(ltrimstr(" ")|rtrimstr(" "))')
+            INCLUDE=$(echo "$ALL" | jq --argjson wanted "$WANTED" -c \
+              '[.[] | select(.board as $b | $wanted | index($b))]')
           fi
+          echo "matrix={\"include\":${INCLUDE}}" >> "$GITHUB_OUTPUT"
 
   build:
     needs: prepare
@@ -46,6 +63,12 @@ jobs:
     strategy:
       fail-fast: false
       matrix: ${{ fromJson(needs.prepare.outputs.matrix) }}
+    env:
+      # Shared download cache location; must match the actions/cache path
+      # below so every phase uses the same pre-warmed tarball store.
+      BR2_DL_DIR: /home/runner/br-dl
+      # Per-board output tree.  Same path convention as build.sh (SCRIPT_DIR/output/<board>).
+      OUTPUT_DIR: ${{ github.workspace }}/output/${{ matrix.board }}
 
     steps:
       - uses: actions/checkout@v4
@@ -70,26 +93,63 @@ jobs:
       - name: Cache Buildroot downloads
         uses: actions/cache@v4
         with:
-          path: ~/br-dl
+          path: /home/runner/br-dl
           key: br-dl-${{ hashFiles('configs/*') }}
           restore-keys: br-dl-
 
       - name: Cache ccache
         uses: actions/cache@v4
         with:
-          path: ~/.buildroot-ccache
+          path: /home/runner/.buildroot-ccache
           key: ccache-${{ matrix.board }}-week${{ github.run_number }}
           restore-keys: ccache-${{ matrix.board }}-
 
-      - name: Build ${{ matrix.board }}
+      # --- Build phases ---
+      # The build is split into discrete phases so each failure mode (mirror
+      # down, kconfig regression, toolchain extraction, kernel/U-Boot patch
+      # issue, target package cross-compile, post-image script) surfaces as
+      # its own workflow step in the UI.  Each phase invokes a single
+      # buildroot make target; dependency tracking means running the phases
+      # in sequence is equivalent to one `make` invocation.
+
+      - name: Fetch Buildroot tree
+        run: ./getbuildroot.sh
+
+      - name: Configure ${{ matrix.board }}
         run: |
-          ./getbuildroot.sh
           source sourceme.first
-          export BR2_DL_DIR=~/br-dl
-          ./build.sh "${{ matrix.board }}"
+          make -C buildroot O="${OUTPUT_DIR}" ${{ matrix.defconfig }}
+
+      - name: Download package sources
+        run: |
+          source sourceme.first
+          make -C buildroot O="${OUTPUT_DIR}" source
+
+      - name: Build toolchain
+        run: |
+          source sourceme.first
+          make -C buildroot O="${OUTPUT_DIR}" toolchain
+
+      - name: Build kernel and U-Boot
+        run: |
+          source sourceme.first
+          make -C buildroot O="${OUTPUT_DIR}" linux uboot
+
+      - name: Build userspace and rootfs
+        run: |
+          source sourceme.first
+          make -C buildroot O="${OUTPUT_DIR}" target-finalize
+
+      - name: Assemble image
+        run: |
+          source sourceme.first
+          make -C buildroot O="${OUTPUT_DIR}"
+          mkdir -p build
+          cp "${OUTPUT_DIR}/images/tezuka.zip" "build/${{ matrix.board }}.zip"
           REV="${GITHUB_SHA::7}"
           mkdir -p "artifacts/tezuka-${{ matrix.board }}-${REV}"
-          unzip -q "build/${{ matrix.board }}.zip" -d "artifacts/tezuka-${{ matrix.board }}-${REV}"
+          unzip -q "build/${{ matrix.board }}.zip" \
+            -d "artifacts/tezuka-${{ matrix.board }}-${REV}"
           echo "REV=${REV}" >> "$GITHUB_ENV"
 
       - name: Upload artifact
