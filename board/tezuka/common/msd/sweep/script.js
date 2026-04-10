@@ -112,13 +112,10 @@ function onConnect() {
     //console.log("onMessageArrived:"+message.destinationName+" "+message.payloadString);
     switch(message.destinationName)
     {
-        case "state/rx/frequency" : spectrum.setCenterHz(message.payloadString);spectrum.orginalfreq=message.payloadString;break;
-        case "state/rx/sampling" : 
-            spectrum.NativeSpan=message.payloadString;
-            if(spectrum.onsweep==0)
-            {
-                //spectrum.setSpanHz(message.payloadString);
-            }    
+        case "state/rx/frequency" : var f = Number(message.payloadString); if (!isNaN(f)) { spectrum.setCenterHz(f); spectrum.orginalfreq=f; } break;
+        case "state/rx/sampling" :
+            var s = Number(message.payloadString);
+            if (!isNaN(s)) { spectrum.NativeSpan=s; }
             break;
 
         case "state/rx/sweep/activate" :
