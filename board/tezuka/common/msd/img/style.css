@@ -55,12 +55,6 @@ pre.logo {
   transition: color 0.15s;
 }
 
-.subtitle {
-  color: var(--muted);
-  font-size: 0.85rem;
-  margin-bottom: 1.5rem;
-}
-
 /* ── Nav ── */
 
 nav {
