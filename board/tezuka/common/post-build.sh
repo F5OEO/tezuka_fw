@@ -19,7 +19,7 @@ sed -i s/##DEVICE_FW##/${FW_VERSION}/g "${BINARIES_DIR}/msd/LICENSE.html"
 sed -i s/##LINUX_VERSION##/${LINUX_VERS}/g "${BINARIES_DIR}/msd/LICENSE.html"
 sed -i s/##UBOOT_VERSION##/${UBOOT_VERS}/g "${BINARIES_DIR}/msd/LICENSE.html"
 
-BR_VERSION=$(grep '^BR2_VERSION_FULL' "${BR2_CONFIG}" 2>/dev/null | cut -d\" -f 2)
+BR_VERSION=$(sed -n 's/^VERSION_ID=//p' "${TARGET_DIR}/etc/os-release" 2>/dev/null)
 {
 	echo "device-fw tezuka-${FW_VERSION}"
 	echo "uboot ${UBOOT_VERS}"
