@@ -19,9 +19,9 @@ define MAIA_WASM_BUILD_CMDS
 endef
 
 define MAIA_WASM_INSTALL_TARGET_CMDS
-	mkdir -p $(TARGET_DIR)/root/pkg
-	cp -r $(@D)/maia-wasm/pkg/* $(TARGET_DIR)/root/pkg/
-	cp -r $(@D)/maia-wasm/assets/* $(TARGET_DIR)/root/
+	mkdir -p $(TARGET_DIR)/root/waterfall/pkg
+	cp -r $(@D)/maia-wasm/pkg/* $(TARGET_DIR)/root/waterfall/pkg/
+	cp -r $(@D)/maia-wasm/assets/* $(TARGET_DIR)/root/waterfall/
 endef
 
 $(eval $(generic-package))

@@ -7,7 +7,7 @@ case "$1" in
             xz -d /usr/bin/maia-httpd.xz
         fi
         cd /root || exit
-        start-stop-daemon -S -b -q -m -p /var/run/maia-httpd.pid -x /usr/bin/maia-httpd -- --ssl-cert /mnt/jffs2/maia-httpd.crt --ssl-key /mnt/jffs2/maia-httpd.key --ca-cert /mnt/jffs2/maia-sdr-ca.crt
+        start-stop-daemon -S -b -q -m -p /var/run/maia-httpd.pid -x /usr/bin/maia-httpd -- --listen 0.0.0.0:80 --ssl-cert /mnt/jffs2/maia-httpd.crt --ssl-key /mnt/jffs2/maia-httpd.key --ca-cert /mnt/jffs2/maia-sdr-ca.crt
         cd - > /dev/null || exit
 	[ $? = 0 ] && echo "OK" || echo "FAIL"
 	;;

@@ -211,9 +211,9 @@ create_system_files () {
 	printf "disable_usb_console = %s%s\n" "$DISABLE_USB_CONSOLE" "$CR" >> $CONF
 	printf "enable_ipv6 = %s%s\n" "$ENABLE_IPV6" "$CR" >> $CONF
 	printf "%s\n" "$CR" >> $CONF
-	### /www/index.html ###
+	### /root/index.html ###
 
-	sed -i -e "s/#IP#/$IPADDR/g" -e "s/#HOSTIP#/$IPADDR_HOST/g" -e "s/#NETMASK#/$NETMASK/g" -e "s/#HOSTNAME#/$HOSTNAME/g" -e "s/#SSID_WLAN#/$WLAN_SSID/g" -e "s/#IPADDR_WLAN#/$WLAN_IPADDR/g" -e "s/#IPADDR_ETH#/$ETH_IPADDR/g" -e "s/#NETMASK_ETH#/$ETH_NETMASK/g" -e "s/#GW_ETH#/$ETH_GW/g" -e "s/#MAC_ETH#/$ETH_MAC/g" /www/index.html
+	sed -i -e "s/#IP#/$IPADDR/g" -e "s/#HOSTIP#/$IPADDR_HOST/g" -e "s/#NETMASK#/$NETMASK/g" -e "s/#HOSTNAME#/$HOSTNAME/g" -e "s/#SSID_WLAN#/$WLAN_SSID/g" -e "s/#IPADDR_WLAN#/$WLAN_IPADDR/g" -e "s/#IPADDR_ETH#/$ETH_IPADDR/g" -e "s/#NETMASK_ETH#/$ETH_NETMASK/g" -e "s/#GW_ETH#/$ETH_GW/g" -e "s/#MAC_ETH#/$ETH_MAC/g" /root/index.html
 
 	}
 

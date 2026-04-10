@@ -49,7 +49,7 @@ patch_html_page() {
 case "$1" in
 	start)
 		printf "Starting MSD Daemon: "
-		patch_html_page /www/index.html /www/img/version.js
+		patch_html_page /root/index.html /root/img/version.js
 		losetup /dev/loop7 $img -o 512
 		mount /dev/loop7 /mnt/msd
 
@@ -61,7 +61,7 @@ case "$1" in
 		cp $CONF /mnt/msd
 		md5sum /mnt/msd/config.txt > /opt/config.md5
 
-		cp -a /www/* /mnt/msd
+		cp -a /root/index.html /root/img /root/sweep /mnt/msd/
 		mv /mnt/msd/index.html /mnt/msd/info.html
 		umount /mnt/msd
 		echo $img > $file

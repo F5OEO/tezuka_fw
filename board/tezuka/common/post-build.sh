@@ -48,17 +48,17 @@ INSTALL=install
 
 rm -Rf "${TARGET_DIR}/etc/dropbear"
 
-mkdir -p "${TARGET_DIR}/www/img"
-mkdir -p "${TARGET_DIR}/www/sweep"
+mkdir -p "${TARGET_DIR}/root/img"
+mkdir -p "${TARGET_DIR}/root/sweep"
 mkdir -p "${TARGET_DIR}/mnt/jffs2"
 mkdir -p "${TARGET_DIR}/mnt/msd"
 mkdir -p "${TARGET_DIR}/mnt/nfs"
 mkdir -p "${TARGET_DIR}/mnt/sd"
 mkdir -p "${TARGET_DIR}/etc/dropbear"
 
-${INSTALL} -D -m 0644 "${BOARD_DIR}/msd/img/"* "${TARGET_DIR}/www/img/"
-${INSTALL} -D -m 0644 "${BOARD_DIR}/msd/sweep/"* "${TARGET_DIR}/www/sweep/"
-${INSTALL} -D -m 0644 "${BOARD_DIR}/msd/"*.* "${TARGET_DIR}/www/"
+${INSTALL} -D -m 0644 "${BOARD_DIR}/msd/img/"* "${TARGET_DIR}/root/img/"
+${INSTALL} -D -m 0644 "${BOARD_DIR}/msd/sweep/"* "${TARGET_DIR}/root/sweep/"
+${INSTALL} -D -m 0644 "${BOARD_DIR}/msd/"*.* "${TARGET_DIR}/root/"
 
 ln -sf ../../wpa_supplicant/ifupdown.sh "${TARGET_DIR}/etc/network/if-up.d/wpasupplicant"
 ln -sf ../../wpa_supplicant/ifupdown.sh "${TARGET_DIR}/etc/network/if-down.d/wpasupplicant"
