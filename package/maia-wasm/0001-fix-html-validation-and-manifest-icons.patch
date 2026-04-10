@@ -1,0 +1,107 @@
+From: Tom Scogland <tom@tezuka.dev>
+Subject: [PATCH] fix HTML validation errors and broken manifest icon paths
+
+W3C validator and robustness fixes for maia-wasm assets:
+
+- index.html: remove duplicate autofocus (only one per document)
+- index.html: replace label[for] pointing at a <span> with a <div>
+  (W3C error: for= must reference a form control)
+- index.html: remove empty class="" attribute
+- index.html: normalize mixed tabs/spaces to spaces
+- index.html: strip trailing whitespace
+- manifest.json: fix "src:" typo to "src" so PWA icons actually load
+
+---
+ maia-wasm/assets/index.html    | 16 ++++++++--------
+ maia-wasm/assets/manifest.json |  8 ++++----
+ 2 files changed, 12 insertions(+), 12 deletions(-)
+
+diff --git a/maia-wasm/assets/index.html b/maia-wasm/assets/index.html
+index 1234567..abcdefg 100644
+--- a/maia-wasm/assets/index.html
++++ b/maia-wasm/assets/index.html
+@@ -40,9 +40,9 @@
+           <button id="other_tab" role="tab" aria-selected="false" aria-controls="other_panel">
+             Other
+           </button>
+-          <button id="close_settings" value="close" autofocus>Close</button>
++          <button id="close_settings" value="close">Close</button>
+         </div>
+-        <div id="recording_panel" class="" role="tabpanel" aria-labelledby="recording_tab">
++        <div id="recording_panel" role="tabpanel" aria-labelledby="recording_tab">
+           <form>
+             <label for="recording_metadata_filename">Filename</label>
+             <div class="div_value">
+@@ -62,7 +62,7 @@
+             </select>
+             <label for="recorder_maximum_duration">Max duration (s)</label>
+             <input type="number" min="0" step="any" id="recorder_maximum_duration">
+-            <label for="recording_metadata_geolocation">Geolocation</label>
++            <div class="div_label">Geolocation</div>
+             <div class="div_value">
+               <span id="recording_metadata_geolocation"></span>
+               <button type="button" id="recording_metadata_geolocation_update">Update</button>
+@@ -94,9 +94,9 @@
+           <form>
+             <label for="colormap_select">Colormap</label>
+             <select id="colormap_select">
+-	        <option>Turbo</option>
+-	        <option>Viridis</option>
+-	        <option>Inferno</option>
++              <option>Turbo</option>
++              <option>Viridis</option>
++              <option>Inferno</option>
+             </select>
+             <label for="waterfall_show_waterfall">Show waterfall</label>
+             <input type="checkbox" id="waterfall_show_waterfall" checked>
+@@ -110,7 +110,7 @@
+           <form>
+             <div>
+               <span id="geolocation_point"></span>
+-              <button type="button" id="geolocation_update">Update</button>            
++              <button type="button" id="geolocation_update">Update</button>
+               <button type="button" id="geolocation_clear">Clear</button>
+               <label for="geolocation_watch">Update continuously</label>
+               <input type="checkbox" id="geolocation_watch">
+@@ -153,8 +153,8 @@
+         </label>
+         <label>RX AGC
+           <select id="ad9361_rx_gain_mode">
+-	    <option>Manual</option>
+-	    <option>Fast attack</option>
++            <option>Manual</option>
++            <option>Fast attack</option>
+             <option>Slow attack</option>
+             <option>Hybrid</option>
+           </select>
+diff --git a/maia-wasm/assets/manifest.json b/maia-wasm/assets/manifest.json
+index 1234567..abcdefg 100644
+--- a/maia-wasm/assets/manifest.json
++++ b/maia-wasm/assets/manifest.json
+@@ -3,22 +3,22 @@
+     "name": "Maia SDR",
+     "icons": [
+         {
+-            "src:": "/maia-icon-32x32.png",
++            "src": "/maia-icon-32x32.png",
+             "type": "image/png",
+             "sizes": "32x32"
+         },
+         {
+-            "src:": "/maia-icon-128x128.png",
++            "src": "/maia-icon-128x128.png",
+             "type": "image/png",
+             "sizes": "128x128"
+         },
+         {
+-            "src:": "/maia-icon-180x180.png",
++            "src": "/maia-icon-180x180.png",
+             "type": "image/png",
+             "sizes": "180x180"
+         },
+         {
+-            "src:": "/maia-icon-192x192.png",
++            "src": "/maia-icon-192x192.png",
+             "type": "image/png",
+             "sizes": "192x192"
+         }
