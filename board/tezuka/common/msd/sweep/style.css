@@ -21,6 +21,8 @@ body {
     padding: 0.5rem;
     background: var(--surface);
     border-bottom: 1px solid var(--border);
+    position: relative;
+    z-index: 10;
 }
 
 .waterfall {

@@ -23,7 +23,7 @@ ___________                  __
 
 <nav>
   <a class="btn" href="sweep/index.html">SweepFFT</a>
-  <a class="btn" id="maia-link" href="#">Maia SDR</a>
+  <a class="btn" href="waterfall/">Maia SDR</a>
   <a class="btn-secondary" href="https://github.com/F5OEO/tezuka_fw">tezuka_fw</a>
   <a class="btn-secondary" href="https://github.com/F5OEO/tezuka_fw/blob/main/LICENSE">License</a>
 </nav>
@@ -63,8 +63,6 @@ ___________                  __
 </section>
 
 <script>
-  document.getElementById('maia-link').href =
-    window.location.protocol + '//' + window.location.hostname + ':8000';
   // Show the IP we're connected through if ETH IP was not set statically
   var ethCell = document.getElementById('eth-ip');
   if (ethCell && !ethCell.textContent.trim()) {
