@@ -1,8 +1,9 @@
+/* SweepFFT page styles — imports shared base theme */
+@import url("/img/base.css");
+
 html, body {
     width: 100%;
     height: 100%;
-    margin: 0;
-    padding: 0;
     overflow: hidden;
 }
 
@@ -18,6 +19,8 @@ body {
     align-items: center;
     gap: 0.5rem;
     padding: 0.5rem;
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
 }
 
 .waterfall {
@@ -38,9 +41,8 @@ body {
     right: 0;
     height: 30px;
     line-height: 30px;
-    color: white;
+    color: var(--head);
     font-size: 14px;
-    font-family: "Lato", sans-serif;
     font-weight: 100;
     pointer-events: none;
 }

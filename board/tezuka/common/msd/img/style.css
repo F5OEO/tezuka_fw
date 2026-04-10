@@ -1,31 +1,10 @@
-*, *::before, *::after {
-  box-sizing: border-box;
-  margin: 0;
-  padding: 0;
-}
-
-:root {
-  --bg:      #ffffff;
-  --surface: #f7f8fa;
-  --border:  #e2e5eb;
-  --accent:  #2563eb;
-  --accent2: #64748b;
-  --text:    #374151;
-  --muted:   #9ca3af;
-  --head:    #111827;
-  --logo:    #111827;
-}
-
-html { font-size: 15px; }
+/* Landing page styles — imports shared base theme */
+@import url("base.css");
 
 body {
-  font-family: ui-sans-serif, system-ui, -apple-system, sans-serif;
-  background: var(--bg);
-  color: var(--text);
   max-width: 640px;
   margin: 0 auto;
   padding: 2rem 1.5rem 4rem;
-  line-height: 1.5;
 }
 
 /* ── Header ── */
@@ -66,80 +45,12 @@ nav {
   border-bottom: 1px solid var(--border);
 }
 
-.btn, .btn-secondary {
-  display: inline-block;
-  text-decoration: none;
-  padding: 0.38rem 1rem;
-  border-radius: 5px;
-  font-size: 0.83rem;
-  font-weight: 600;
-  letter-spacing: 0.02em;
-  transition: opacity 0.15s;
-  cursor: pointer;
-}
-
-.btn {
-  background: var(--accent);
-  color: #fff;
-}
-
-.btn-secondary {
-  background: var(--surface);
-  color: var(--accent2);
-  border: 1px solid var(--border);
-}
-
-.btn:hover, .btn-secondary:hover { opacity: 0.78; }
-
 /* ── Sections ── */
 
 section {
   margin-bottom: 1.75rem;
 }
 
-h2 {
-  font-size: 0.65rem;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.1em;
-  color: var(--muted);
-  margin-bottom: 0.5rem;
-}
-
-table {
-  width: 100%;
-  border-collapse: collapse;
-  background: var(--surface);
-  border-radius: 7px;
-  overflow: hidden;
-  border: 1px solid var(--border);
-}
-
-tr { border-bottom: 1px solid var(--border); }
-tr:last-child { border-bottom: none; }
-
-th, td {
-  padding: 0.42rem 0.8rem;
-  font-size: 0.82rem;
-  text-align: left;
-}
-
 th {
-  color: var(--muted);
-  font-weight: 500;
   width: 38%;
-  white-space: nowrap;
-  font-family: ui-monospace, monospace;
-  font-size: 0.76rem;
-}
-
-td {
-  color: var(--head);
-  font-family: ui-monospace, monospace;
-  word-break: break-all;
-}
-
-td:empty::after {
-  content: "—";
-  color: var(--muted);
 }
