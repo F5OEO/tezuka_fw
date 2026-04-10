@@ -448,13 +448,19 @@ Spectrum.prototype.doAutoScale = function(bins) {
 }
 
 Spectrum.prototype.setCenterHz = function(hz) {
-    this.centerHz = hz;
-    this.updateAxes();
+    hz = Number(hz);
+    if (!isNaN(hz)) {
+        this.centerHz = hz;
+        this.updateAxes();
+    }
 }
 
 Spectrum.prototype.setSpanHz = function(hz) {
-    this.spanHz = hz;
-    this.updateAxes();
+    hz = Number(hz);
+    if (!isNaN(hz)) {
+        this.spanHz = hz;
+        this.updateAxes();
+    }
 }
 
 Spectrum.prototype.setGain = function(gain) {
