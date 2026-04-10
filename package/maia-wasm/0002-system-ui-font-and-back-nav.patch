@@ -1,0 +1,62 @@
+From: tezuka <tezuka@firmware.local>
+Subject: [PATCH] use system-ui font for canvas text and add Back nav link
+
+The canvas frequency labels used generic 'sans' which renders as a
+dull fallback. Switch to 'system-ui, sans-serif' to match the system
+UI font.
+
+Add a Back navigation link in the bottom toolbar so users can return
+to the landing page without using the browser back button.
+
+---
+ maia-wasm/assets/index.html              | 1 +
+ maia-wasm/assets/style.css               | 9 +++++++++
+ maia-wasm/src/render/engine/text.rs      | 2 +-
+ 3 files changed, 11 insertions(+), 1 deletion(-)
+
+diff --git a/maia-wasm/src/render/engine/text.rs b/maia-wasm/src/render/engine/text.rs
+--- a/maia-wasm/src/render/engine/text.rs
++++ b/maia-wasm/src/render/engine/text.rs
+@@ -56,7 +56,7 @@
+     }
+ 
+     fn set_font(&self, height_px: u32) {
+-        self.context.set_font(&format!("bold {height_px}px sans"))
++        self.context.set_font(&format!("bold {height_px}px system-ui, sans-serif"))
+     }
+ 
+     pub fn render(
+diff --git a/maia-wasm/assets/index.html b/maia-wasm/assets/index.html
+--- a/maia-wasm/assets/index.html
++++ b/maia-wasm/assets/index.html
+@@ -129,12 +129,13 @@
+     <div class="main_screen">
+       <canvas id="canvas"></canvas>
+ 
+       <form class="ui">
++        <a class="nav_back" href="/">&#x2190; Back</a>
+         <fieldset class="waterfall_levels">
+           <label for="waterfall_min">Waterfall min</label>/<label for="waterfall_max">max</label>
+           <input type="number" id="waterfall_min" value="35" step="1" min="0">
+           <input type="number" id="waterfall_max" value="85" step="1" min="0">
+         </fieldset>
+         <label>RX freq
+           <input type="number" class="rf_frequency" id="ad9361_rx_lo_frequency" step="0.001" min="70" max="6000">
+           MHz
+         </label>
+diff --git a/maia-wasm/assets/style.css b/maia-wasm/assets/style.css
+--- a/maia-wasm/assets/style.css
++++ b/maia-wasm/assets/style.css
+@@ -367,3 +367,12 @@
+ #geolocation_panel div {
+     grid-column: 1/3;
+ }
++
++/* Back navigation */
++
++.nav_back {
++    color: var(--text-color);
++    text-decoration: none;
++    font-size: 0.875rem;
++    font-weight: 600;
++}
