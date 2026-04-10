@@ -19,7 +19,12 @@ sed -i s/##DEVICE_FW##/${FW_VERSION}/g "${BINARIES_DIR}/msd/LICENSE.html"
 sed -i s/##LINUX_VERSION##/${LINUX_VERS}/g "${BINARIES_DIR}/msd/LICENSE.html"
 sed -i s/##UBOOT_VERSION##/${UBOOT_VERS}/g "${BINARIES_DIR}/msd/LICENSE.html"
 
-echo device-fw tezuka-${FW_VERSION}> "${TARGET_DIR}/opt/VERSIONS"
+BR_VERSION=$(grep '^BR2_VERSION_FULL' "${BR2_CONFIG}" 2>/dev/null | cut -d\" -f 2)
+{
+	echo "device-fw tezuka-${FW_VERSION}"
+	echo "uboot ${UBOOT_VERS}"
+	echo "buildroot ${BR_VERSION}"
+} > "${TARGET_DIR}/opt/VERSIONS"
 
 GENIMAGE_CFG="${BOARD_DIR}/genimage-msd.cfg"
 GENIMAGE_TMP="${BUILD_DIR}/genimage.tmp"
