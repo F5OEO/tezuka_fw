@@ -48,6 +48,11 @@
 	
 };
 
+&clkc {
+    u-boot,dm-pre-reloc;
+    ps-clk-frequency = <50000000>;
+};
+
 
 
 	
