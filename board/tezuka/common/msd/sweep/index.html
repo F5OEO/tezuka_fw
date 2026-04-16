@@ -10,7 +10,7 @@
 </head>
 <body>
   <div class="toolbar">
-    <a class="btn" href="/">&#x2190; Back</a>
+    <a class="btn" id="back-link" href="/">&#x2190; Back</a>
     <select name="rfinput" id="rfinput">
       <option value="rx1">rx1</option>
       <option value="rx2">rx2</option>
@@ -22,6 +22,15 @@
   <div class="waterfall">
     <canvas id="waterfall"></canvas>
   </div>
+  <script>
+    // Landing page rewrites the SweepFFT link to http:// so MQTT ws:// works
+    // and tags it with ?from=https. Send Back to https:// to return to the
+    // secure landing (browsers strip the Referer header across protocols).
+    var backLink = document.getElementById('back-link');
+    if (backLink && new URLSearchParams(window.location.search).get('from') === 'https') {
+      backLink.href = 'https://' + window.location.hostname + '/';
+    }
+  </script>
   <script src="colormap.js"></script>
   <script src="spectrum.js"></script>
   <script src="script.js"></script>

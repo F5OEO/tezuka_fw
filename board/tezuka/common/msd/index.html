@@ -22,7 +22,7 @@ ___________                  __
 </header>
 
 <nav>
-  <a class="btn" href="sweep/index.html">SweepFFT</a>
+  <a class="btn" id="sweep-link" href="sweep/index.html">SweepFFT</a>
   <a class="btn" href="waterfall/">Maia SDR</a>
   <a class="btn-secondary" href="https://github.com/F5OEO/tezuka_fw">tezuka_fw</a>
   <a class="btn-secondary" href="https://github.com/F5OEO/tezuka_fw/blob/main/LICENSE">License</a>
@@ -67,6 +67,16 @@ ___________                  __
   var ethCell = document.getElementById('eth-ip');
   if (ethCell && !ethCell.textContent.trim()) {
     ethCell.textContent = window.location.hostname;
+  }
+
+  // SweepFFT uses ws:// to mosquitto:9001. When the landing page is served
+  // over https, the browser blocks mixed content. Force the SweepFFT link
+  // to http:// so the sweep page itself runs plain-http and ws:// works.
+  // Tag the link with ?from=https so sweep's Back button can return to
+  // https (browsers strip Referer on https->http so that hint is gone).
+  var sweepLink = document.getElementById('sweep-link');
+  if (sweepLink && window.location.protocol === 'https:') {
+    sweepLink.href = 'http://' + window.location.hostname + '/sweep/?from=https';
   }
 </script>
 
