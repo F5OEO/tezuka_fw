@@ -9,7 +9,7 @@
 /include/ "zynq-7000.dtsi"
 
 / {
-	model = "Zynq Pluto SDR Board";
+	model = "SignaSDRPro (Z7020/AD9361)";
 	compatible = "xlnx,zynq-7000";
 
 	aliases {

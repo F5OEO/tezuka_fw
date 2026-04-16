@@ -23,7 +23,7 @@
 
 
 / {
-	model = "Analog Devices ANTSDR Rev.C (Z7020/AD9363)";
+	model = "ANTSDR E200 (Z7020/AD9363)";
 	
 	leds {
 		compatible = "gpio-leds";

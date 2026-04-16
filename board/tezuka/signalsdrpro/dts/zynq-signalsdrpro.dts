@@ -21,7 +21,7 @@
 
 
 / {
-        model = "Analog Devices PlutoSDR Rev.C (Z7010/AD9363)";
+        model = "SignaSDRPro (Z7020/AD9361)";
 
         leds {
                 compatible = "gpio-leds";

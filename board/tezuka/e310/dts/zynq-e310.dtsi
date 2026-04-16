@@ -15,7 +15,7 @@
 #include <dt-bindings/iio/adc/adi,ad9361.h>
 
 / {
-	model = "Analog Devices ANTSDR Rev.C (Z7020/AD9363)";
+	model = "ANTSDR E310 (Z7020/AD9363)";
 	memory {
 		device_type = "memory";
 		reg = <0x00000000 0x40000000>;

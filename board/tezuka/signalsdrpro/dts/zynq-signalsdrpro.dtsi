@@ -14,7 +14,7 @@
 #include <dt-bindings/iio/adc/adi,ad9361.h>
 
 / {
-	model = "Analog Devices PlutoSDR Rev.A (Z7010/AD9363)";
+	model = "SignaSDRPro (Z7020/AD9361)";
 	memory {
 		device_type = "memory";
 		reg = <0x00000000 0x40000000>;

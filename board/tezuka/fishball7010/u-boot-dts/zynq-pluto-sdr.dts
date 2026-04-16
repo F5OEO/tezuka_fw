@@ -9,7 +9,7 @@
 #include "zynq-7000.dtsi"
 
 / {
-	model = "FISH Ball SDR Board (7010-AD9363)";
+	model = "FISHBall/PlutoSky (Z7010/AD9361)";
 	compatible = "xlnx,zynq-7000";
 
 	aliases {
