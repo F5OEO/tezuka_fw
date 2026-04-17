@@ -1,6 +1,5 @@
-// URL de l'API REST
-//const apiUrl = "/api";
-const apiUrl = "http://"+window.location.hostname + ":8000"
+// URL de l'API REST — use current origin so it works on any port
+const apiUrl = window.location.origin
 
 // Fonction pour appeler l'API REST
 async function fetchData() {

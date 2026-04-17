@@ -1,0 +1,149 @@
+/* ── Tezuka base theme ──
+   Shared across all pages: landing, sweep, waterfall.
+   Dark, minimal, system fonts, safe, responsive.
+*/
+
+*, *::before, *::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+:root {
+  --bg:      #0f1117;
+  --surface: #1a1d27;
+  --border:  #2a2d3a;
+  --accent:  #4f8ff7;
+  --accent2: #8892a4;
+  --text:    #c8cdd8;
+  --muted:   #6b7280;
+  --head:    #e5e7eb;
+  --logo:    #e5e7eb;
+  color-scheme: dark;
+}
+
+html {
+  font-size: 15px;
+}
+
+body {
+  font-family: ui-sans-serif, system-ui, -apple-system, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ── Buttons ── */
+
+.btn, .btn-secondary {
+  display: inline-block;
+  text-decoration: none;
+  padding: 0.38rem 1rem;
+  border-radius: 5px;
+  border: none;
+  font-size: 0.83rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  cursor: pointer;
+  transition: opacity 0.15s;
+  color: inherit;
+}
+
+.btn {
+  background: var(--accent);
+  color: #fff;
+}
+
+.btn-secondary {
+  background: var(--surface);
+  color: var(--accent2);
+  border: 1px solid var(--border);
+}
+
+.btn:hover, .btn-secondary:hover {
+  opacity: 0.78;
+}
+
+/* ── Form elements ── */
+
+input, select, textarea, button {
+  font-family: inherit;
+  font-size: inherit;
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  padding: 0.2rem 0.4rem;
+}
+
+input:focus, select:focus, textarea:focus {
+  outline: 2px solid var(--accent);
+  outline-offset: -1px;
+}
+
+label {
+  color: var(--muted);
+  font-size: 0.82rem;
+}
+
+/* ── Tables ── */
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  background: var(--surface);
+  border-radius: 7px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+}
+
+tr {
+  border-bottom: 1px solid var(--border);
+}
+
+tr:last-child {
+  border-bottom: none;
+}
+
+th, td {
+  padding: 0.42rem 0.8rem;
+  font-size: 0.82rem;
+  text-align: left;
+}
+
+th {
+  color: var(--muted);
+  font-weight: 500;
+  white-space: nowrap;
+  font-family: ui-monospace, "SF Mono", monospace;
+  font-size: 0.76rem;
+}
+
+td {
+  color: var(--head);
+  font-family: ui-monospace, "SF Mono", monospace;
+  word-break: break-all;
+}
+
+td:empty::after {
+  content: "—";
+  color: var(--muted);
+}
+
+/* ── Section headings ── */
+
+h2 {
+  font-size: 0.65rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--muted);
+  margin-bottom: 0.5rem;
+}
+
+/* ── Utility ── */
+
+.hidden {
+  display: none !important;
+}

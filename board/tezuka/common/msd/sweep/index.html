@@ -1,40 +1,40 @@
 <!DOCTYPE html>
 <html lang="en">
-    <head>
-        <meta charset="utf-8">
-        <meta name="author" content="Jeppe Ledet-Pedersen">
-        <title>Spectrum Plot</title>
-        <link rel="stylesheet" type="text/css" href="/img/style.css" />
-        <link rel="stylesheet" type="text/css" href="style.css" />
-        
-         <link rel="shortcut icon" href="/img/favicon.ico" type="image/x-icon">
-    </head>    
-    <body>
-        <div class="top_button_wrapper">
-        <a class="button" href="/index.html">Menu    
-        </a>
-        <label for="RfInput"></label>
-        <select name="rfinput" id="rfinput">
-          <option value="rx1">rx1</option>
-          <option value="rx2">rx2</option>
-      
-        </select>
-        <label for="rfgain">Rf Gain</label><input type="range" id="rfgain" name="Gain" min="0" max="71" step="0.25" default value="50" />
-        <span id="rfgain_val"></span>
-      
-      
-    </div>
-    </div>
-        <div class="waterfall">
-        <canvas id="waterfall"></canvas>
-       
-       
-    </div>      
-    <script src="colormap.js"></script>
-    <script src="spectrum.js"></script>
-    <script src="script.js"></script>
-    <script src="/paho-mqtt-min.js"></script>
-    <script src="maiaclient.js"></script>  
-        
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="author" content="Jeppe Ledet-Pedersen">
+  <title>SweepFFT</title>
+  <link rel="stylesheet" href="style.css">
+  <link rel="shortcut icon" href="/img/favicon.ico" type="image/x-icon">
+</head>
+<body>
+  <div class="toolbar">
+    <a class="btn" id="back-link" href="/">&#x2190; Back</a>
+    <select name="rfinput" id="rfinput">
+      <option value="rx1">rx1</option>
+      <option value="rx2">rx2</option>
+    </select>
+    <label for="rfgain">Gain</label>
+    <input type="range" id="rfgain" name="Gain" min="0" max="71" step="0.25" value="50">
+    <span id="rfgain_val"></span>
+  </div>
+  <div class="waterfall">
+    <canvas id="waterfall"></canvas>
+  </div>
+  <script>
+    // Landing page rewrites the SweepFFT link to http:// so MQTT ws:// works
+    // and tags it with ?from=https. Send Back to https:// to return to the
+    // secure landing (browsers strip the Referer header across protocols).
+    var backLink = document.getElementById('back-link');
+    if (backLink && new URLSearchParams(window.location.search).get('from') === 'https') {
+      backLink.href = 'https://' + window.location.hostname + '/';
+    }
+  </script>
+  <script src="colormap.js"></script>
+  <script src="spectrum.js"></script>
+  <script src="script.js"></script>
+  <script src="/paho-mqtt-min.js"></script>
+  <script src="maiaclient.js"></script>
 </body>
 </html>

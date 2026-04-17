@@ -1,0 +1,1326 @@
+From: tezuka <tezuka@firmware.local>
+Subject: [PATCH] Tezuka waterfall UI overhaul
+
+Rebuild the maia-wasm waterfall interface for Tezuka: responsive
+4-column control panel, touchscreen-friendly numeric steppers, draggable
+Settings dialog, modernized typography, eye-friendly gradient, and a
+set of small HTML / path fixes. Replaces the prior 0001..0006 patch
+series with a single patch expressing the net change against
+F5OEO/maia-sdr commit 2637b598.
+
+maia-wasm/assets/index.html
+  - Fix W3C validation errors (duplicate autofocus, label-for pointing
+    at a <span>, empty class="", tab/space mix, trailing whitespace).
+  - Fix 404s:
+      Icons: absolute /maia-icon-*.png (resolved against maia-httpd
+        CWD=/root) -> relative ./maia-icon-*.png.
+      CA cert: ca.crt (resolved to /waterfall/ca.crt) -> /ca.crt
+        (served from device root).
+  - Rebuild the main toolbar as a four-section single-row grid:
+      actions | display (spectrum over levels) | rf | ddc
+    with equal 1fr columns at >=1000px and stacked layout below.
+  - Each section is a <fieldset class="group"> with a hidden <legend>
+    and a visible <span class="group-title">. Labels in plain
+    sentence-case ("Frequency", "Sampling", "Bandwidth" ...).
+  - Rebuild the Settings dialog:
+      + <div class="dialog_header"> for dragging, z-index 100.
+      + "Other" tab re-rendered as .other_actions row (CA cert link +
+        Reset preferences button, both 11em) over a <dl class="versions">
+        grid populated from /api/versions.
+  - Enum display fixes that preserve WASM-expected string values via
+    the value="..." attribute:
+      AGC:  "Fast attack" -> "Fast", "Slow attack" -> "Slow"
+      Mode: "Peak detect" -> "Peak"
+  - Every <input type="number"> carries a data-wheel-step attribute
+    sized for its physical quantity (0.005 for ripple, 0.1 for MHz,
+    1 for integer-ish fields, etc.) plus inputmode="decimal".
+
+maia-wasm/assets/style.css
+  - Font stack: --font-ui (system-ui) for UI, --font-num (ui-monospace)
+    for numeric inputs + tabular-nums.
+  - Soft palette with eye-friendly vertical gradient on form.ui:
+      light #fcfcfd -> #cfd3dc
+      dark  #1e222e -> #040508
+    Thin top border separates toolbar from canvas.
+  - Toolbar grid, subgrid-aligned label/input/unit rows, .group-column
+    wrapper that stacks spectrum+levels, fixed input widths (8.5em
+    desktop / 10em phone) so units sit tight against the cell edge.
+  - Custom numeric spinner skin: .num_field flex wrapper + .step_btn
+    touch buttons that replace the native spinners (which are hidden
+    via ::-webkit-outer-spin-button and -moz-appearance: textfield).
+  - Actions column: vertical flex of 10em wide buttons (Back / Record /
+    Settings). Record defaults gray, turns red (--stop-color) while
+    capturing; ::before pseudo-element indicates state with a filled
+    red circle / white square / dashed ring.
+  - .nav_back / #settings_button / .link_button share box-sizing:
+    border-box + consistent padding + min-width, so every button in
+    the UI renders at uniform dimensions.
+  - Settings dialog: active tab shows an inset focus-blue bottom
+    underline; inactive tabs fade to 0.7; hover brings them back;
+    close button gets a left border separator. Form labels plain
+    sentence-case. Checkbox size bumped to 16x16 for touch.
+  - .dialog_header bar styled as a draggable handle (cursor: move,
+    user-select: none, touch-action: none).
+  - <select> elements get a custom SVG chevron and padding so the
+    native dropdown arrow doesn't clash with the flat aesthetic.
+
+maia-wasm/assets/index.js
+  - Replaces the stock "run() + double-click hidden toggle" script:
+      + attachStepControls(): wraps every numeric input in
+        <span class="num_field"> with inline -/+ buttons, wires them
+        + the mouse wheel + ArrowUp/Down to bump() which reads
+        data-wheel-step and preserves decimal precision
+        (e.g. 0.01 + 0.005 -> 0.015, not 0.01 + 1 -> 1). Auto-repeat
+        on long-press for touch.
+      + makeSettingsDraggable(): pointer-event drag of #settings by
+        .dialog_header, clamped to viewport.
+      + attachResetPreferences(): removes localStorage["preferences"]
+        and reloads so the WASM re-applies PreferenceData::default().
+  - Keeps the canvas-dblclick-to-toggle-panel behavior.
+
+maia-wasm/assets/manifest.json
+  - PWA icon sources switched from /maia-icon-*.png (404) to
+    ./maia-icon-*.png (relative to /waterfall/).
+
+maia-wasm/src/render/engine/text.rs
+  - Canvas frequency-label font: "sans" -> "system-ui, sans-serif"
+    to match the system UI rendering used elsewhere.
+
+Verification
+  - Patch applies fuzz-free against F5OEO/maia-sdr commit 2637b598.
+  - W3C Nu validator on rendered index.html: {"messages":[]}.
+  - node --check: pass on index.js.
+  - All existing WASM DOM ids and recorder state class swaps
+    (record_button / stop_button / stopping_button) preserved.
+
+---
+ maia-wasm/assets/index.html         | ...
+ maia-wasm/assets/index.js           | ...
+ maia-wasm/assets/manifest.json      | ...
+ maia-wasm/assets/style.css          | ...
+ maia-wasm/src/render/engine/text.rs |   2 +-
+ 5 files changed
+
+diff -u a/maia-wasm/assets/index.html  b/maia-wasm/assets/index.html
+--- a/maia-wasm/assets/index.html	2026-04-17 03:26:40
++++ b/maia-wasm/assets/index.html	2026-04-17 03:26:41
+@@ -4,14 +4,14 @@
+     <meta charset="UTF-8">
+     <meta name="viewport" content="width=device-width, height=device-height, initial-scale=1">
+     <title>Maia SDR</title>
+-    <link rel="icon" type="image/png" sizes="32x32" href="/maia-icon-32x32.png">
+-    <link rel="icon" type="image/png" sizes="128x128" href="/maia-icon-128x128.png">
+-    <link rel="icon" type="image/png" sizes="180x180" href="/maia-icon-180x180.png">
+-    <link rel="icon" type="image/png" sizes="192x192" href="/maia-icon-192x192.png">
+-    <link rel="apple-touch-icon" type="image/png" sizes="32x32" href="/maia-icon-32x32.png">
+-    <link rel="apple-touch-icon" type="image/png" sizes="128x128" href="/maia-icon-128x128.png">
+-    <link rel="apple-touch-icon" type="image/png" sizes="180x180" href="/maia-icon-180x180.png">
+-    <link rel="apple-touch-icon" type="image/png" sizes="192x192" href="/maia-icon-192x192.png">
++    <link rel="icon" type="image/png" sizes="32x32" href="./maia-icon-32x32.png">
++    <link rel="icon" type="image/png" sizes="128x128" href="./maia-icon-128x128.png">
++    <link rel="icon" type="image/png" sizes="180x180" href="./maia-icon-180x180.png">
++    <link rel="icon" type="image/png" sizes="192x192" href="./maia-icon-192x192.png">
++    <link rel="apple-touch-icon" type="image/png" sizes="32x32" href="./maia-icon-32x32.png">
++    <link rel="apple-touch-icon" type="image/png" sizes="128x128" href="./maia-icon-128x128.png">
++    <link rel="apple-touch-icon" type="image/png" sizes="180x180" href="./maia-icon-180x180.png">
++    <link rel="apple-touch-icon" type="image/png" sizes="192x192" href="./maia-icon-192x192.png">
+     <link rel="manifest" href="./manifest.json">
+     <link rel="stylesheet" href="./style.css">
+     <script type="module" src="./index.js"></script>
+@@ -24,6 +24,9 @@
+     </dialog>
+ 
+     <dialog class="ui" id="settings">
++        <div class="dialog_header" aria-hidden="true">
++          <span class="dialog_title">Settings</span>
++        </div>
+         <div id="settings_tabs" role="tablist">
+           <button id="recording_tab" role="tab" aria-selected="true" aria-controls="recording_panel">
+             Recording
+@@ -40,9 +43,9 @@
+           <button id="other_tab" role="tab" aria-selected="false" aria-controls="other_panel">
+             Other
+           </button>
+-          <button id="close_settings" value="close" autofocus>Close</button>
++          <button id="close_settings" value="close">Close</button>
+         </div>
+-        <div id="recording_panel" class="" role="tabpanel" aria-labelledby="recording_tab">
++        <div id="recording_panel" role="tabpanel" aria-labelledby="recording_tab">
+           <form>
+             <label for="recording_metadata_filename">Filename</label>
+             <div class="div_value">
+@@ -61,8 +64,8 @@
+               <option>16 bit IQ</option>
+             </select>
+             <label for="recorder_maximum_duration">Max duration (s)</label>
+-            <input type="number" min="0" step="any" id="recorder_maximum_duration">
+-            <label for="recording_metadata_geolocation">Geolocation</label>
++            <input type="number" inputmode="decimal" min="0" step="any" data-wheel-step="1" id="recorder_maximum_duration">
++            <div class="div_label">Geolocation</div>
+             <div class="div_value">
+               <span id="recording_metadata_geolocation"></span>
+               <button type="button" id="recording_metadata_geolocation_update">Update</button>
+@@ -76,12 +79,12 @@
+         <div id="ddc_panel" class="hidden" role="tabpanel" aria-labelledby="ddc_tab">
+           <form>
+             <label for="ddc_transition_bandwidth">Transition bandwidth</label>
+-            <input type="number" id="ddc_transition_bandwidth" value="0.05" step="any" min="0" max="1">
++            <input type="number" inputmode="decimal" id="ddc_transition_bandwidth" value="0.05" step="any" data-wheel-step="0.01" min="0" max="1">
+             <label for="ddc_passband_ripple">Passband ripple</label>
+-            <input type="number" id="ddc_passband_ripple" value="0.01" step="any" min="0">
++            <input type="number" inputmode="decimal" id="ddc_passband_ripple" value="0.01" step="any" data-wheel-step="0.005" min="0">
+             <label for="ddc_stopband_attenuation_db">Stopband attenuation</label>
+             <div class="div_value">
+-              <input type="number" id="ddc_stopband_attenuation_db" value="60" step="any" min="0">
++              <input type="number" inputmode="decimal" id="ddc_stopband_attenuation_db" value="60" step="any" data-wheel-step="1" min="0">
+               dB
+             </div>
+             <label for="ddc_stopband_one_over_f">Stopband 1/f</label>
+@@ -94,9 +97,9 @@
+           <form>
+             <label for="colormap_select">Colormap</label>
+             <select id="colormap_select">
+-	        <option>Turbo</option>
+-	        <option>Viridis</option>
+-	        <option>Inferno</option>
++              <option>Turbo</option>
++              <option>Viridis</option>
++              <option>Inferno</option>
+             </select>
+             <label for="waterfall_show_waterfall">Show waterfall</label>
+             <input type="checkbox" id="waterfall_show_waterfall" checked>
+@@ -110,7 +113,7 @@
+           <form>
+             <div>
+               <span id="geolocation_point"></span>
+-              <button type="button" id="geolocation_update">Update</button>            
++              <button type="button" id="geolocation_update">Update</button>
+               <button type="button" id="geolocation_clear">Clear</button>
+               <label for="geolocation_watch">Update continuously</label>
+               <input type="checkbox" id="geolocation_watch">
+@@ -118,11 +121,16 @@
+           </form>
+         </div>
+         <div id="other_panel" class="hidden" role="tabpanel" aria-labelledby="other_tab">
+-          <a href="ca.crt">CA certificate</a>
+-          <p>firmware <span id="firmware_version"></span></p>
+-          <p>maia-httpd <span id="maia_httpd_version"></span></p>
+-          <p>maia-hdl <span id="maia_hdl_version"></span></p>
+-          <p>maia-wasm <span id="maia_wasm_version"></span></p>
++          <div class="other_actions">
++            <a href="/ca.crt" class="link_button">CA certificate</a>
++            <button type="button" id="reset_preferences" class="link_button">Reset preferences</button>
++          </div>
++          <dl class="versions">
++            <dt>firmware</dt><dd><span id="firmware_version"></span></dd>
++            <dt>maia-httpd</dt><dd><span id="maia_httpd_version"></span></dd>
++            <dt>maia-hdl</dt><dd><span id="maia_hdl_version"></span></dd>
++            <dt>maia-wasm</dt><dd><span id="maia_wasm_version"></span></dd>
++          </dl>
+         </div>
+     </dialog>
+ 
+@@ -130,61 +138,93 @@
+       <canvas id="canvas"></canvas>
+ 
+       <form class="ui">
+-        <fieldset class="waterfall_levels">
+-          <label for="waterfall_min">Waterfall min</label>/<label for="waterfall_max">max</label>
+-          <input type="number" id="waterfall_min" value="35" step="1" min="0">
+-          <input type="number" id="waterfall_max" value="85" step="1" min="0">
++        <fieldset class="group group--actions">
++          <legend class="sr-only">Actions</legend>
++          <span class="group-title" aria-hidden="true">Actions</span>
++          <a class="nav_back" href="/">Back</a>
++          <button type="button" id="recorder_button" class="record_button"></button>
++          <button type="button" id="settings_button">Settings</button>
+         </fieldset>
+-        <label>RX freq
+-          <input type="number" class="rf_frequency" id="ad9361_rx_lo_frequency" step="0.001" min="70" max="6000">
+-          MHz
+-        </label>
+-        <label>Sampling freq
+-          <input type="number" class="baseband_frequency" id="ad9361_sampling_frequency" step="0.001" max="61.44">
+-          Msps
+-        </label>
+-        <label>RX bandwidth
+-          <input type="number" class="baseband_frequency" id="ad9361_rx_rf_bandwidth" step="0.001" max="56">
+-          MHz
+-        </label>
+-        <label>RX gain
+-          <input type="number" class="gain" id="ad9361_rx_gain" step="1" min="-10" max="73">
+-          dB
+-        </label>
+-        <label>RX AGC
+-          <select id="ad9361_rx_gain_mode">
+-	    <option>Manual</option>
+-	    <option>Fast attack</option>
+-            <option>Slow attack</option>
+-            <option>Hybrid</option>
+-          </select>
+-        </label>
+-        <label>Spectrum rate
+-          <input type="number" id="spectrometer_output_sampling_frequency" step="any" min="0">
+-          Hz
+-        </label>
+-        <label>Mode
+-          <select id="spectrometer_mode">
+-            <option>Average</option>
+-            <option>Peak detect</option>
+-          </select>
+-        </label>
+-        <label>Input
+-          <select id="spectrometer_input">
+-            <option>AD9361</option>
+-            <option>DDC</option>
+-          </select>
+-        </label>
+-        <label>DDC freq
+-          <input type="number" class="baseband_frequency_khz" id="ddc_frequency" step="0.001">
+-          kHz
+-        </label>
+-        <label>Decimation
+-          <input type="number" class="decimation" value="20" id="ddc_decimation" step="1" min="2">
+-        </label>
+-        <label>DDC output <span id="ddc_output_sampling_frequency"></span> Msps</label>
+-        <button type="button" id="recorder_button" class="record_button"></button>
+-        <button type="button" id="settings_button">Settings</button>
++
++        <fieldset class="group group--rf">
++          <legend class="sr-only">RF</legend>
++          <span class="group-title" aria-hidden="true">RF</span>
++          <label>Frequency
++            <input type="number" inputmode="decimal" class="rf_frequency" id="ad9361_rx_lo_frequency" step="0.001" data-wheel-step="0.1" min="70" max="6000">
++            <span class="unit">MHz</span>
++          </label>
++          <label>Sampling
++            <input type="number" inputmode="decimal" class="baseband_frequency" id="ad9361_sampling_frequency" step="0.001" data-wheel-step="0.1" max="61.44">
++            <span class="unit">Msps</span>
++          </label>
++          <label>Bandwidth
++            <input type="number" inputmode="decimal" class="baseband_frequency" id="ad9361_rx_rf_bandwidth" step="0.001" data-wheel-step="0.1" max="56">
++            <span class="unit">MHz</span>
++          </label>
++          <label>Gain
++            <input type="number" inputmode="decimal" class="gain" id="ad9361_rx_gain" step="1" data-wheel-step="1" min="-10" max="73">
++            <span class="unit">dB</span>
++          </label>
++          <label>AGC
++            <select id="ad9361_rx_gain_mode">
++              <option>Manual</option>
++              <option value="Fast attack">Fast</option>
++              <option value="Slow attack">Slow</option>
++              <option>Hybrid</option>
++            </select>
++          </label>
++        </fieldset>
++
++        <div class="group-column">
++          <fieldset class="group group--spectrum">
++            <legend class="sr-only">Spectrum</legend>
++            <span class="group-title" aria-hidden="true">Spectrum</span>
++            <label>Rate
++              <input type="number" inputmode="decimal" id="spectrometer_output_sampling_frequency" step="any" data-wheel-step="1" min="0">
++              <span class="unit">Hz</span>
++            </label>
++            <label>Mode
++              <select id="spectrometer_mode">
++                <option>Average</option>
++                <option value="Peak detect">Peak</option>
++              </select>
++            </label>
++          </fieldset>
++
++          <fieldset class="group group--levels waterfall_levels">
++            <legend class="sr-only">Waterfall levels</legend>
++            <span class="group-title" aria-hidden="true">Levels</span>
++            <label for="waterfall_min">Min
++              <input type="number" inputmode="decimal" id="waterfall_min" value="35" step="1" data-wheel-step="1" min="0">
++            </label>
++            <label for="waterfall_max">Max
++              <input type="number" inputmode="decimal" id="waterfall_max" value="85" step="1" data-wheel-step="1" min="0">
++            </label>
++          </fieldset>
++        </div>
++
++        <fieldset class="group group--ddc">
++          <legend class="sr-only">DDC</legend>
++          <span class="group-title" aria-hidden="true">DDC</span>
++          <label>Input
++            <select id="spectrometer_input">
++              <option>AD9361</option>
++              <option>DDC</option>
++            </select>
++          </label>
++          <label>Frequency
++            <input type="number" inputmode="decimal" class="baseband_frequency_khz" id="ddc_frequency" step="0.001" data-wheel-step="1">
++            <span class="unit">kHz</span>
++          </label>
++          <label>Decimation
++            <input type="number" inputmode="decimal" class="decimation" value="20" id="ddc_decimation" step="1" data-wheel-step="1" min="2">
++          </label>
++          <div class="readout">
++            <span class="readout-label">Output</span>
++            <span id="ddc_output_sampling_frequency"></span>
++            <span class="unit">Msps</span>
++          </div>
++        </fieldset>
+       </form>
+     </div>
+ 
+diff -u a/maia-wasm/assets/index.js  b/maia-wasm/assets/index.js
+--- a/maia-wasm/assets/index.js	2026-04-17 03:26:41
++++ b/maia-wasm/assets/index.js	2026-04-17 03:26:41
+@@ -3,7 +3,148 @@
+ async function run() {
+     await init();
+     maia_wasm_start();
+-};
++    attachStepControls();
++    makeSettingsDraggable();
++    attachResetPreferences();
++}
++
++// Clear browser-stored UI preferences and reload so WASM re-applies the
++// hard-coded defaults from preferences.rs.
++function attachResetPreferences() {
++    const btn = document.getElementById("reset_preferences");
++    if (!btn) return;
++    btn.addEventListener("click", () => {
++        if (!confirm("Reset all UI preferences to defaults and reload?")) return;
++        try { localStorage.removeItem("preferences"); } catch (_) {}
++        location.reload();
++    });
++}
++
++// Mouse-wheel, Arrow-key, and custom +/- buttons for numeric inputs.
++// Uses data-wheel-step (falls back to step attribute, then 1) so the
++// increment preserves the input's decimal precision (e.g. 0.01 -> 0.015
++// instead of 0.01 -> 1). Custom +/- buttons replace native spinners so
++// touch users have a large, consistent tap target.
++function attachStepControls() {
++    const inputs = document.querySelectorAll(
++        'form.ui input[type="number"], #settings input[type="number"]'
++    );
++    for (const input of inputs) {
++        const rawStep = input.dataset.wheelStep ?? input.step;
++        const step = rawStep && rawStep !== "any" ? parseFloat(rawStep) : 1;
++        const decimals = decimalsOf(step);
++
++        const bump = (dir) => {
++            const current = parseFloat(input.value);
++            const base = Number.isFinite(current) ? current : 0;
++            input.value = (base + dir * step).toFixed(decimals);
++            input.dispatchEvent(new Event("change", { bubbles: true }));
++        };
++
++        input.addEventListener("wheel", (e) => {
++            if (document.activeElement !== input) return;
++            e.preventDefault();
++            bump(e.deltaY < 0 ? 1 : -1);
++        }, { passive: false });
++
++        input.addEventListener("keydown", (e) => {
++            if (e.key === "ArrowUp") { e.preventDefault(); bump(1); }
++            else if (e.key === "ArrowDown") { e.preventDefault(); bump(-1); }
++        });
++
++        wrapWithSpinners(input, bump);
++    }
++}
++
++function wrapWithSpinners(input, bump) {
++    const wrap = document.createElement("span");
++    wrap.className = "num_field";
++
++    const down = makeStepButton("step_down", "\u2212", "Decrement");
++    const up   = makeStepButton("step_up",   "+",        "Increment");
++
++    const parent = input.parentNode;
++    parent.insertBefore(wrap, input);
++    wrap.appendChild(down);
++    wrap.appendChild(input);
++    wrap.appendChild(up);
++
++    down.addEventListener("click", (e) => { e.preventDefault(); bump(-1); });
++    up.addEventListener  ("click", (e) => { e.preventDefault(); bump(1);  });
++    addAutoRepeat(down, () => bump(-1));
++    addAutoRepeat(up,   () => bump(1));
++}
++
++function makeStepButton(cls, glyph, label) {
++    const b = document.createElement("button");
++    b.type = "button";
++    b.className = `step_btn ${cls}`;
++    b.tabIndex = -1;
++    b.textContent = glyph;
++    b.setAttribute("aria-label", label);
++    return b;
++}
++
++function addAutoRepeat(btn, fn) {
++    let timer = null;
++    let interval = null;
++    const stop = () => {
++        clearTimeout(timer);
++        clearInterval(interval);
++        timer = null;
++        interval = null;
++    };
++    btn.addEventListener("pointerdown", (e) => {
++        if (e.button !== undefined && e.button !== 0) return;
++        timer = setTimeout(() => { interval = setInterval(fn, 80); }, 400);
++    });
++    btn.addEventListener("pointerup", stop);
++    btn.addEventListener("pointerleave", stop);
++    btn.addEventListener("pointercancel", stop);
++}
++
++function decimalsOf(n) {
++    const s = n.toString();
++    const i = s.indexOf(".");
++    return i === -1 ? 0 : s.length - i - 1;
++}
++
++// Make the Settings dialog draggable by its header bar.
++function makeSettingsDraggable() {
++    const dialog = document.getElementById("settings");
++    const handle = dialog?.querySelector(".dialog_header");
++    if (!handle) return;
++
++    let dragging = false;
++    let offsetX = 0, offsetY = 0;
++
++    handle.addEventListener("pointerdown", (e) => {
++        if (e.button !== undefined && e.button !== 0) return;
++        const rect = dialog.getBoundingClientRect();
++        offsetX = e.clientX - rect.left;
++        offsetY = e.clientY - rect.top;
++        dragging = true;
++        handle.setPointerCapture(e.pointerId);
++        e.preventDefault();
++    });
++
++    handle.addEventListener("pointermove", (e) => {
++        if (!dragging) return;
++        const maxX = window.innerWidth - dialog.offsetWidth;
++        const maxY = window.innerHeight - dialog.offsetHeight;
++        const x = Math.max(0, Math.min(maxX, e.clientX - offsetX));
++        const y = Math.max(0, Math.min(maxY, e.clientY - offsetY));
++        dialog.style.position = "fixed";
++        dialog.style.margin = "0";
++        dialog.style.left = `${x}px`;
++        dialog.style.top = `${y}px`;
++    });
++
++    handle.addEventListener("pointerup", (e) => {
++        dragging = false;
++        try { handle.releasePointerCapture(e.pointerId); } catch (_) {}
++    });
++}
+ 
+ run();
+ 
+diff -u a/maia-wasm/assets/manifest.json  b/maia-wasm/assets/manifest.json
+--- a/maia-wasm/assets/manifest.json	2026-04-17 03:26:41
++++ b/maia-wasm/assets/manifest.json	2026-04-17 03:26:41
+@@ -3,22 +3,22 @@
+     "name": "Maia SDR",
+     "icons": [
+         {
+-            "src:": "/maia-icon-32x32.png",
++            "src": "./maia-icon-32x32.png",
+             "type": "image/png",
+             "sizes": "32x32"
+         },
+         {
+-            "src:": "/maia-icon-128x128.png",
++            "src": "./maia-icon-128x128.png",
+             "type": "image/png",
+             "sizes": "128x128"
+         },
+         {
+-            "src:": "/maia-icon-180x180.png",
++            "src": "./maia-icon-180x180.png",
+             "type": "image/png",
+             "sizes": "180x180"
+         },
+         {
+-            "src:": "/maia-icon-192x192.png",
++            "src": "./maia-icon-192x192.png",
+             "type": "image/png",
+             "sizes": "192x192"
+         }
+diff -u a/maia-wasm/assets/style.css  b/maia-wasm/assets/style.css
+--- a/maia-wasm/assets/style.css	2026-04-17 03:26:41
++++ b/maia-wasm/assets/style.css	2026-04-17 03:26:41
+@@ -2,22 +2,28 @@
+ 
+ /* Default light mode */
+ :root {
+-    --background-color: white;
+-    --text-color: black;
+-    --line-color: black;
++    --font-ui: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
++    --font-num: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
+ 
+-    --focus-outline-color: rgba(208, 208, 255, 0.5);
++    --background-color: #fafafa;
++    --bg-gradient-top: #fcfcfd;
++    --bg-gradient-bottom: #cfd3dc;
++    --text-color: #1a1a1a;
++    --line-color: #c0c0c0;
++    --line-color-soft: color-mix(in srgb, var(--line-color) 50%, transparent);
+ 
+-    --input-bg-color: #f8f8f8;
+-    --input-highlight-color: #e8e8ff;
+-    --input-bg-invalid-color: #ffb0b0;
++    --focus-outline-color: rgba(88, 120, 255, 0.45);
+ 
+-    --button-color: #ddd;
+-    --button-highlight-color: #bbb;
++    --input-bg-color: #ffffff;
++    --input-highlight-color: #eef1ff;
++    --input-bg-invalid-color: #ffd0d0;
+ 
+-    /* Record button */
+-    --record-color: #9d9;
+-    --record-highlight-color: #7b7;
++    --button-color: #e8e8e8;
++    --button-highlight-color: #d0d0d0;
++
++    /* Record button (gray idle, red while capturing) */
++    --record-color: #e8e8e8;
++    --record-highlight-color: #d0d0d0;
+     --stop-color: #d99;
+     --stop-highlight-color: #b77;
+     --stopping-color: #dd9;
+@@ -26,25 +32,28 @@
+ @media (prefers-color-scheme: dark) {
+     /* Dark mode */
+     :root {
+-        --background-color: black;
+-        --text-color: white;
+-        --line-color: white;
++        --background-color: #0a0a0a;
++        --bg-gradient-top: #1e222e;
++        --bg-gradient-bottom: #040508;
++        --text-color: #e8e8e8;
++        --line-color: #3a3a3a;
++        --line-color-soft: color-mix(in srgb, var(--line-color) 60%, transparent);
+ 
+-        --focus-outline-color: rgba(208, 208, 255, 0.5);
++        --focus-outline-color: rgba(140, 160, 255, 0.55);
+ 
+-        --input-bg-color: #222;
+-        --input-highlight-color: #227;
+-        --input-bg-invalid-color: #ffb0b0;
++        --input-bg-color: #141414;
++        --input-highlight-color: #1a2550;
++        --input-bg-invalid-color: #5a2020;
+ 
+-        --button-color: #444;
+-        --button-highlight-color: #777;
++        --button-color: #222;
++        --button-highlight-color: #333;
+ 
+-        /* Record button */
+-        --record-color: #7b7;
+-        --record-highlight-color: #9d9;
+-        --stop-color: #b77;
+-        --stop-highlight-color: #d99;
+-        --stopping-color: #bb7;
++        /* Record button (gray idle, red while capturing) */
++        --record-color: #222;
++        --record-highlight-color: #333;
++        --stop-color: #7a2a2a;
++        --stop-highlight-color: #9a3a3a;
++        --stopping-color: #6a5a1a;
+     }
+ }
+ 
+@@ -80,12 +89,16 @@
+ }
+ 
+ html {
+-    font-family: Helvetica, Arial, sans-serif;
++    font-family: var(--font-ui);
++    font-feature-settings: "ss01", "cv11";
++    -webkit-font-smoothing: antialiased;
++    -moz-osx-font-smoothing: grayscale;
+ }
+ 
+ body {
+-    margin: 0px 0px 0px 0px;
+-    padding: 0px 0px 0px 0px;
++    margin: 0;
++    padding: 0;
++    min-height: 100vh;
+     background-color: var(--background-color);
+     color: var(--text-color);
+ }
+@@ -114,8 +127,31 @@
+     padding: 0px;
+     width: min(max(25em, 80vw), 40em);
+     margin-top: min(30px, 5vh);
++    z-index: 100;
+ }
+ 
++/* Draggable header bar */
++.dialog_header {
++    display: flex;
++    align-items: center;
++    justify-content: flex-start;
++    padding: 8px 14px;
++    background-color: var(--input-bg-color);
++    border-block-end: 1px solid var(--line-color-soft);
++    cursor: move;
++    user-select: none;
++    -webkit-user-select: none;
++    touch-action: none;
++}
++
++.dialog_title {
++    font-size: 0.6875rem;
++    text-transform: uppercase;
++    letter-spacing: 0.1em;
++    font-weight: 600;
++    opacity: 0.6;
++}
++
+ #settings [role=tabpanel] {
+     padding: 20px;
+     margin-top: auto;
+@@ -126,31 +162,44 @@
+ #settings_tabs {
+     display: flex;
+     background-color: var(--input-bg-color);
++    border-block-end: 1px solid var(--line-color-soft);
+ }
+ 
+ #settings_tabs button {
+-    padding: 5px 15px;
+-    border-width: 0px;
+-    border-right-width: 1px;
++    padding: 8px 16px;
++    border: none;
++    border-right: 1px solid var(--line-color-soft);
++    background-color: transparent;
++    font-size: 0.8125rem;
++    font-weight: 500;
++    letter-spacing: 0.02em;
+     min-width: 0px;
++    cursor: pointer;
+ }
+ 
+ #settings_tabs button[aria-selected=true] {
+     background-color: var(--background-color);
++    box-shadow: inset 0 -2px 0 var(--focus-outline-color);
++    font-weight: 600;
+     outline: none;
+ }
+ 
+ #settings_tabs button[aria-selected=false] {
+     outline: none;
++    opacity: 0.7;
+ }
+ 
++#settings_tabs button:hover {
++    opacity: 1;
++    background-color: var(--button-color);
++}
++
+ button#close_settings {
+     margin-left: auto;
+-    padding-left: 5px;
+-    padding-right: 5px;
+-    border-width: 0px;
+-    border-left-width: 1px;
+-    border-bottom-width: 1px;
++    padding-left: 12px;
++    padding-right: 12px;
++    border-left: 1px solid var(--line-color-soft);
++    border-right: none;
+ }
+ 
+ /* Forms */
+@@ -180,10 +229,34 @@
+ select,
+ textarea {
+     color: var(--text-color);
+-    border: 1px solid var(--line-color);
+-    padding: 2px;
++    border: 1px solid var(--line-color-soft);
++    border-radius: 0;
++    padding: 4px 6px;
+ }
+ 
++input[type="number"] {
++    font-family: var(--font-num);
++    font-variant-numeric: tabular-nums;
++    -moz-appearance: textfield;
++}
++
++input[type="number"]::-webkit-outer-spin-button,
++input[type="number"]::-webkit-inner-spin-button {
++    -webkit-appearance: none;
++    margin: 0;
++}
++
++select {
++    appearance: none;
++    -webkit-appearance: none;
++    -moz-appearance: none;
++    padding-inline-end: 22px;
++    background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 8'><path d='M1 1.5 L6 6.5 L11 1.5' fill='none' stroke='%23888' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/></svg>");
++    background-repeat: no-repeat;
++    background-position: right 6px center;
++    background-size: 10px 7px;
++}
++
+ input,
+ textarea {
+     background-color: var(--input-bg-color);
+@@ -197,11 +270,16 @@
+ a:focus,
+ button:focus,
+ select:focus {
+-    outline: var(--focus-outline);
++    outline: 2px solid var(--focus-outline-color);
++    outline-offset: 1px;
++    border-color: var(--line-color);
+ }
+ 
+ input:focus {
+     background-color: var(--input-highlight-color);
++    outline: 2px solid var(--focus-outline-color);
++    outline-offset: 1px;
++    border-color: var(--line-color);
+ }
+ 
+ button:hover,
+@@ -214,12 +292,15 @@
+ }
+ 
+ .link_button {
++    box-sizing: border-box;
+     color: var(--text-color);
+     text-decoration: none;
+     text-align: center;
+-    border: 1px solid var(--line-color);
+-    padding: 2px;
++    border: 1px solid var(--line-color-soft);
++    border-radius: 0;
++    padding: 4px 6px;
+     background-color: var(--button-color);
++    min-width: 8em;
+ }
+ 
+ .link_button:hover {
+@@ -234,65 +315,269 @@
+ 
+ form.ui {
+     flex: 0; /* do not grow and steal space to the waterfall */
+-    display: flex;
+-    flex-flow: row wrap;
+-    align-items: center;
+-    justify-content: space-around;
+-    column-gap: 20px;
+-    row-gap: 10px;
+-    padding: 10px;
++    display: grid;
++    grid-template-columns: 1fr 1fr 1fr 1fr;
++    grid-template-areas: "actions display rf ddc";
++    align-items: start;
++    column-gap: 24px;
++    row-gap: 16px;
++    padding: 16px 20px;
++    background: linear-gradient(180deg, var(--bg-gradient-top) 0%, var(--bg-gradient-bottom) 100%);
++    border-block-start: 1px solid var(--line-color-soft);
+ }
+ 
+-form.ui {
+-    transition: transform 0.3s ease, opacity 0.3s ease;
+-    transform: translateX(0);
+-    opacity: 1;
+-  }
+-  
+-  form.ui.hidden {
+-    transform: translateX(100%); /* slide out to the right */
+-    opacity: 0;
+-    pointer-events: none; /* prevent clicks when hidden */
+-  }
+-  
+ .ui fieldset {
+     border: none;
+     padding: 0;
+     margin: 0;
+ }
+ 
+-.waterfall_levels input {
+-    width: 4em;
++/* Screen-reader-only utility (legend text hidden visually) */
++.sr-only {
++    position: absolute;
++    width: 1px;
++    height: 1px;
++    padding: 0;
++    margin: -1px;
++    overflow: hidden;
++    clip: rect(0, 0, 0, 0);
++    white-space: nowrap;
++    border: 0;
+ }
+ 
+-input.rf_frequency {
+-    width: 7em;
++/* Outer grid cells */
++.group,
++.group-column {
++    min-width: 0;
+ }
+ 
+-input.baseband_frequency {
+-    width: 5.5em;
++/* Each group: its own inner grid for label / input / unit alignment */
++.group {
++    display: grid;
++    grid-template-columns: auto auto auto;
++    align-items: center;
++    column-gap: 12px;
++    row-gap: 6px;
++    padding-inline: 4px;
++    justify-content: start;
+ }
+ 
+-input.baseband_frequency_khz {
+-    width: 7em;
++.group--actions { grid-area: actions; }
++.group--rf { grid-area: rf; }
++.group--ddc { grid-area: ddc; }
++
++/* spectrum + levels stacked in their shared column */
++.group-column {
++    grid-area: display;
++    display: flex;
++    flex-direction: column;
++    gap: 16px;
+ }
+ 
+-input.gain {
+-    width: 3.5em;
++/* Actions fieldset: vertical stack of wide buttons */
++.group--actions {
++    display: flex;
++    flex-direction: column;
++    gap: 8px;
++    align-items: flex-start;
+ }
+ 
+-input.decimation {
+-    width: 4.25em;
++.group--actions > .group-title {
++    margin-block-end: 4px;
+ }
+ 
+-#spectrometer_output_sampling_frequency {
+-    width: 5em;
++.group--actions > button,
++.group--actions > .nav_back {
++    width: 10em;
+ }
+ 
++/* Group title (uppercase, spaced) */
++.group-title {
++    grid-column: 1 / -1;
++    font-size: 0.625rem;
++    text-transform: uppercase;
++    letter-spacing: 0.08em;
++    font-weight: 600;
++    opacity: 0.55;
++    margin-block-end: 6px;
++}
++
++/* Label + readout rows (subgrid for column alignment) */
++.group > label,
++.group > .readout {
++    display: grid;
++    grid-template-columns: subgrid;
++    grid-column: 1 / -1;
++    column-gap: 4px;
++    align-items: center;
++    min-width: 0;
++}
++
++.group > label > input,
++.group > label > select,
++.group > label > .unit,
++.readout .readout-label,
++.readout .unit,
++.readout > span {
++    min-width: 0;
++}
++
++/* Fixed input/select/num_field widths — unified so units sit tight */
++.group > label > .num_field,
++.group > label > select {
++    width: 8.5em;
++    justify-self: start;
++}
++
++/* Numeric field wrapper: input flanked by -/+ buttons for touch support */
++.num_field {
++    display: inline-flex;
++    align-items: stretch;
++}
++
++.num_field > input[type="number"] {
++    flex: 1 1 auto;
++    width: auto;
++    min-width: 0;
++    border-inline: none;
++    text-align: right;
++}
++
++.step_btn {
++    flex: 0 0 auto;
++    width: 1.8em;
++    padding: 0;
++    font-family: var(--font-num);
++    font-size: 1rem;
++    line-height: 1;
++    font-weight: 700;
++    user-select: none;
++    -webkit-user-select: none;
++}
++
++.group .unit {
++    font-size: 0.8125rem;
++    opacity: 0.7;
++    white-space: nowrap;
++}
++
++.readout .readout-label {
++    justify-self: start;
++}
++
++/* Narrow: stack single column once 4-col row no longer fits */
++@media (max-width: 999px) {
++    form.ui {
++        grid-template-columns: 1fr;
++        grid-template-areas:
++            "actions"
++            "rf"
++            "display"
++            "ddc";
++        padding: 12px 16px;
++        row-gap: 14px;
++    }
++    .group,
++    .group-column {
++        border-inline-start: none;
++    }
++    .group--rf,
++    .group-column,
++    .group--ddc {
++        border-block-start: 1px solid var(--line-color-soft);
++    }
++    .group-column > .group + .group {
++        border-block-start: 1px solid var(--line-color-soft);
++    }
++}
++
++/* Tablet portrait and down: stack */
++@media (max-width: 899px) {
++    form.ui {
++        grid-template-columns: 1fr;
++        grid-template-areas:
++            "actions"
++            "rf"
++            "display"
++            "ddc";
++        padding: 12px 16px;
++        row-gap: 14px;
++    }
++}
++
++/* Phone: touch sizing, dynamic viewport canvas, iOS no-zoom */
++@media (max-width: 599px) {
++    #canvas {
++        flex: 1 0 55dvh;
++    }
++    form.ui input[type="number"],
++    form.ui select {
++        font-size: 16px;
++        min-height: 36px;
++        padding: 8px 10px;
++    }
++    form.ui button,
++    form.ui .nav_back {
++        min-height: 44px;
++    }
++    form.ui .group--actions button,
++    form.ui .group--actions .nav_back {
++        width: 100%;
++        text-align: center;
++    }
++    /* Phone: num_field slightly wider for touch */
++    .group > label > .num_field,
++    .group > label > select {
++        width: 10em;
++    }
++    .step_btn {
++        width: 2em;
++        font-size: 1.1rem;
++    }
++}
++
+ /* Record / Stop button */
+ 
++.record_button,
++.stop_button,
++.stopping_button {
++    min-width: 6em;
++    font-weight: 600;
++    letter-spacing: 0.02em;
++    display: inline-flex;
++    align-items: center;
++    justify-content: center;
++    gap: 6px;
++}
++
++.record_button::before,
++.stop_button::before,
++.stopping_button::before {
++    content: "";
++    display: inline-block;
++    width: 10px;
++    height: 10px;
++    border-radius: 50%;
++    background-color: #c84040;
++    box-shadow: 0 0 0 1px rgba(0,0,0,0.25) inset;
++}
++
++.stop_button::before {
++    border-radius: 2px;
++    background-color: #ffffff;
++    box-shadow: none;
++}
++
++.stopping_button::before {
++    border-radius: 50%;
++    background-color: transparent;
++    border: 2px dashed currentColor;
++    box-sizing: border-box;
++    width: 12px;
++    height: 12px;
++}
++
+ .record_button {
+-    width: 5em;
+     background-color: var(--record-color);
+ }
+ 
+@@ -301,7 +586,6 @@
+ }
+ 
+ .stop_button {
+-    width: 5em;
+     background-color: var(--stop-color);
+ }
+ 
+@@ -310,7 +594,6 @@
+ }
+ 
+ .stopping_button {
+-    width: 5em;
+     background-color: var(--stopping-color);
+ }
+ 
+@@ -318,30 +601,61 @@
+     background-color: var(--stopping-color);
+ }
+ 
++#settings_button {
++    font-weight: 500;
++}
++
++#settings_button::before {
++    content: "\2699\00a0";
++    opacity: 0.75;
++}
++
+ /* Settings panels */
+ 
+ #settings form {
+     display: grid;
+     grid-template-columns: auto 1fr;
+-    row-gap: 10px;
+-    column-gap: 10px;
++    row-gap: 12px;
++    column-gap: 14px;
+     align-items: center;
+ }
+ 
+-#settings label {
++#settings label,
++#settings .div_label {
+     grid-column: 1;
++    font-size: 0.875rem;
++    opacity: 0.85;
+ }
+ 
+ #settings input,
+ #settings select,
+-#settings .div_value {
++#settings .div_value,
++#settings .num_field {
+     grid-column: 2;
+ }
+ 
++#settings .num_field {
++    width: 100%;
++    max-width: 14em;
++}
++
+ #settings input[type='checkbox'] {
+     margin-right: auto;
++    width: 16px;
++    height: 16px;
++    cursor: pointer;
+ }
+ 
++/* Monospace numeric values for readonly spans inside settings */
++#settings input[type='number'],
++#settings .div_value > span:not(.unit):not([class]),
++#ddc_max_input_sampling_frequency,
++#recording_metadata_geolocation,
++#geolocation_point {
++    font-family: var(--font-num);
++    font-variant-numeric: tabular-nums;
++}
++
+ #settings form div {
+     display: flex;
+     align-items: center;
+@@ -349,11 +663,22 @@
+ }
+ 
+ #settings form div input:first-child,
++#settings form div > .num_field:first-child,
+ #settings form div span:first-child {
+     flex: 1;
+     min-width: 0px;
+ }
+ 
++/* Link buttons inside settings: consistent height with inputs */
++#settings .link_button {
++    min-height: 28px;
++    display: inline-flex;
++    align-items: center;
++    justify-content: center;
++    font-weight: 500;
++    font-size: 0.8125rem;
++}
++
+ /* Recording panel */
+ 
+ #recording_panel form {
+@@ -362,7 +687,8 @@
+ 
+ #recording_panel input,
+ #recording_panel select,
+-#recording_panel .div_value {
++#recording_panel .div_value,
++#recording_panel .num_field {
+     grid-column: 2/5;
+ }
+ 
+@@ -378,4 +704,75 @@
+ 
+ #geolocation_panel div {
+     grid-column: 1/3;
++}
++
++/* Other panel: CA cert link + version list */
++
++#other_panel {
++    display: flex;
++    flex-direction: column;
++    gap: 20px;
++}
++
++.other_actions {
++    display: flex;
++    gap: 8px;
++    flex-wrap: wrap;
++}
++
++.other_actions > .link_button {
++    align-self: flex-start;
++    width: 11em;
++}
++
++.versions {
++    display: grid;
++    grid-template-columns: auto 1fr;
++    gap: 8px 20px;
++    margin: 0;
++    align-items: baseline;
++}
++
++.versions dt {
++    font-size: 0.875rem;
++    opacity: 0.85;
++    justify-self: end;
++}
++
++.versions dd {
++    margin: 0;
++    font-family: var(--font-num);
++    font-size: 0.875rem;
++    letter-spacing: 0;
++}
++
++.versions dd:empty::before {
++    content: "\2014";
++    opacity: 0.4;
++}
++
++/* Back navigation (link, rendered inside actions group) */
++
++.nav_back {
++    box-sizing: border-box;
++    color: var(--text-color);
++    text-decoration: none;
++    font-size: 0.875rem;
++    font-weight: 500;
++    padding: 4px 6px;
++    border-radius: 0;
++    border: 1px solid var(--line-color-soft);
++    background-color: var(--button-color);
++    text-align: center;
++    opacity: 0.85;
++}
++
++.nav_back::before {
++    content: "\2190\00a0";
++    opacity: 0.75;
++}
++
++.nav_back:hover {
++    opacity: 1;
++    background-color: var(--button-highlight-color);
+ }
+diff -u a/maia-wasm/src/render/engine/text.rs  b/maia-wasm/src/render/engine/text.rs
+--- a/maia-wasm/src/render/engine/text.rs	2026-04-17 03:26:41
++++ b/maia-wasm/src/render/engine/text.rs	2026-04-17 03:26:41
+@@ -56,7 +56,7 @@
+     }
+ 
+     fn set_font(&self, height_px: u32) {
+-        self.context.set_font(&format!("bold {height_px}px sans"))
++        self.context.set_font(&format!("bold {height_px}px system-ui, sans-serif"))
+     }
+ 
+     pub fn render(

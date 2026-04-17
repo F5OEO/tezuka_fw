@@ -41,7 +41,7 @@ Spectrum.prototype.addWaterfallRow = function(bins) {
     if (this.wfrowcount % 100 == 0)
     {
         var timeString = new Date().toLocaleTimeString();
-        this.ctx_wf.font = "30px sans-serif";
+        this.ctx_wf.font = "30px system-ui, sans-serif";
         this.ctx_wf.fillStyle = "white";
         this.ctx_wf.textBaseline = "top";
         this.ctx_wf.fillText(timeString, 0, 0); // TODO: Fix font scaling
@@ -218,7 +218,7 @@ Spectrum.prototype.updateInfo = function(x) {
     this.ctx_InfoFrequency.clearRect(0, 0, width_text, 50+height_text);
 
     // Draw axes
-    this.ctx_InfoFrequency.font = "36px sans-serif";
+    this.ctx_InfoFrequency.font = "36px system-ui, sans-serif";
     this.ctx_InfoFrequency.fillStyle = "white";
     this.ctx_InfoFrequency.textBaseline = "middle";
 
@@ -243,7 +243,7 @@ Spectrum.prototype.updateAxes = function() {
     this.ctx_axes.clearRect(0, 0, width, height);
 
     // Draw axes
-    this.ctx_axes.font = "12px sans-serif";
+    this.ctx_axes.font = "12px system-ui, sans-serif";
     this.ctx_axes.fillStyle = "white";
     this.ctx_axes.textBaseline = "middle";
 
@@ -448,13 +448,19 @@ Spectrum.prototype.doAutoScale = function(bins) {
 }
 
 Spectrum.prototype.setCenterHz = function(hz) {
-    this.centerHz = hz;
-    this.updateAxes();
+    hz = Number(hz);
+    if (!isNaN(hz)) {
+        this.centerHz = hz;
+        this.updateAxes();
+    }
 }
 
 Spectrum.prototype.setSpanHz = function(hz) {
-    this.spanHz = hz;
-    this.updateAxes();
+    hz = Number(hz);
+    if (!isNaN(hz)) {
+        this.spanHz = hz;
+        this.updateAxes();
+    }
 }
 
 Spectrum.prototype.setGain = function(gain) {
