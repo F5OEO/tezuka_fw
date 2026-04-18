@@ -46,11 +46,32 @@ get_sample_rate() {
 run_readdev_bench() {
     _bs="$1"
     # iio_readdev -B prints throughput to stderr with ANSI escape sequences
-    # strip escapes, take last non-empty throughput value
+    # strip escapes, split runs, take last throughput line, split off error trailers.
     timeout "$STREAM_DURATION" iio_readdev -u "$URI" -b "$_bs" -B "$RX_DEV" \
         >/dev/null 2>/tmp/iio_bench_out || true
-    sed 's/\x1b\[[0-9]*K//g' /tmp/iio_bench_out 2>/dev/null \
-        | tr '\r' '\n' | grep -i throughput | tail -1 || echo "ERROR"
+    _line=$(sed 's/\x1b\[[0-9]*K//g' /tmp/iio_bench_out 2>/dev/null \
+        | tr '\r' '\n' | grep -i throughput | tail -1)
+    if [ -z "$_line" ]; then
+        echo "ERROR"
+        return
+    fi
+    # strip anything after "MiB/s" (Unable to refill... glue trailer)
+    _thr=$(echo "$_line" | sed -E 's/(MiB\/s).*/\1/')
+    # detect trailing refill error on same line
+    echo "$_line" | grep -q "refill buffer.*timed out" && _thr="$_thr (refill ETIMEDOUT)"
+    echo "$_thr"
+}
+
+read_temp_c() {
+    _raw=$(iio_read_chan_attr temp0 input)
+    if [ -n "$_raw" ] && [ "$_raw" -gt 0 ] 2>/dev/null; then
+        # millidegC -> degC with one decimal
+        _int=$((_raw / 1000))
+        _frac=$(( (_raw % 1000) / 100 ))
+        echo "${_int}.${_frac}°C (raw ${_raw})"
+    else
+        echo "n/a"
+    fi
 }
 
 kconfig_check() {
@@ -96,7 +117,8 @@ echo "rx_dev:        $RX_DEV"
 echo "sample_rate:   $(get_sample_rate)"
 echo "rx_path_rates: $(iio_read_dev_attr rx_path_rates)"
 echo "tx_path_rates: $(iio_read_dev_attr tx_path_rates)"
-echo "temperature:   $(iio_read_chan_attr temp0 input)"
+echo "temp_pre:      $(read_temp_c)"
+echo "loadavg_pre:   $(cut -d' ' -f1-3 /proc/loadavg 2>/dev/null)"
 echo ""
 
 # ===================================================================
@@ -105,7 +127,10 @@ lsmod
 echo ""
 
 # ===================================================================
-echo "=== FPGA OVERFLOW REGISTERS (pre-test) ==="
+# NOTE: these addresses in the Maia-SDR IP core are reported as overflow
+# counters in some docs, but empirically read as static IP-core identity
+# on fishball7020 (constant 0x00000251 pre/post). Captured for diffing.
+echo "=== FPGA REGISTERS pre (0x79020400,440,480,4C0) ==="
 for addr in 0x79020400 0x79020440 0x79020480 0x790204C0; do
     val=$(busybox devmem "$addr" 32 2>/dev/null || echo "n/a")
     echo "  $addr = $val"
@@ -139,7 +164,7 @@ done
 echo ""
 
 # ===================================================================
-echo "=== FPGA OVERFLOW REGISTERS (post-test) ==="
+echo "=== FPGA REGISTERS post (0x79020400,440,480,4C0) ==="
 for addr in 0x79020400 0x79020440 0x79020480 0x790204C0; do
     val=$(busybox devmem "$addr" 32 2>/dev/null || echo "n/a")
     echo "  $addr = $val"
@@ -147,16 +172,31 @@ done
 echo ""
 
 # ===================================================================
-echo "=== STRESS TEST (${STRESS_DURATION}s, ${STRESS_THREADS} threads) ==="
+echo "=== TEMP + LOAD (mid-sweep) ==="
+echo "temp_mid:      $(read_temp_c)"
+echo "loadavg_mid:   $(cut -d' ' -f1-3 /proc/loadavg 2>/dev/null)"
+echo ""
+
+# ===================================================================
+# iio_stresstest without -v: avoids 14k lines of per-refill error spam,
+# keeps the per-slice totals/histogram lines (those aren't verbose-gated).
+echo "=== STRESS TEST (${STRESS_DURATION}s, ${STRESS_THREADS} threads, 4 kB buf) ==="
 set_sample_rate "$SWEEP_RATE"
 timeout "$((STRESS_DURATION + 5))" \
     iio_stresstest -u "$URI" -b 4096 -t "$STRESS_THREADS" \
-    -T "$STRESS_DURATION" -v "$RX_DEV" 2>&1 || true
+    -T "$STRESS_DURATION" "$RX_DEV" 2>&1 \
+    | grep -E "^total:|^  *[0-9]+.*[0-9]+.*%|^Ran|buffer_refill failed" \
+    | awk '!seen[$0]++ || /^total:/ || /Ran/' || true
 echo ""
 
 # ===================================================================
 # restore default sample rate
 set_sample_rate "$SWEEP_RATE"
+
+echo "=== POST-RUN ==="
+echo "temp_post:     $(read_temp_c)"
+echo "loadavg_post:  $(cut -d' ' -f1-3 /proc/loadavg 2>/dev/null)"
+echo ""
 
 echo "=== DONE ==="
 echo "label: $LABEL"
