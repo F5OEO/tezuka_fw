@@ -56,12 +56,43 @@ jobs:
           if [ "$INPUT" = "all" ] || [ -z "$INPUT" ]; then
             INCLUDE=$(echo "$ALL" | jq -c .)
           else
-            # Filter ALL by the requested board names (comma-separated).
-            WANTED=$(echo "$INPUT" | jq -Rc 'split(",")|map(ltrimstr(" ")|rtrimstr(" "))')
+            # Split comma-separated tokens, trim whitespace, drop empties.
+            WANTED=$(echo "$INPUT" | jq -Rc '
+              split(",")
+              | map(gsub("^\\s+|\\s+$"; ""))
+              | map(select(length > 0))
+            ')
+            # Identify requested boards not present in ALL and fail early
+            # with a user-facing error; GitHub's own "matrix must define at
+            # least one vector" message appears only at job-expansion time
+            # and does not hint at the cause.
+            KNOWN=$(echo "$ALL" | jq -c '[.[].board]')
+            UNKNOWN=$(jq -n --argjson w "$WANTED" --argjson k "$KNOWN" -c \
+              '[$w[] | select(. as $b | $k | index($b) | not)]')
+            if [ "$(echo "$UNKNOWN" | jq 'length')" -gt 0 ]; then
+              echo "::error::Unknown board(s): $(echo "$UNKNOWN" | jq -r 'join(", ")'). Known: $(echo "$KNOWN" | jq -r 'join(", ")')"
+              exit 1
+            fi
             INCLUDE=$(echo "$ALL" | jq --argjson wanted "$WANTED" -c \
               '[.[] | select(.board as $b | $wanted | index($b))]')
           fi
+          COUNT=$(echo "$INCLUDE" | jq 'length')
+          if [ "$COUNT" -eq 0 ]; then
+            echo "::error::No boards resolved for input '${INPUT}'"
+            exit 1
+          fi
           echo "matrix={\"include\":${INCLUDE}}" >> "$GITHUB_OUTPUT"
+          # Mirror the resolved matrix into the job summary so dispatch
+          # runs show at a glance which boards were selected.
+          {
+            echo "### Matrix expansion"
+            echo ""
+            echo "Input: \`${INPUT:-all}\`"
+            echo ""
+            echo "Boards (${COUNT}):"
+            echo
+            echo "$INCLUDE" | jq -r '.[] | "- `\(.board)` -> `\(.defconfig)`"'
+          } >> "$GITHUB_STEP_SUMMARY"
 
   build:
     needs: prepare
