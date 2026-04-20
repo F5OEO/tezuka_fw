@@ -17,15 +17,10 @@ xo_correction() {
 case "$1" in
 	start|"")
 		printf "Starting miscellaneous setup: "
-		# Restore saved password and SSH keys
+		# Restore saved password database from jffs2
 		[ -d /mnt/jffs2/etc ] && [ -f /mnt/jffs2/etc/passwd ] && [ -f /mnt/jffs2/etc/shadow ] && [ -f /mnt/jffs2/etc/group ] && cd /mnt/jffs2/etc && md5sum -s -c password.md5 && cp passwd shadow group /etc
-		# Restore OpenSSH host keys from jffs2
-		if [ -d /mnt/jffs2/etc/ssh ]; then
-			for key in /mnt/jffs2/etc/ssh/ssh_host_*; do
-				[ -f "$key" ] && cp "$key" /etc/ssh/
-			done
-		fi
-		# Restore authorized_keys
+		# Restore Dropbear authorized_keys from jffs2 (/root/.ssh is the
+		# default path Dropbear uses for user pubkey authorization)
 		[ ! -d /root/.ssh ] && mkdir -p /root/.ssh && chmod 700 /root/.ssh
 		[ -f /mnt/jffs2/etc/ssh/authorized_keys ] && [ ! -f /root/.ssh/authorized_keys ] && cp /mnt/jffs2/etc/ssh/authorized_keys /root/.ssh/authorized_keys && chmod 600 /root/.ssh/authorized_keys
 
