@@ -111,6 +111,5 @@
 
 	ethernet_phy0: ethernet-phy@0 {
 		reg = <0>;
-		reset-gpios = <&gpio0 46 0>;
 	};
 };
