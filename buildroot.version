@@ -1,0 +1,6 @@
+# Buildroot release consumed by both getbuildroot.sh and CI.
+# Format: KEY=VALUE, one per line, no quotes -- compatible with both
+# POSIX shell source and the GitHub Actions GITHUB_ENV file mechanism
+# (so the workflow can do 'cat buildroot.version >> "$GITHUB_ENV"').
+BR_VERSION=2026.02
+BR_SHA256=a98351d46dd3ed3201e426eda3e01ff938ccc4571ec7e04eb57939c85c4e8cb5

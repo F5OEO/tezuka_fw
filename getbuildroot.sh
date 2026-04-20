@@ -2,8 +2,10 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-BR_VERSION="2026.02"
-BR_SHA256="a98351d46dd3ed3201e426eda3e01ff938ccc4571ec7e04eb57939c85c4e8cb5"
+# Single source of truth for Buildroot release + tarball checksum,
+# consumed by CI too (cat buildroot.version >> "$GITHUB_ENV").
+# shellcheck source=buildroot.version
+. "${SCRIPT_DIR}/buildroot.version"
 BR_DIR="${SCRIPT_DIR}/buildroot"
 
 if [ -d "${BR_DIR}" ]; then
