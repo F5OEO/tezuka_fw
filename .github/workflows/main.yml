@@ -11,10 +11,29 @@ on:
   workflow_dispatch:
     inputs:
       boards:
-        description: 'Boards to build (comma-separated, or "all")'
-        type: string
+        description: 'Board to build (single) or "all"'
+        type: choice
         required: false
         default: 'all'
+        options:
+          - all
+          - pluto
+          - plutoplus
+          - e200
+          - e310
+          - libre
+          - fishball
+          - fishball7020
+          - fishball_mini
+          - fishball_mini_7020
+          - nano
+          - plutoskyr2
+          - signalsdrpro
+      custom_boards:
+        description: 'Advanced: comma-separated board list; overrides "boards" if non-empty'
+        type: string
+        required: false
+        default: ''
 
 permissions:
   contents: write
@@ -22,7 +41,7 @@ permissions:
 run-name: >-
   ${{ github.event_name == 'push'
       && format('Release {0}', github.ref_name)
-      || format('Test build ({0})', inputs.boards || 'all') }}
+      || format('Test build ({0})', inputs.custom_boards != '' && inputs.custom_boards || inputs.boards || 'all') }}
 
 jobs:
   prepare:
@@ -52,7 +71,12 @@ jobs:
             {"board":"plutoskyr2",         "defconfig":"plutoskyr2_defconfig"},
             {"board":"signalsdrpro",       "defconfig":"signalsdrpro_defconfig"}
           ]'
-          INPUT="${{ inputs.boards }}"
+          # custom_boards (free-form comma list) wins when non-empty,
+          # otherwise fall back to the choice-typed boards dropdown.
+          INPUT="${{ inputs.custom_boards }}"
+          if [ -z "$INPUT" ]; then
+            INPUT="${{ inputs.boards }}"
+          fi
           if [ "$INPUT" = "all" ] || [ -z "$INPUT" ]; then
             INCLUDE=$(echo "$ALL" | jq -c .)
           else
