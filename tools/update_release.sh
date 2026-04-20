@@ -1,5 +1,6 @@
+#!/usr/bin/env bash
 release=0.1.9
-cd /tmp
+cd /tmp || exit 1
 #e200
 wget https://github.com/F5OEO/tezuka_fw/releases/download/"$release"/antsdr_e200.zip -O antsdr_e200.zip && mkdir -p antsdr_e200 && unzip -o antsdr_e200.zip -d antsdr_e200 \
 && sshpass -p 'analog' scp -r antsdr_e200/sdimg/* root@antsdre200.local:/mnt/sd && sshpass -p 'analog' ssh root@antsdre200.local "reboot"

@@ -39,7 +39,10 @@ genimage                           \
 	--config "${GENIMAGE_CFG}"
 
 rm -f "${TARGET_DIR}/opt/boot.vfat"
+# iiod is started by S23udc with RT priority and FunctionFS support.
+# Remove Buildroot's standalone iiod init script to prevent double-start.
 rm -f "${TARGET_DIR}/etc/init.d/S99iiod"
+rm -f "${TARGET_DIR}/etc/init.d/S60iiod"
 rm -rf "${BINARIES_DIR}/msd"
 
 ########################## ROOT FS INSTALL #############################
