@@ -4,10 +4,8 @@ var spectrum, logger, ws, mqtt_client;
 
 function connectWebSocket(spectrum) {
 
-    //ws = new WebSocket("ws://" + window.location.host + ":7681/waterfall");
-    ws = new WebSocket("ws://" + window.location.hostname + ":8000/waterfall");
-    //ws = new WebSocket("wss://" + window.location.hostname + "/waterfall");
-    //ws = new WebSocket("ws://10.0.0.105:7681/waterfall");
+    var wsProto = window.location.protocol === "https:" ? "wss:" : "ws:";
+    ws = new WebSocket(wsProto + "//" + window.location.host + "/waterfall");
     spectrum.setWebSocket(ws);
 
     ws.onconnect = function (evt) {
@@ -114,13 +112,10 @@ function onConnect() {
     //console.log("onMessageArrived:"+message.destinationName+" "+message.payloadString);
     switch(message.destinationName)
     {
-        case "state/rx/frequency" : spectrum.setCenterHz(message.payloadString);spectrum.orginalfreq=message.payloadString;break;
-        case "state/rx/sampling" : 
-            spectrum.NativeSpan=message.payloadString;
-            if(spectrum.onsweep==0)
-            {
-                //spectrum.setSpanHz(message.payloadString);
-            }    
+        case "state/rx/frequency" : var f = Number(message.payloadString); if (!isNaN(f)) { spectrum.setCenterHz(f); spectrum.orginalfreq=f; } break;
+        case "state/rx/sampling" :
+            var s = Number(message.payloadString);
+            if (!isNaN(s)) { spectrum.NativeSpan=s; }
             break;
 
         case "state/rx/sweep/activate" :

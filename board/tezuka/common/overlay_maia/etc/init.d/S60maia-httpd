@@ -21,15 +21,7 @@ case "$1" in
             exit 1
         fi
         cd /root || exit
-        if start-stop-daemon -S -b -q -m -p /var/run/maia-httpd.pid \
-            -x /usr/bin/maia-httpd -- \
-            --ssl-cert /mnt/jffs2/maia-httpd.crt \
-            --ssl-key /mnt/jffs2/maia-httpd.key \
-            --ca-cert /mnt/jffs2/maia-sdr-ca.crt; then
-            echo "OK"
-        else
-            echo "FAIL"
-        fi
+        start-stop-daemon -S -b -q -m -p /var/run/maia-httpd.pid -x /usr/bin/maia-httpd -- --listen 0.0.0.0:80 --ssl-cert /mnt/jffs2/maia-httpd.crt --ssl-key /mnt/jffs2/maia-httpd.key --ca-cert /mnt/jffs2/maia-sdr-ca.crt
         cd - > /dev/null || exit
         ;;
     stop)

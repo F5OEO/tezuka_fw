@@ -16,8 +16,21 @@ patch_html_page() {
 	MAC=$(cat /sys/kernel/config/usb_gadget/composite_gadget/functions/*/dev_addr)
 	IIO=$(iio_info -V 2>/dev/null | tail -1)
 	BUILD=$(grep device-fw /opt/VERSIONS | cut -d ' ' -f 2)
-	FPGA=$(grep hdl /opt/VERSIONS | cut -d ' ' -f 2)
+	UBOOT_VERSION=$(grep uboot /opt/VERSIONS | cut -d ' ' -f 2)
 	ROOTFS=$(grep buildroot /opt/VERSIONS | cut -d ' ' -f 2)
+
+	# Read FPGA (Maia SDR HDL) version from IP core register at 0x7c460004.
+	# Register layout: [31:24]=platform [23:16]=major [15:8]=minor [7:0]=bugfix
+	FPGA_REG=$(devmem 0x7c460004 32 2>/dev/null)
+	if [ -n "$FPGA_REG" ]; then
+		FPGA_NUM=$((FPGA_REG))
+		FPGA_MAJOR=$(( (FPGA_NUM >> 16) & 0xFF ))
+		FPGA_MINOR=$(( (FPGA_NUM >> 8) & 0xFF ))
+		FPGA_BUGFIX=$(( FPGA_NUM & 0xFF ))
+		FPGA="maia-hdl ${FPGA_MAJOR}.${FPGA_MINOR}.${FPGA_BUGFIX}"
+	else
+		FPGA=""
+	fi
 	USB_ETH_MODE=$(fw_printenv -n usb_ethernet_mode 2> /dev/null || echo rndis)
 	if [ "$USB_ETH_MODE" = "ncm" ]; then
 		NETWORKUSB="Communications Device Class – Network Control Model (CDC-NCM)"
@@ -36,7 +49,7 @@ patch_html_page() {
 case "$1" in
 	start)
 		printf "Starting MSD Daemon: "
-		patch_html_page /www/index.html /www/img/version.js
+		patch_html_page /root/index.html /root/img/version.js
 		losetup /dev/loop7 $img -o 512
 		mount /dev/loop7 /mnt/msd
 
@@ -48,7 +61,7 @@ case "$1" in
 		cp $CONF /mnt/msd
 		md5sum /mnt/msd/config.txt > /opt/config.md5
 
-		cp -a /www/* /mnt/msd
+		cp -a /root/index.html /root/img /root/sweep /mnt/msd/
 		mv /mnt/msd/index.html /mnt/msd/info.html
 		umount /mnt/msd
 		echo $img > $file
