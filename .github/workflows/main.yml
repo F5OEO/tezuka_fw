@@ -1,12 +1,15 @@
 name: Build Tezuka Firmware
 
 on:
+  # Tag pushes produce publishable pre-releases.  Artifacts are named
+  # tezuka-<board>-<tag>.zip and attached to the GitHub Release.
+  push:
+    tags:
+      - 'v*'
+  # Manual dispatch for smoke testing without publishing.  The release
+  # job is skipped for dispatch runs; only artifacts are produced.
   workflow_dispatch:
     inputs:
-      version:
-        description: 'Release tag (e.g. 0.6.0)'
-        type: string
-        required: true
       boards:
         description: 'Boards to build (comma-separated, or "all")'
         type: string
@@ -16,7 +19,10 @@ on:
 permissions:
   contents: write
 
-run-name: Build tezuka_fw - Tezuka_${{ inputs.version }}
+run-name: >-
+  ${{ github.event_name == 'push'
+      && format('Release {0}', github.ref_name)
+      || format('Test build ({0})', inputs.boards || 'all') }}
 
 jobs:
   prepare:
@@ -26,28 +32,58 @@ jobs:
     steps:
       - id: set-matrix
         run: |
-          # Mini variants share toolchain/kernel -- skip in CI to save runner time.
-          ALL='["pluto","plutoplus","e200","e310","libre","fishball","fishball7020","nano","signalsdrpro","plutoskyr2"]'
+          # Board -> defconfig mapping mirrors build.sh's BOARDS[] associative
+          # array.  Each matrix entry carries its own defconfig so subsequent
+          # build steps reference matrix.defconfig directly, no runtime lookup.
+          # Mini variants and plutoskyr2 exercise different defconfigs and
+          # board-specific patches, so build them in CI to catch defconfig
+          # regressions early.
+          ALL='[
+            {"board":"pluto",              "defconfig":"pluto_maiasdr_defconfig"},
+            {"board":"plutoplus",          "defconfig":"plutoplus_maiasdr_defconfig"},
+            {"board":"e200",               "defconfig":"e200_maiasdr_defconfig"},
+            {"board":"e310",               "defconfig":"e310_maiasdr_defconfig"},
+            {"board":"libre",              "defconfig":"libre_maiasdr_defconfig"},
+            {"board":"fishball",           "defconfig":"fishball_maiasdr_defconfig"},
+            {"board":"fishball7020",       "defconfig":"fishball_maiasdr_7020_defconfig"},
+            {"board":"fishball_mini",      "defconfig":"fishball_mini_defconfig"},
+            {"board":"fishball_mini_7020", "defconfig":"fishball_mini_7020_defconfig"},
+            {"board":"nano",               "defconfig":"nano_defconfig"},
+            {"board":"plutoskyr2",         "defconfig":"plutoskyr2_defconfig"},
+            {"board":"signalsdrpro",       "defconfig":"signalsdrpro_defconfig"}
+          ]'
           INPUT="${{ inputs.boards }}"
           if [ "$INPUT" = "all" ] || [ -z "$INPUT" ]; then
-            echo "matrix={\"board\":${ALL}}" >> "$GITHUB_OUTPUT"
+            INCLUDE=$(echo "$ALL" | jq -c .)
           else
-            BOARDS=$(echo "$INPUT" | jq -Rc 'split(",")|map(ltrimstr(" ")|rtrimstr(" "))')
-            echo "matrix={\"board\":${BOARDS}}" >> "$GITHUB_OUTPUT"
+            # Filter ALL by the requested board names (comma-separated).
+            WANTED=$(echo "$INPUT" | jq -Rc 'split(",")|map(ltrimstr(" ")|rtrimstr(" "))')
+            INCLUDE=$(echo "$ALL" | jq --argjson wanted "$WANTED" -c \
+              '[.[] | select(.board as $b | $wanted | index($b))]')
           fi
+          echo "matrix={\"include\":${INCLUDE}}" >> "$GITHUB_OUTPUT"
 
   build:
     needs: prepare
     runs-on: ubuntu-22.04
+    # Override the default matrix job name ("build (board, defconfig)")
+    # to show only the defconfig, which uniquely identifies the target.
+    name: build (${{ matrix.defconfig }})
     strategy:
       fail-fast: false
       matrix: ${{ fromJson(needs.prepare.outputs.matrix) }}
+    env:
+      # Shared download cache location; must match the actions/cache path
+      # below so every phase uses the same pre-warmed tarball store.
+      BR2_DL_DIR: /home/runner/br-dl
+      # Per-board output tree.  Same path convention as build.sh (SCRIPT_DIR/output/<board>).
+      OUTPUT_DIR: ${{ github.workspace }}/output/${{ matrix.board }}
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Free disk space
-        uses: jlumbroso/free-disk-space@main
+        uses: jlumbroso/free-disk-space@v1.3.1
         with:
           tool-cache: false
           android: true
@@ -64,61 +100,114 @@ jobs:
             cmake xz-utils libgmp-dev libmpc-dev bootgen-xlnx libclang-dev
 
       - name: Cache Buildroot downloads
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
-          path: ~/br-dl
+          path: /home/runner/br-dl
           key: br-dl-${{ hashFiles('configs/*') }}
           restore-keys: br-dl-
 
       - name: Cache ccache
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
-          path: ~/.buildroot-ccache
+          path: /home/runner/.buildroot-ccache
           key: ccache-${{ matrix.board }}-week${{ github.run_number }}
           restore-keys: ccache-${{ matrix.board }}-
 
-      - name: Build ${{ matrix.board }}
+      # --- Build phases ---
+      # The build is split into discrete phases so each failure mode (mirror
+      # down, kconfig regression, toolchain extraction, kernel/U-Boot patch
+      # issue, target package cross-compile, post-image script) surfaces as
+      # its own workflow step in the UI.  Each phase invokes a single
+      # buildroot make target; dependency tracking means running the phases
+      # in sequence is equivalent to one `make` invocation.
+
+      - name: Fetch Buildroot tree
+        run: ./getbuildroot.sh
+
+      - name: Configure ${{ matrix.board }}
         run: |
-          ./getbuildroot.sh
           source sourceme.first
-          export BR2_DL_DIR=~/br-dl
-          ./build.sh "${{ matrix.board }}"
+          make -C buildroot O="${OUTPUT_DIR}" ${{ matrix.defconfig }}
+
+      - name: Download package sources
+        run: |
+          source sourceme.first
+          make -C buildroot O="${OUTPUT_DIR}" source
+
+      - name: Build toolchain
+        run: |
+          source sourceme.first
+          make -C buildroot O="${OUTPUT_DIR}" toolchain
+
+      - name: Build kernel and U-Boot
+        run: |
+          source sourceme.first
+          make -C buildroot O="${OUTPUT_DIR}" linux uboot
+
+      - name: Build userspace and rootfs
+        run: |
+          source sourceme.first
+          make -C buildroot O="${OUTPUT_DIR}" target-finalize
+
+      - name: Assemble image
+        run: |
+          source sourceme.first
+          make -C buildroot O="${OUTPUT_DIR}"
+          mkdir -p build
+          cp "${OUTPUT_DIR}/images/tezuka.zip" "build/${{ matrix.board }}.zip"
           REV="${GITHUB_SHA::7}"
           mkdir -p "artifacts/tezuka-${{ matrix.board }}-${REV}"
-          unzip -q "build/${{ matrix.board }}.zip" -d "artifacts/tezuka-${{ matrix.board }}-${REV}"
+          unzip -q "build/${{ matrix.board }}.zip" \
+            -d "artifacts/tezuka-${{ matrix.board }}-${REV}"
           echo "REV=${REV}" >> "$GITHUB_ENV"
 
       - name: Upload artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: tezuka-${{ matrix.board }}-${{ env.REV }}
           path: artifacts/tezuka-${{ matrix.board }}-${{ env.REV }}/
           if-no-files-found: error
 
   release:
+    # Publish a pre-release only on tag pushes.  Manual (workflow_dispatch)
+    # runs build and upload artifacts but do not publish a release so they
+    # can be used for smoke testing without polluting the release stream.
     needs: build
-    if: github.event_name == 'workflow_dispatch'
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
     runs-on: ubuntu-22.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           path: artifacts/
           pattern: tezuka-*
 
-      - name: Create release
+      - name: Create pre-release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.ref_name }}
         run: |
           cd artifacts
+          # Repackage per-board artifact dirs as tezuka-<board>-<tag>.zip.
+          # The inner directory name is tezuka-<board>-<rev7>, which we
+          # rename to tezuka-<board>-<tag> so the zip content matches the
+          # published name.
           for dir in tezuka-*/; do
-            name="${dir%/}"
-            zip -r "../${name}.zip" "${dir}"
-            echo "Packaged ${name}.zip"
+            inner="${dir%/}"
+            # Strip the trailing -<rev7> (7 hex chars) to extract the board.
+            board="${inner%-*}"
+            board="${board#tezuka-}"
+            zipname="tezuka-${board}-${TAG}.zip"
+            # Rename the inner dir so the zip contains a predictable path.
+            mv "${inner}" "tezuka-${board}-${TAG}"
+            zip -r "../${zipname}" "tezuka-${board}-${TAG}"
+            echo "Packaged ${zipname}"
           done
           cd ..
-          gh release create "Tezuka_${{ inputs.version }}" \
+          gh release create "${TAG}" \
             tezuka-*.zip \
             -R "${{ github.repository }}" \
+            --prerelease \
+            --title "${TAG}" \
             --generate-notes
