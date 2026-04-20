@@ -106,8 +106,9 @@
 		#address-cells = <1>;
 		#size-cells = <0>;
 
-		phy0: ethernet-phy@1 {
-			compatible = "ethernet-phy-id011c.c916";
+		phy0: ethernet-phy@1 { /* Realtek RTL8211F */
+			compatible = "ethernet-phy-id001c.c916",
+				     "ethernet-phy-ieee802.3-c22";
 			reg = <0x1>;
 		};
 

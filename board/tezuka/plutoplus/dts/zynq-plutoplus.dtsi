@@ -71,9 +71,10 @@
 		#address-cells = <1>;
 		#size-cells = <0>;
 
-		ethernet_phy: ethernet-phy@1 {
+		ethernet_phy: ethernet-phy@1 { /* Realtek RTL8211E */
 			reg = <1>;
-			compatible = "ethernet-phy-ieee802.3-c22";
+			compatible = "ethernet-phy-id001c.c915",
+				     "ethernet-phy-ieee802.3-c22";
 		};
 	};
 };
