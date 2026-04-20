@@ -63,7 +63,7 @@
 	is-dual = <0>;
 	num-cs = <1>;
 	flash@0 {
-		compatible = "n25q512a","micron,m25p80";
+		compatible = "n25q512a","micron,m25p80","jedec,spi-nor";
 		reg = <0x0>;
 		spi-tx-bus-width = <1>;
 		spi-rx-bus-width = <4>;
