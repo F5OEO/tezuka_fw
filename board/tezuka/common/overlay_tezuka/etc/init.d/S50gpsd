@@ -9,11 +9,14 @@ DEVICES="/dev/ttyACM0"
 PIDFILE=/var/run/$NAME.pid
 GPSD_OPTIONS="-G -n -r"
 
+[ -x "$DAEMON" ] || exit 0
+
 start() {
         printf 'Starting %s: ' "$NAME"
-        start-stop-daemon -S -q -p $PIDFILE --exec $DAEMON -- -P $PIDFILE $DEVICES "$GPSD_OPTIONS" && echo "OK" || echo "Failed"
+        # shellcheck disable=SC2086
+        start-stop-daemon -S -q -p "$PIDFILE" --exec "$DAEMON" -- -P "$PIDFILE" $GPSD_OPTIONS "$DEVICES" && echo "OK" || echo "FAIL"
         sleep 3
-        gpsctl --nmea 
+        gpsctl --nmea
 }
 stop() {
         printf 'Stopping %s: ' "$NAME"
