@@ -67,10 +67,14 @@
 	pinctrl-names = "default";
 	pinctrl-0 = <&pinctrl_gem0_default>;
 
+	mdio {
+		#address-cells = <1>;
+		#size-cells = <0>;
 
-	ethernet_phy: ethernet-phy@1 {
-		reg = <1>;
-		device_type = "ethernet-phy";
+		ethernet_phy: ethernet-phy@1 {
+			reg = <1>;
+			compatible = "ethernet-phy-ieee802.3-c22";
+		};
 	};
 };
 
