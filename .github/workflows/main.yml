@@ -44,12 +44,52 @@ run-name: >-
       || format('Test build ({0})', inputs.custom_boards != '' && inputs.custom_boards || inputs.boards || 'all') }}
 
 jobs:
-  prepare:
+  # Shared bootstrap: resolves the build matrix and populates the
+  # board-independent Buildroot tree once so matrix legs can restore
+  # it from cache instead of fetching 12x.
+  bootstrap:
     runs-on: ubuntu-22.04
     outputs:
       matrix: ${{ steps.set-matrix.outputs.matrix }}
     steps:
-      - id: set-matrix
+      - uses: actions/checkout@v6
+
+      # Load BR_VERSION and BR_SHA256 from the tracked env file.  The
+      # GITHUB_ENV file format accepts only KEY=VALUE lines, not '#'
+      # comments, so filter to assignment lines only; the shell 'source'
+      # path used by getbuildroot.sh happily ignores comments.
+      - name: Load Buildroot version metadata
+        run: grep -E '^[A-Za-z_][A-Za-z0-9_]*=' buildroot.version >> "$GITHUB_ENV"
+
+      # Buildroot tree cache shared across all matrix legs.  Keyed on
+      # the version file and the patch directory so a release bump or
+      # a patch change invalidates the cache automatically.  The key
+      # is deterministic, so the matrix legs compute the same value
+      # without any job-output hand-off.
+      - id: br-cache
+        uses: actions/cache@v5
+        with:
+          path: buildroot
+          key: buildroot-${{ hashFiles('buildroot.version', 'patches/buildroot/**') }}
+
+      - name: Populate Buildroot tree
+        if: steps.br-cache.outputs.cache-hit != 'true'
+        run: |
+          TARBALL=$(mktemp)
+          trap 'rm -f "${TARBALL}"' EXIT
+          wget -q -O "${TARBALL}" \
+            "https://buildroot.org/downloads/buildroot-${BR_VERSION}.tar.gz"
+          echo "${BR_SHA256}  ${TARBALL}" | sha256sum -c -
+          mkdir -p buildroot
+          tar -xzf "${TARBALL}" -C buildroot --strip-components=1
+          for patch in patches/buildroot/*.patch; do
+            [ -f "${patch}" ] || continue
+            echo "Applying $(basename "${patch}")..."
+            patch -d buildroot -p1 < "${patch}"
+          done
+
+      - name: Resolve build matrix
+        id: set-matrix
         run: |
           # Board -> defconfig mapping mirrors build.sh's BOARDS[] associative
           # array.  Each matrix entry carries its own defconfig so subsequent
@@ -119,14 +159,14 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
   build:
-    needs: prepare
+    needs: bootstrap
     runs-on: ubuntu-22.04
     # Override the default matrix job name ("build (board, defconfig)")
     # to show only the defconfig, which uniquely identifies the target.
     name: build (${{ matrix.defconfig }})
     strategy:
       fail-fast: false
-      matrix: ${{ fromJson(needs.prepare.outputs.matrix) }}
+      matrix: ${{ fromJson(needs.bootstrap.outputs.matrix) }}
     env:
       # Shared download cache location; must match the actions/cache path
       # below so every phase uses the same pre-warmed tarball store.
@@ -161,12 +201,19 @@ jobs:
           key: br-dl-${{ hashFiles('configs/*') }}
           restore-keys: br-dl-
 
-      - name: Cache ccache
+      # Shared ccache prefix across boards: most userspace C objects are
+      # identical across Zynq-7000 targets, so a plutoplus build benefits
+      # from a pluto warm-up (and vice versa).  The per-board suffix on
+      # the primary key avoids concurrent-write contention; restore-keys
+      # fall through to the shared prefix.
+      - name: Cache ccache (shared across boards)
         uses: actions/cache@v5
         with:
           path: /home/runner/.buildroot-ccache
-          key: ccache-${{ matrix.board }}-week${{ github.run_number }}
-          restore-keys: ccache-${{ matrix.board }}-
+          key: ccache-shared-${{ github.run_number }}-${{ matrix.board }}
+          restore-keys: |
+            ccache-shared-${{ github.run_number }}-
+            ccache-shared-
 
       # --- Build phases ---
       # The build is split into discrete phases so each failure mode (mirror
@@ -176,8 +223,18 @@ jobs:
       # buildroot make target; dependency tracking means running the phases
       # in sequence is equivalent to one `make` invocation.
 
-      - name: Fetch Buildroot tree
-        run: ./getbuildroot.sh
+      # Tree is populated once by the bootstrap job (cache miss path)
+      # and restored here for every matrix leg.  fail-on-cache-miss
+      # surfaces a clear error rather than silently falling through to
+      # a configure step that would complain about a missing buildroot/.
+      # The key is identical to the one the bootstrap job used -- both
+      # sides compute it from hashFiles().
+      - name: Restore Buildroot tree
+        uses: actions/cache/restore@v5
+        with:
+          path: buildroot
+          key: buildroot-${{ hashFiles('buildroot.version', 'patches/buildroot/**') }}
+          fail-on-cache-miss: true
 
       - name: Configure ${{ matrix.board }}
         run: |
