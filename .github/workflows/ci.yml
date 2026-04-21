@@ -1,0 +1,25 @@
+name: CI
+
+on:
+  workflow_dispatch:
+    inputs:
+      boards:
+        description: 'Boards to build (comma-separated, or "all")'
+        type: string
+        required: false
+        default: 'all'
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+run-name: CI (${{ inputs.boards || 'all' }})
+
+jobs:
+  tezuka:
+    uses: ./.github/workflows/_build.yml
+    with:
+      boards: ${{ inputs.boards }}

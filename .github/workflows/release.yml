@@ -1,0 +1,63 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v[0-9]+.[0-9]+.[0-9]+'
+      - 'v[0-9]+.[0-9]+.[0-9]+-*'
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  tezuka:
+    uses: ./.github/workflows/_build.yml
+    with:
+      boards: all
+
+  release:
+    needs: tezuka
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0     # git-cliff walks full history
+
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: git-cliff
+
+      - name: Generate release notes
+        run: git cliff --tag "${{ github.ref_name }}" --unreleased --strip header > NOTES.md
+
+      - uses: actions/download-artifact@v8
+        with:
+          path: artifacts/
+          pattern: tezuka-*
+
+      - name: Package zips and publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          # Artifacts come down as tezuka-<board>-<rev7>/. Rename each
+          # directory to tezuka-<board>-<tag>, zip, then publish.
+          for dir in artifacts/tezuka-*/; do
+            inner="${dir%/}"
+            name="$(basename "$inner")"
+            board="${name#tezuka-}"
+            board="${board%-*}"
+            mv "$inner" "artifacts/tezuka-${board}-${TAG}"
+            (cd artifacts && zip -rq "../tezuka-${board}-${TAG}.zip" "tezuka-${board}-${TAG}")
+          done
+          # Prerelease if tag has a dash suffix (vX.Y.Z-rc1), stable otherwise.
+          flags=""
+          [[ "$TAG" == *-* ]] && flags="--prerelease"
+          gh release create "$TAG" $flags --title "$TAG" --notes-file NOTES.md tezuka-*.zip
