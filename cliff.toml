@@ -1,0 +1,29 @@
+# git-cliff config for tezuka_fw release notes.
+# Consumed by .github/workflows/release.yml on tag push.
+
+[changelog]
+body = """
+{% for group, commits in commits | group_by(attribute="group") %}
+### {{ group | upper_first }}
+{% for commit in commits %}
+- {{ commit.message | split(pat="\n") | first | trim }} ({{ commit.id | truncate(length=7, end="") }})
+{%- endfor %}
+{% endfor %}
+"""
+trim = true
+
+[git]
+conventional_commits = true
+filter_unconventional = false
+commit_parsers = [
+  { message = "^feat",                 group = "Features" },
+  { message = "^fix",                  group = "Bug Fixes" },
+  { message = "^docs?",                group = "Documentation" },
+  { message = "^build|^ci",            group = "Build / CI" },
+  { message = "^dts|^kernel|^uboot",   group = "Kernel / U-Boot / DTS" },
+  { message = "^buildroot|^defconfig", group = "Buildroot" },
+  { message = "^bitstream|^board",     group = "FPGA / Board" },
+  { message = ".*",                    group = "Other" },
+]
+tag_pattern = "^v[0-9]+\\.[0-9]+\\.[0-9]+(-.+)?$"
+sort_commits = "newest"
