@@ -4,21 +4,16 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 BUILDROOT_DIR="${SCRIPT_DIR}/buildroot"
 
-# Board name -> defconfig mapping
-declare -A BOARDS=(
-    [pluto]=pluto_maiasdr_defconfig
-    [plutoplus]=plutoplus_maiasdr_defconfig
-    [e200]=e200_maiasdr_defconfig
-    [e310]=e310_maiasdr_defconfig
-    [libre]=libre_maiasdr_defconfig
-    [fishball]=fishball_maiasdr_defconfig
-    [fishball_mini]=fishball_mini_defconfig
-    [fishball7020]=fishball_maiasdr_7020_defconfig
-    [fishball_mini_7020]=fishball_mini_7020_defconfig
-    [nano]=nano_defconfig
-    [signalsdrpro]=signalsdrpro_defconfig
-    [plutoskyr2]=plutoskyr2_defconfig
-)
+# Board name -> defconfig mapping, loaded from boards.json (single
+# source of truth shared with .github/workflows/main.yml).
+if ! command -v jq >/dev/null 2>&1; then
+    echo "ERROR: jq required to read boards.json" >&2
+    exit 1
+fi
+declare -A BOARDS=()
+while IFS=$'\t' read -r _board _defconfig; do
+    BOARDS[$_board]=$_defconfig
+done < <(jq -r '.[] | [.board, .defconfig] | @tsv' "${SCRIPT_DIR}/boards.json")
 
 usage() {
     echo "Usage: $0 [OPTIONS] <board|all> [board2 ...]"

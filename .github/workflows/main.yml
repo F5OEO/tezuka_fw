@@ -1,82 +1,87 @@
-name: Build Tezuka Firmware
+name: CI
 
 on:
-  # Tag pushes produce publishable pre-releases.  Artifacts are named
-  # tezuka-<board>-<tag>.zip and attached to the GitHub Release.
+  # Tag pushes publish a GitHub release with git-cliff notes and per-board
+  # zips. Strict SemVer pattern excludes legacy tags (0.x.y, Tezuka_*, v1.6.1).
   push:
     tags:
-      - 'v*'
-  # Manual dispatch for smoke testing without publishing.  The release
-  # job is skipped for dispatch runs; only artifacts are produced.
+      - 'v[0-9]+.[0-9]+.[0-9]+'
+      - 'v[0-9]+.[0-9]+.[0-9]+-*'
+  # Manual dispatch for smoke testing. The release job is skipped for
+  # dispatch runs; only artifacts are produced.
   workflow_dispatch:
     inputs:
       boards:
-        description: 'Boards to build (comma-separated, or "all")'
+        description: 'Comma-separated board names, or "all" (validated against boards.json)'
         type: string
         required: false
         default: 'all'
 
+# Cancel in-progress dispatch runs on new dispatch of the same ref, but
+# never cancel a tag-push release build (a half-published release is worse
+# than a queued one).
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name != 'push' }}
+
 permissions:
-  contents: write
+  contents: read
 
 run-name: >-
   ${{ github.event_name == 'push'
       && format('Release {0}', github.ref_name)
-      || format('Test build ({0})', inputs.boards || 'all') }}
+      || format('CI ({0})', inputs.boards || 'all') }}
 
 jobs:
-  prepare:
+  matrix:
     runs-on: ubuntu-22.04
     outputs:
       matrix: ${{ steps.set-matrix.outputs.matrix }}
     steps:
-      - id: set-matrix
-        run: |
-          # Board -> defconfig mapping mirrors build.sh's BOARDS[] associative
-          # array.  Each matrix entry carries its own defconfig so subsequent
-          # build steps reference matrix.defconfig directly, no runtime lookup.
-          # Mini variants and plutoskyr2 exercise different defconfigs and
-          # board-specific patches, so build them in CI to catch defconfig
-          # regressions early.
-          ALL='[
-            {"board":"pluto",              "defconfig":"pluto_maiasdr_defconfig"},
-            {"board":"plutoplus",          "defconfig":"plutoplus_maiasdr_defconfig"},
-            {"board":"e200",               "defconfig":"e200_maiasdr_defconfig"},
-            {"board":"e310",               "defconfig":"e310_maiasdr_defconfig"},
-            {"board":"libre",              "defconfig":"libre_maiasdr_defconfig"},
-            {"board":"fishball",           "defconfig":"fishball_maiasdr_defconfig"},
-            {"board":"fishball7020",       "defconfig":"fishball_maiasdr_7020_defconfig"},
-            {"board":"fishball_mini",      "defconfig":"fishball_mini_defconfig"},
-            {"board":"fishball_mini_7020", "defconfig":"fishball_mini_7020_defconfig"},
-            {"board":"nano",               "defconfig":"nano_defconfig"},
-            {"board":"plutoskyr2",         "defconfig":"plutoskyr2_defconfig"},
-            {"board":"signalsdrpro",       "defconfig":"signalsdrpro_defconfig"}
-          ]'
-          INPUT="${{ inputs.boards }}"
-          if [ "$INPUT" = "all" ] || [ -z "$INPUT" ]; then
-            INCLUDE=$(echo "$ALL" | jq -c .)
-          else
-            # Filter ALL by the requested board names (comma-separated).
-            WANTED=$(echo "$INPUT" | jq -Rc 'split(",")|map(ltrimstr(" ")|rtrimstr(" "))')
-            INCLUDE=$(echo "$ALL" | jq --argjson wanted "$WANTED" -c \
-              '[.[] | select(.board as $b | $wanted | index($b))]')
-          fi
-          echo "matrix={\"include\":${INCLUDE}}" >> "$GITHUB_OUTPUT"
+      - uses: actions/checkout@v6
 
-  build:
-    needs: prepare
+      - name: Resolve build matrix
+        id: set-matrix
+        env:
+          INPUT: ${{ inputs.boards || 'all' }}
+        run: |
+          set -euo pipefail
+          if [ "$INPUT" = "all" ]; then
+            INCLUDE=$(jq -c . boards.json)
+          else
+            # Reject unknown names up front; GitHub's own "matrix must define
+            # at least one vector" only surfaces at job-expansion time and
+            # doesn't hint at the cause.
+            INCLUDE=$(jq -c --arg input "$INPUT" '
+              ($input | split(",") | map(gsub("^\\s+|\\s+$";"")) | map(select(length>0))) as $wanted
+              | ($wanted - [.[].board]) as $unknown
+              | if ($unknown | length) > 0 then
+                  error("Unknown board(s): " + ($unknown | join(", ")))
+                else
+                  [.[] | select(.board as $b | $wanted | index($b))]
+                end
+            ' boards.json)
+          fi
+          COUNT=$(jq 'length' <<<"$INCLUDE")
+          echo "matrix={\"include\":${INCLUDE}}" >> "$GITHUB_OUTPUT"
+          {
+            echo "### Matrix expansion"
+            echo
+            echo "Input: \`${INPUT}\` (${COUNT} boards)"
+            echo
+            jq -r '.[] | "- `\(.board)` -> `\(.defconfig)`"' <<<"$INCLUDE"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  tezuka:
+    needs: matrix
     runs-on: ubuntu-22.04
-    # Override the default matrix job name ("build (board, defconfig)")
-    # to show only the defconfig, which uniquely identifies the target.
-    name: build (${{ matrix.defconfig }})
+    name: ${{ matrix.defconfig }}
     strategy:
       fail-fast: false
-      matrix: ${{ fromJson(needs.prepare.outputs.matrix) }}
+      matrix: ${{ fromJson(needs.matrix.outputs.matrix) }}
     env:
-      # Shared download cache location; must match the actions/cache path
-      # below so every phase uses the same pre-warmed tarball store.
+      BR2_EXTERNAL: ${{ github.workspace }}
       BR2_DL_DIR: /home/runner/br-dl
-      # Per-board output tree.  Same path convention as build.sh (SCRIPT_DIR/output/<board>).
       OUTPUT_DIR: ${{ github.workspace }}/output/${{ matrix.board }}
 
     steps:
@@ -97,7 +102,8 @@ jobs:
           sudo apt-get install -y make gcc g++ \
             zip unzip dfu-util fakeroot u-boot-tools device-tree-compiler \
             mtools bison flex libncurses5-dev libssl-dev bc cpio rsync \
-            cmake xz-utils libgmp-dev libmpc-dev bootgen-xlnx libclang-dev
+            cmake xz-utils libgmp-dev libmpc-dev bootgen-xlnx libclang-dev \
+            libgnutls28-dev
 
       - name: Cache Buildroot downloads
         uses: actions/cache@v5
@@ -110,104 +116,127 @@ jobs:
         uses: actions/cache@v5
         with:
           path: /home/runner/.buildroot-ccache
-          key: ccache-${{ matrix.board }}-week${{ github.run_number }}
+          key: ccache-${{ matrix.board }}-${{ hashFiles('buildroot.version') }}
           restore-keys: ccache-${{ matrix.board }}-
 
-      # --- Build phases ---
-      # The build is split into discrete phases so each failure mode (mirror
-      # down, kconfig regression, toolchain extraction, kernel/U-Boot patch
-      # issue, target package cross-compile, post-image script) surfaces as
-      # its own workflow step in the UI.  Each phase invokes a single
-      # buildroot make target; dependency tracking means running the phases
-      # in sequence is equivalent to one `make` invocation.
+      # Tree cache keyed on buildroot.version + patches/ so bumping Buildroot
+      # or a patch invalidates. On cold cache each matrix leg populates its
+      # own tree via getbuildroot.sh; only the first leg to finish will save
+      # back to the cache. This trades a 12x parallel tarball download on
+      # cold cache (~30s/leg) for removing the separate bootstrap job.
+      - name: Cache Buildroot tree
+        id: br-cache
+        uses: actions/cache@v5
+        with:
+          path: buildroot
+          key: buildroot-${{ hashFiles('buildroot.version', 'patches/buildroot/**') }}
 
-      - name: Fetch Buildroot tree
+      - name: Populate Buildroot tree
+        if: steps.br-cache.outputs.cache-hit != 'true'
         run: ./getbuildroot.sh
 
       - name: Configure ${{ matrix.board }}
-        run: |
-          source sourceme.first
-          make -C buildroot O="${OUTPUT_DIR}" ${{ matrix.defconfig }}
+        run: make -C buildroot O="${OUTPUT_DIR}" ${{ matrix.defconfig }}
 
-      - name: Download package sources
-        run: |
-          source sourceme.first
-          make -C buildroot O="${OUTPUT_DIR}" source
+      - name: Build U-Boot
+        run: make -C buildroot O="${OUTPUT_DIR}" uboot
 
-      - name: Build toolchain
-        run: |
-          source sourceme.first
-          make -C buildroot O="${OUTPUT_DIR}" toolchain
+      - name: Build kernel
+        run: make -C buildroot O="${OUTPUT_DIR}" linux
 
-      - name: Build kernel and U-Boot
-        run: |
-          source sourceme.first
-          make -C buildroot O="${OUTPUT_DIR}" linux uboot
-
-      - name: Build userspace and rootfs
-        run: |
-          source sourceme.first
-          make -C buildroot O="${OUTPUT_DIR}" target-finalize
+      - name: Build rootfs
+        run: make -C buildroot O="${OUTPUT_DIR}" target-finalize
 
       - name: Assemble image
+        run: make -C buildroot O="${OUTPUT_DIR}"
+
+      - name: Assemble artifact
         run: |
-          source sourceme.first
-          make -C buildroot O="${OUTPUT_DIR}"
           mkdir -p build
           cp "${OUTPUT_DIR}/images/tezuka.zip" "build/${{ matrix.board }}.zip"
           REV="${GITHUB_SHA::7}"
-          mkdir -p "artifacts/tezuka-${{ matrix.board }}-${REV}"
-          unzip -q "build/${{ matrix.board }}.zip" \
-            -d "artifacts/tezuka-${{ matrix.board }}-${REV}"
-          echo "REV=${REV}" >> "$GITHUB_ENV"
+          ARTIFACT_DIR="artifacts/tezuka-${{ matrix.board }}"
+          mkdir -p "${ARTIFACT_DIR}"
+          unzip -q "build/${{ matrix.board }}.zip" -d "${ARTIFACT_DIR}"
+          {
+            echo "### ${{ matrix.board }} (${{ matrix.defconfig }})"
+            echo
+            echo "Revision: \`${REV}\`"
+            echo
+            echo "| File | Size |"
+            echo "| --- | ---: |"
+            (cd "${ARTIFACT_DIR}" && find . -type f -printf '%s\t%P\n' | sort -k2) \
+              | while IFS=$'\t' read -r bytes name; do
+                  human=$(numfmt --to=iec --format='%.1f' "${bytes}")
+                  # shellcheck disable=SC2016
+                  printf '| `%s` | %s |\n' "${name}" "${human}"
+                done
+            echo
+          } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload artifact
         uses: actions/upload-artifact@v7
         with:
-          name: tezuka-${{ matrix.board }}-${{ env.REV }}
-          path: artifacts/tezuka-${{ matrix.board }}-${{ env.REV }}/
+          name: tezuka-${{ matrix.board }}
+          path: artifacts/tezuka-${{ matrix.board }}/
           if-no-files-found: error
 
   release:
-    # Publish a pre-release only on tag pushes.  Manual (workflow_dispatch)
-    # runs build and upload artifacts but do not publish a release so they
-    # can be used for smoke testing without polluting the release stream.
-    needs: build
+    # Publish only on tag push. Dispatch runs build artifacts but skip
+    # release so they can be used for smoke testing without polluting
+    # the release stream.
+    needs: tezuka
     if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
     runs-on: ubuntu-22.04
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0     # git-cliff walks full history
+
+      - name: Generate release notes
+        uses: orhun/git-cliff-action@v4
+        with:
+          config: cliff.toml
+          args: --latest --strip header
+        env:
+          OUTPUT: NOTES.md
+          GITHUB_REPO: ${{ github.repository }}
 
       - uses: actions/download-artifact@v8
         with:
           path: artifacts/
           pattern: tezuka-*
 
-      - name: Create pre-release
+      - name: Package zips and publish
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ github.token }}
           TAG: ${{ github.ref_name }}
         run: |
-          cd artifacts
-          # Repackage per-board artifact dirs as tezuka-<board>-<tag>.zip.
-          # The inner directory name is tezuka-<board>-<rev7>, which we
-          # rename to tezuka-<board>-<tag> so the zip content matches the
-          # published name.
-          for dir in tezuka-*/; do
-            inner="${dir%/}"
-            # Strip the trailing -<rev7> (7 hex chars) to extract the board.
-            board="${inner%-*}"
+          set -euo pipefail
+          # Artifacts come down as tezuka-<board>/. Zip each as
+          # tezuka-<board>-<tag>.zip for the release.
+          for dir in artifacts/tezuka-*/; do
+            board="$(basename "${dir%/}")"
             board="${board#tezuka-}"
-            zipname="tezuka-${board}-${TAG}.zip"
-            # Rename the inner dir so the zip contains a predictable path.
-            mv "${inner}" "tezuka-${board}-${TAG}"
-            zip -r "../${zipname}" "tezuka-${board}-${TAG}"
-            echo "Packaged ${zipname}"
+            mv "${dir%/}" "artifacts/tezuka-${board}-${TAG}"
+            (cd artifacts && zip -rq "../tezuka-${board}-${TAG}.zip" "tezuka-${board}-${TAG}")
           done
-          cd ..
-          gh release create "${TAG}" \
-            tezuka-*.zip \
-            -R "${{ github.repository }}" \
-            --prerelease \
-            --title "${TAG}" \
-            --generate-notes
+          # Prerelease if tag has a dash suffix (vX.Y.Z-rc1), stable otherwise.
+          flags=""
+          [[ "$TAG" == *-* ]] && flags="--prerelease"
+          gh release create "$TAG" $flags --title "$TAG" --notes-file NOTES.md tezuka-*.zip
+          # Release summary for the workflow run page.
+          {
+            echo "## Release ${TAG}"
+            echo
+            echo "| Zip | Size | SHA256 |"
+            echo "| --- | ---: | --- |"
+            for zip in tezuka-*.zip; do
+              bytes=$(stat -c %s "${zip}")
+              human=$(numfmt --to=iec --format='%.1f' "${bytes}")
+              sha=$(sha256sum "${zip}" | cut -d' ' -f1)
+              printf '| `%s` | %s | `%s` |\n' "${zip}" "${human}" "${sha}"
+            done
+          } >> "$GITHUB_STEP_SUMMARY"
