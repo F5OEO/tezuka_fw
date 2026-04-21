@@ -116,10 +116,14 @@
 	phy-mode = "rgmii-id";
 	phy-handle = <&phy0>;
 
-	phy0: phy@0 { /* Marvell 88e1512 */
-		reg = <0>;
-		compatible = "ethernet-phy-ieee802.3-c22";
-		reset-gpios = <&gpio0 46 1>;
+	mdio {
+		#address-cells = <1>;
+		#size-cells = <0>;
+
+		phy0: ethernet-phy@0 { /* Marvell 88e1512 */
+			reg = <0>;
+			compatible = "ethernet-phy-ieee802.3-c22";
+		};
 	};
 };
 

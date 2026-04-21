@@ -44,9 +44,16 @@ found in https://github.com/plutoplus/plutoplus/blob/master/patches/linux.diff
         pinctrl-0 = <&pinctrl_gem0_default>;
         phy-mode = "rgmii-id";
         phy-handle = <&ethernet_phy>;
-        ethernet_phy: ethernet-phy@1 {
-                reg = <1>;
-                device_type = "ethernet_phy";
+
+        mdio {
+                #address-cells = <1>;
+                #size-cells = <0>;
+
+                ethernet_phy: ethernet-phy@1 { /* Realtek RTL8211E */
+                        reg = <1>;
+                        compatible = "ethernet-phy-id001c.c915",
+                                     "ethernet-phy-ieee802.3-c22";
+                };
         };
 };
 
