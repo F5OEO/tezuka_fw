@@ -2,7 +2,7 @@ name: CI
 
 on:
   # Tag pushes publish a GitHub release with git-cliff notes and per-board
-  # zips. Strict SemVer pattern excludes legacy tags (0.x.y, Tezuka_*, v1.6.1).
+  # zips. SemVer pattern (v-prefixed) triggers the release pipeline.
   push:
     tags:
       - 'v[0-9]+.[0-9]+.[0-9]+'
@@ -116,8 +116,8 @@ jobs:
         uses: actions/cache@v5
         with:
           path: /home/runner/.buildroot-ccache
-          key: ccache-${{ matrix.board }}-${{ hashFiles('buildroot.version') }}
-          restore-keys: ccache-${{ matrix.board }}-
+          key: ccache-v2-${{ matrix.board }}-${{ hashFiles('buildroot.version') }}
+          restore-keys: ccache-v2-${{ matrix.board }}-
 
       # Tree cache keyed on buildroot.version + patches/ so bumping Buildroot
       # or a patch invalidates. On cold cache each matrix leg populates its
@@ -136,7 +136,11 @@ jobs:
         run: ./getbuildroot.sh
 
       - name: Configure ${{ matrix.board }}
-        run: make -C buildroot O="${OUTPUT_DIR}" ${{ matrix.defconfig }}
+        run: |
+          make -C buildroot O="${OUTPUT_DIR}" ${{ matrix.defconfig }}
+          echo 'BR2_CCACHE=y' >> "${OUTPUT_DIR}/.config"
+          echo 'BR2_CCACHE_DIR="/home/runner/.buildroot-ccache"' >> "${OUTPUT_DIR}/.config"
+          make -C buildroot O="${OUTPUT_DIR}" olddefconfig
 
       - name: Build U-Boot
         run: make -C buildroot O="${OUTPUT_DIR}" uboot
@@ -195,14 +199,34 @@ jobs:
         with:
           fetch-depth: 0     # git-cliff walks full history
 
+      - name: Compute changelog range
+        id: cliff-range
+        env:
+          TAG: ${{ github.ref_name }}
+          FALLBACK_BASE: 365ea2e
+        run: |
+          set -euo pipefail
+          PREV_TAG=$(git tag -l 'v[0-9]*.[0-9]*.[0-9]*' --sort=-v:refname \
+            | grep -v "^${TAG}$" | head -1 || true)
+          if [ -n "$PREV_TAG" ]; then
+            RANGE="${PREV_TAG}..${TAG}"
+          else
+            RANGE="${FALLBACK_BASE}..${TAG}"
+          fi
+          echo "range=${RANGE}" >> "$GITHUB_OUTPUT"
+          echo "Changelog range: ${RANGE}"
+
       - name: Generate release notes
         uses: orhun/git-cliff-action@v4
         with:
           config: cliff.toml
-          args: --latest --strip header
+          args: >-
+            ${{ steps.cliff-range.outputs.range }}
+            --strip header
         env:
           OUTPUT: NOTES.md
           GITHUB_REPO: ${{ github.repository }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - uses: actions/download-artifact@v8
         with:
@@ -215,18 +239,19 @@ jobs:
           TAG: ${{ github.ref_name }}
         run: |
           set -euo pipefail
+          REV="${GITHUB_SHA::7}"
           # Artifacts come down as tezuka-<board>/. Zip each as
-          # tezuka-<board>-<tag>.zip for the release.
+          # tezuka-<board>-<tag>-<rev>.zip for the release.
           for dir in artifacts/tezuka-*/; do
             board="$(basename "${dir%/}")"
             board="${board#tezuka-}"
-            mv "${dir%/}" "artifacts/tezuka-${board}-${TAG}"
-            (cd artifacts && zip -rq "../tezuka-${board}-${TAG}.zip" "tezuka-${board}-${TAG}")
+            mv "${dir%/}" "artifacts/tezuka-${board}-${TAG}-${REV}"
+            (cd artifacts && zip -rq "../tezuka-${board}-${TAG}-${REV}.zip" "tezuka-${board}-${TAG}-${REV}")
           done
           # Prerelease if tag has a dash suffix (vX.Y.Z-rc1), stable otherwise.
           flags=""
           [[ "$TAG" == *-* ]] && flags="--prerelease"
-          gh release create "$TAG" $flags --title "$TAG" --notes-file NOTES.md tezuka-*.zip
+          gh release create "$TAG" $flags --draft --title "$TAG" --notes-file NOTES.md tezuka-*.zip
           # Release summary for the workflow run page.
           {
             echo "## Release ${TAG}"

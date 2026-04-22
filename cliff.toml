@@ -3,29 +3,40 @@
 
 [changelog]
 body = """
-{% for group, commits in commits | group_by(attribute="group") %}
-### {{ group | upper_first }}
+{% for author, commits in commits | group_by(attribute="author.name") %}
+### Commits — {{ author }}{% if commits[0].remote.username %} (@{{ commits[0].remote.username }}){% endif %}
 {% for commit in commits %}
-- {{ commit.message | split(pat="\n") | first | trim }} ({{ commit.id | truncate(length=7, end="") }}{% if commit.remote.username %}, @{{ commit.remote.username }}{% endif %})
+- {{ commit.message | split(pat="\n") | first | trim | upper_first }} \
+  ([{{ commit.id | truncate(length=7, end="") }}](REPOSITORY_URL/commit/{{ commit.id }}))
 {%- endfor %}
 {% endfor %}
+{% if github.contributors | length > 0 %}
+### Contributors
+
+Thank you for contributing to this project!
+
+{% for contributor in github.contributors %}
+- @{{ contributor.username }}
+{%- endfor %}
+{% endif %}
 """
 trim = true
+postprocessors = [
+  { pattern = "REPOSITORY_URL", replace = "https://github.com/F5OEO/tezuka_fw" },
+]
 
 [git]
-conventional_commits = true
+conventional_commits = false
 filter_unconventional = false
-commit_parsers = [
-  { message = "^feat",                           group = "<!-- 0 -->Features" },
-  { message = "^fix",                            group = "<!-- 1 -->Bug Fixes" },
-  { message = "^dts|^kernel|^uboot|^init",       group = "<!-- 2 -->Kernel / U-Boot / DTS" },
-  { message = "^bitstream|^board|^[Ff]pga",      group = "<!-- 3 -->FPGA / Board" },
-  { message = "^package",                        group = "<!-- 4 -->Packages" },
-  { message = "^buildroot|^defconfig",           group = "<!-- 5 -->Buildroot" },
-  { message = "^build|^ci|^toolchain",           group = "<!-- 6 -->Build / CI" },
-  { message = "^docs?",                          group = "<!-- 7 -->Documentation" },
-  { message = "^cleanup|^refactor",              group = "<!-- 8 -->Cleanup" },
-  { message = ".*",                              group = "<!-- 9 -->Other" },
+commit_preprocessors = [
+  { pattern = '\\(#([0-9]+)\\)', replace = "([#${1}](REPOSITORY_URL/pull/${1}))" },
+  # Strip conventional commit prefixes for cleaner display.
+  { pattern = "^[a-zA-Z]+(?:\\([^)]*\\))?!?:\\s*", replace = "" },
 ]
-tag_pattern = "^v[0-9]+\\.[0-9]+\\.[0-9]+(-.+)?$"
+commit_parsers = [
+  { message = "(?i)^merge",   skip = true },
+  { message = "(?i)^revert",  skip = true },
+]
+# Only v-prefixed tags create release boundaries.
+tag_pattern = "^v[0-9]+\\.[0-9]+\\.[0-9]+"
 sort_commits = "newest"
