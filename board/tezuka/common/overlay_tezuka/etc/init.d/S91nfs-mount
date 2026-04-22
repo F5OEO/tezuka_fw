@@ -1,6 +1,6 @@
 #!/bin/sh
 nfs_server=$(fw_printenv -n nfs_server 2> /dev/null)
-SD_FILE="/dev/mmcblk0p1"
+
 
 start() {
    if [ -n "$nfs_server" ]
@@ -16,11 +16,7 @@ start() {
 		echo "Info : No nfs to mount"
 	fi
 
-	if [ -e "$SD_FILE" ]; then
-   		echo "Mounting SD on /boot"
-		mkdir -p /boot
-		mount $SD_FILE /boot
-	fi
+	
 }
 
 stop() {
@@ -31,10 +27,7 @@ stop() {
 		umount /mnt/nfs
 	fi
 
-	if [ -e "$SD_FILE" ]; then
-		echo "Stopping SD"
-		umount /boot
-	fi	
+	
 	
 }
 

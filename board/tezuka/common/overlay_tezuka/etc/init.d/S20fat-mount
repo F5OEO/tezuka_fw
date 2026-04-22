@@ -1,0 +1,50 @@
+#!/bin/sh
+
+SD_FILE="/dev/mmcblk0p1"
+
+start() {
+  
+
+	if [ -e "$SD_FILE" ]; then
+   		echo "Mounting SD on /boot"
+		mkdir -p /boot
+		mount $SD_FILE /boot
+	fi
+}
+
+stop() {
+
+	if [ -n "$nfs_server" ]
+	then
+		echo "Stopping NFS"
+		umount /mnt/nfs
+	fi
+
+	
+}
+
+restart() {
+	stop
+	start
+}
+
+# start/stop/restart
+case "$1" in
+  start)
+	start
+	;;
+  stop)
+	stop
+	;;
+  restart)
+	restart
+	;;
+  *)
+	echo "Usage: $0 {start|stop|restart}"
+	exit 1
+esac
+
+exit $?
+
+
+
