@@ -37,8 +37,9 @@ adi_config_gpio_by_refclk=\
 
 adi_config_rf_mode=\
   if test -n "${mode}" && test ! "${mode}" = "1r1t" && test ! "${mode}" = "2r2t"; then \
-    setenv mode 1r1t; saveenv; \
-  fi;
+    setenv mode 1r1t; \
+  fi; \
+  saveenv;
 
 adi_config_devicetree=\
   if test "${mode}" = "1r1t"; then \
