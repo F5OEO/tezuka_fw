@@ -49,7 +49,7 @@
 };
 
 &clkc {
-    u-boot,dm-pre-reloc;
+    bootph-all;
     ps-clk-frequency = <50000000>;
 };
 
@@ -99,7 +99,7 @@
 	usb-phy = <&usb_phy0>;
 };
 &sdhci0 {
-	u-boot,dm-pre-reloc;
+	bootph-all;
 	status = "okay";
 	
 };

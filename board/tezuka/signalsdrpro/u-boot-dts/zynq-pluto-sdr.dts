@@ -91,7 +91,7 @@
 	usb-phy = <&usb_phy0>;
 };
 &sdhci0 {
-	u-boot,dm-pre-reloc;
+	bootph-all;
 	status = "okay";
 	
 };

@@ -59,7 +59,7 @@ found in https://github.com/plutoplus/plutoplus/blob/master/patches/linux.diff
 };
 
 &uart1 {
-        u-boot,dm-pre-reloc;
+        bootph-all;
         status = "okay";
         pinctrl-names = "default";
         pinctrl-0 = <&pinctrl_uart1_default>;
