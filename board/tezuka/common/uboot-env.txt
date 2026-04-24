@@ -65,6 +65,10 @@ adi_loadvals=\
   run adi_config_rf_mode; \
   run adi_config_devicetree;
 
+
+bootmenu_0=Boot from SD card Tezuka=mmc dev 1; run sdboot_ram
+bootmenu_1=Boot from SD card Kuiper=mmc dev 1; run sdboot_kuiper
+
 clear_reset_cause=mw f8000008 df0d && mw f8000258 00400000 && mw f8000004 767b
 
 baudrate=115200
