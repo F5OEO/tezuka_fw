@@ -37,6 +37,9 @@ jobs:
     runs-on: ubuntu-22.04
     outputs:
       matrix: ${{ steps.set-matrix.outputs.matrix }}
+      # 'true' iff exactly one board in the matrix. Used by tezuka
+      # job to gate the output/<board> cache.
+      single_board: ${{ steps.set-matrix.outputs.single_board }}
     steps:
       - uses: actions/checkout@v6
 
@@ -64,6 +67,14 @@ jobs:
           fi
           COUNT=$(jq 'length' <<<"$INCLUDE")
           echo "matrix={\"include\":${INCLUDE}}" >> "$GITHUB_OUTPUT"
+          # 'true' iff dispatched with a single board; gates the
+          # per-board output/ cache (3 GB) which doesn't fit budget
+          # at COUNT=12.
+          if [ "$COUNT" -eq 1 ]; then
+            echo "single_board=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "single_board=false" >> "$GITHUB_OUTPUT"
+          fi
           {
             echo "### Matrix expansion"
             echo
@@ -105,28 +116,30 @@ jobs:
             cmake xz-utils libgmp-dev libmpc-dev bootgen-xlnx libclang-dev \
             libgnutls28-dev
 
-      - name: Cache Buildroot downloads
-        uses: actions/cache@v5
+      # Hashed on package version pins -- defconfig flag toggles
+      # don't change tarball identity, so they shouldn't invalidate.
+      - name: Restore Buildroot downloads
+        id: dl-cache
+        uses: actions/cache/restore@v5
         with:
           path: /home/runner/br-dl
-          key: br-dl-${{ hashFiles('configs/*') }}
+          key: br-dl-${{ hashFiles('package/**/*.mk', 'package/**/*.hash', 'buildroot.version') }}
           restore-keys: br-dl-
 
-      - name: Cache ccache
-        uses: actions/cache@v5
+      # Global key: BR2_CCACHE_USE_BASEDIR (set in Configure below)
+      # makes hits portable across per-board OUTPUT_DIR paths.
+      - name: Restore ccache
+        id: ccache-cache
+        uses: actions/cache/restore@v5
         with:
           path: /home/runner/.buildroot-ccache
-          key: ccache-v2-${{ matrix.board }}-${{ hashFiles('buildroot.version') }}
-          restore-keys: ccache-v2-${{ matrix.board }}-
+          key: ccache-v3-${{ hashFiles('buildroot.version') }}
+          restore-keys: ccache-v3-
 
-      # Tree cache keyed on buildroot.version + patches/ so bumping Buildroot
-      # or a patch invalidates. On cold cache each matrix leg populates its
-      # own tree via getbuildroot.sh; only the first leg to finish will save
-      # back to the cache. This trades a 12x parallel tarball download on
-      # cold cache (~30s/leg) for removing the separate bootstrap job.
-      - name: Cache Buildroot tree
+      # On miss, getbuildroot.sh populates the tree below.
+      - name: Restore Buildroot tree
         id: br-cache
-        uses: actions/cache@v5
+        uses: actions/cache/restore@v5
         with:
           path: buildroot
           key: buildroot-${{ hashFiles('buildroot.version', 'patches/buildroot/**') }}
@@ -135,11 +148,52 @@ jobs:
         if: steps.br-cache.outputs.cache-hit != 'true'
         run: ./getbuildroot.sh
 
+      # Full per-board OUTPUT_DIR. Hit -> Buildroot sees every
+      # stamp_built and 'make' just re-finalises (~5min vs ~50min).
+      # Single-board only: 12 x ~3 GB busts the 10 GB budget. No
+      # restore-keys: partial match leaves an unrepairable state.
+      # Iterate via: gh workflow run main.yml -f boards=fishball7020
+      - name: Restore Buildroot output
+        id: output-cache
+        if: needs.matrix.outputs.single_board == 'true'
+        uses: actions/cache/restore@v5
+        with:
+          path: ${{ env.OUTPUT_DIR }}
+          key: output-${{ matrix.board }}-${{ hashFiles('package/**/*.mk', 'package/**/*.hash', 'buildroot.version', 'patches/buildroot/**', format('configs/{0}', matrix.defconfig)) }}
+
+      # Renders a per-leg cache hit/miss table on the run page.
+      - name: Cache restore summary
+        run: |
+          {
+            echo "### Cache restore (${{ matrix.board }})"
+            echo
+            echo "| cache | hit |"
+            echo "|---|---|"
+            echo "| Buildroot downloads | ${{ steps.dl-cache.outputs.cache-hit || 'miss' }} |"
+            echo "| ccache              | ${{ steps.ccache-cache.outputs.cache-hit || 'miss' }} |"
+            echo "| Buildroot tree      | ${{ steps.br-cache.outputs.cache-hit || 'miss' }} |"
+            echo "| Buildroot output    | ${{ steps.output-cache.outputs.cache-hit || 'miss' }} |"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      # uboot-env-hook.mk writes this in the source tree at U-Boot
+      # extract time; with output/ cached, extract is skipped and the
+      # file goes missing. Recreate it idempotently here.
+      - name: Regenerate uboot-env.config (cache workaround)
+        run: |
+          {
+            echo 'CONFIG_USE_DEFAULT_ENV_FILE=y'
+            printf 'CONFIG_DEFAULT_ENV_FILE="%s/board/tezuka/common/uboot-env.txt"\n' "$PWD"
+          } > board/tezuka/common/uboot-env.config
+
       - name: Configure ${{ matrix.board }}
         run: |
           make -C buildroot O="${OUTPUT_DIR}" ${{ matrix.defconfig }}
+          # Default BR2_CCACHE_DIR=$HOME/.buildroot-ccache matches the
+          # cache restore path; USE_BASEDIR makes hits portable across
+          # boards' OUTPUT_DIRs. Caveat: relative paths leak into
+          # object files, debuggers need 'cd $OUTPUT_DIR' first.
           echo 'BR2_CCACHE=y' >> "${OUTPUT_DIR}/.config"
-          echo 'BR2_CCACHE_DIR="/home/runner/.buildroot-ccache"' >> "${OUTPUT_DIR}/.config"
+          echo 'BR2_CCACHE_USE_BASEDIR=y' >> "${OUTPUT_DIR}/.config"
           make -C buildroot O="${OUTPUT_DIR}" olddefconfig
 
       - name: Build U-Boot
@@ -153,6 +207,37 @@ jobs:
 
       - name: Assemble image
         run: make -C buildroot O="${OUTPUT_DIR}"
+
+      # Save phase. 'if cache-hit != true' avoids re-uploading
+      # already-cached content and prevents duplicate entries on
+      # the backend (concurrent matrix saves don't dedupe reliably).
+      - name: Save Buildroot tree
+        if: steps.br-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v5
+        with:
+          path: buildroot
+          key: ${{ steps.br-cache.outputs.cache-primary-key }}
+
+      - name: Save Buildroot output
+        if: needs.matrix.outputs.single_board == 'true' && steps.output-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v5
+        with:
+          path: ${{ env.OUTPUT_DIR }}
+          key: ${{ steps.output-cache.outputs.cache-primary-key }}
+
+      - name: Save ccache
+        if: steps.ccache-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v5
+        with:
+          path: /home/runner/.buildroot-ccache
+          key: ${{ steps.ccache-cache.outputs.cache-primary-key }}
+
+      - name: Save Buildroot downloads
+        if: steps.dl-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v5
+        with:
+          path: /home/runner/br-dl
+          key: ${{ steps.dl-cache.outputs.cache-primary-key }}
 
       - name: Assemble artifact
         run: |
@@ -262,6 +347,7 @@ jobs:
               bytes=$(stat -c %s "${zip}")
               human=$(numfmt --to=iec --format='%.1f' "${bytes}")
               sha=$(sha256sum "${zip}" | cut -d' ' -f1)
+              # shellcheck disable=SC2016 # %s placeholders, not shell vars
               printf '| `%s` | %s | `%s` |\n' "${zip}" "${human}" "${sha}"
             done
           } >> "$GITHUB_STEP_SUMMARY"
