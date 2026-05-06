@@ -20,7 +20,7 @@
 	};
 
 	aliases {
-		ethernet0 = &gem0;
+		
 		serial0 = &uart0;
 	};
 
@@ -75,12 +75,7 @@
 	};
 };
 
-&sdhci0 {
-	status = "okay";
-	xlnx,has-cd = <0x0>;
-	xlnx,has-power = <0x0>;
-	xlnx,has-wp = <0x0>;
-};
+
 
 &watchdog0 {
 	status = "okay";
@@ -225,6 +220,11 @@
 	};
 };
 
+&sdhci0 {
+	status = "disabled";
+};
+
+
 &spi0 {
 	status = "okay";
 
@@ -251,17 +251,18 @@
 		  * 1 = SKIP TX
 		  * 2 = SKIP ALL
 		  */
-		adi,digital-interface-tune-skip-mode = <0>;/* TUNE RX & TX */
-
+		
 		adi,pp-tx-swap-enable;
 		adi,pp-rx-swap-enable;
 		adi,rx-frame-pulse-mode-enable;
-		adi,lvds-mode-enable;
-		adi,lvds-bias-mV = <150>;
-		adi,lvds-rx-onchip-termination-enable;
-		adi,rx-data-delay = <4>;
-		adi,tx-fb-clock-delay = <7>;
+		/* Enable CMOS Mode */
+		adi,full-port-enable;
+		adi,digital-interface-tune-fir-disable;
+
+		adi,digital-interface-tune-skip-mode = <0>; /* TUNE RX & TX */
+		adi,tx-fb-clock-delay = <0>;
 		adi,tx-data-delay = <9>;
+		adi,swap-ports-enable;
 
 		adi,xo-disable-use-ext-refclk-enable;
 
