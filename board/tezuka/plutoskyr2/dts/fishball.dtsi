@@ -99,7 +99,7 @@
 	status = "okay";
 
 	phy-handle = <&phy0>;
-	phy-mode = "rgmii-rxid";
+	phy-mode = "rgmii-id";
 	gmii2rgmii-phy-handle = <&gmii_to_rgmii_0>;
 
 	mdio {
