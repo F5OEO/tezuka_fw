@@ -1,6 +1,10 @@
-echo "in ifplugd" 
-if [ "$2" == "up" ]; then
- /sbin/ifdown $1 -f
- /sbin/ifup $1
- 
-fi
+#!/bin/sh
+case "$2" in
+    up)
+        /sbin/udhcpc -i "$1" -n -q -t 5
+        ;;
+    down)
+        /sbin/ip addr flush dev "$1"
+        ;;
+esac
+exit 0
