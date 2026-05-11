@@ -85,7 +85,7 @@
 	status = "okay";
 
 	phy-handle = <&phy0>;
-	phy-mode = "rgmii-rxid";
+	phy-mode = "rgmii-id";
 
 	phy0: phy@0 {
 		device_type = "ethernet-phy";
