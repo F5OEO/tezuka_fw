@@ -39,12 +39,15 @@
 	status = "okay";
 	is-dual = <0>;
 	num-cs = <1>;
+	bootph-all;
 	flash@0 {
-		compatible = "n25q256a11","jedec,spi-nor";
+		bootph-all;
+		compatible = "w25q256","jedec,spi-nor";
 		reg = <0x0>;
 		spi-tx-bus-width = <1>;
 		spi-rx-bus-width = <4>;
 		spi-max-frequency = <50000000>;
+		
 		#address-cells = <1>;
 		#size-cells = <1>;
 		partition@qspi-fsbl-uboot {
@@ -61,13 +64,15 @@
 		};
 		partition@qspi-linux {
 			label = "qspi-linux";
-			reg = <0x200000 0x0E00000>; /* 16M */
+			reg = <0x200000 0x1E00000>; /* 32M */
 		};
 	};
 };
 
 &uart1 {
+
 	status = "okay";
+	bootph-all; 
 };
 
 &usb0 {
@@ -85,7 +90,7 @@
 	status = "okay";
 
 	phy-handle = <&phy0>;
-	phy-mode = "rgmii-rxid";
+	phy-mode = "rgmii-id";
 
 	phy0: phy@0 {
 		device_type = "ethernet-phy";
