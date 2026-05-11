@@ -1,4 +1,3 @@
-
 adi_loadfdt_multiple=\
   fdt addr ${fit_load_address}; \
   fdt get value fdt_choosen /configurations/${fit_config}/ fdt; \
@@ -38,8 +37,8 @@ adi_config_gpio_by_refclk=\
 adi_config_rf_mode=\
   if test -n "${mode}" && test ! "${mode}" = "1r1t" && test ! "${mode}" = "2r2t"; then \
     setenv mode 1r1t; \
-  fi; \
-  saveenv;
+    saveenv; \
+  fi;
 
 adi_config_devicetree=\
   if test "${mode}" = "1r1t"; then \
@@ -65,11 +64,21 @@ adi_loadvals=\
   run adi_config_rf_mode; \
   run adi_config_devicetree;
 
+banner=\
+  echo "___________                  __            "; \
+  echo "\\__    ___/___ __________ __|  | _______   "; \
+  echo "  |    |_/ __ \\\\___   /  |  \\  |/ /\\__  \\  "; \
+  echo "  |    |\\  ___/ /    /|  |  /    <  / __ \\_"; \
+  echo "  |____| \\___  >_____ \\____/|__|_ \\(____  /"; \
+  echo "             \\/      \\/          \\/     \\/ "; \
+  echo "Universal Zynq70x/AD936x firmware builder"; \
+  echo "Version #BUILD#"; \
+  echo "By F5OEO and contributors"; \
+  echo "";
 
-bootmenu_0=Boot from SD card Tezuka=mmc dev 1; run sdboot_ram
+bootmenu_0=Boot from SD card Tezuka=mmc dev 0; run sdboot
 bootmenu_1=Boot from SD card Kuiper=mmc dev 1; run sdboot_kuiper
-
-clear_reset_cause=mw f8000008 df0d && mw f8000258 00400000 && mw f8000004 767b
+bootmenu_2=Boot from QSPI=setenv modeboot qspiboot; run qspiboot
 
 baudrate=115200
 bitstream_image=system.bit.bin
@@ -99,7 +108,7 @@ importbootenv=echo Importing environment from SD ...; env import -t ${loadbooten
 initrd_high=0x20000000
 ipaddr=192.168.2.1
 ipaddr_host=192.168.2.10
-jtagboot=env default -a;sf probe && sf protect unlock 0 100000 && run dfu_sf; 
+jtagboot=env default -a;sf probe && sf protect unlock 0 100000 && run dfu_sf;
 kernel_image=uImage
 loadbit_addr=0x100000
 loadbootenv_addr=0x2000000
@@ -116,23 +125,31 @@ loaddfu=\
 maxcpus=2
 
 netmask=255.255.255.0
-preboot=
+
 preboot=\
-  echo "Tezuka universal boot"; \
-  if test $modeboot = sdboot && env run sd_uEnvtxt_existence_test; then \
-    if env run loadbootenv; then \
-        env run importbootenv; \
+  run banner; \
+  adi_hwref; \
+  if test $modeboot = sdboot; then \
+    if env run sd_uEnvtxt_existence_test; then \
+      if env run loadbootenv; then \
+          env run importbootenv; \
+      fi; \
+    fi; \
+      elif test $modeboot = qspiboot; then \
+    if env run qspiboot_bootenv; then \
+        env import -t ${loadbootenv_addr} 0x20000; \
     fi; \
   fi;
 
-qspiboot_extraenv=sf read ${extraenv_load_address} 0x100000 0x1000;
+qspiboot_bootenv=sf probe && sf read ${extraenv_load_address} 0x100000 0x20000;
+qspiboot_extraenv=sf read ${extraenv_load_address} 0xFF000 0x1000;
 qspiboot=\
-  set stdout serial@e0000000 && sf probe; \
-  echo Booting silently; \
-  set stdout nulldev; \
-  run read_sf; run adi_loadvals; run qspiboot_extraenv; \
-  setenv bootargs console=ttyPS0,115200 maxcpus=${maxcpus} rootfstype=ramfs root=/dev/ram0 rw quiet loglevel=4 UBOOT_MODEBOOT=$modeboot UBOOT_VERSION='\"'${uboot-version}'\"' \
-  && bootm ${fit_load_address}#${fit_config} || set stdout serial@e0000000;
+  adi_hwref; \
+  echo Copying Linux from QSPI flash to RAM... && run read_sf && if run adi_loadvals; then \
+    echo Loaded AD936x refclk frequency and model into devicetree; \
+  fi; \
+  setenv bootargs console=ttyPS0,115200 maxcpus=${maxcpus} rootfstype=ramfs root=/dev/ram0 rw earlyprintk UBOOT_MODEBOOT=$modeboot UBOOT_VERSION='\"'${uboot-version}'\"' \
+  && bootm ${fit_load_address}#${fit_config} || echo BOOT failed entering DFU mode ...
 
 qspiboot_verbose=\
   adi_hwref; \
@@ -142,6 +159,14 @@ qspiboot_verbose=\
   setenv bootargs console=ttyPS0,115200 maxcpus=${maxcpus} rootfstype=ramfs root=/dev/ram0 rw earlyprintk UBOOT_MODEBOOT=$modeboot UBOOT_VERSION='\"'${uboot-version}'\"' \
   && bootm ${fit_load_address}#${fit_config} || echo BOOT failed entering DFU mode ...
 
+qspiboot_silent=\
+  set stdout serial@e0000000 && sf probe; \
+  echo Booting silently; \
+  set stdout nulldev; \
+  run read_sf; run adi_loadvals; run qspiboot_extraenv; \
+  setenv bootargs console=ttyPS0,115200 maxcpus=${maxcpus} rootfstype=ramfs root=/dev/ram0 rw quiet loglevel=4 UBOOT_MODEBOOT=$modeboot UBOOT_VERSION='\"'${uboot-version}'\"' \
+  && bootm ${fit_load_address}#${fit_config} || set stdout serial@e0000000;
+
 ramboot_verbose=\
   adi_hwref; \
   echo Copying Linux from DFU to RAM... && run dfu_ram;if run adi_loadvals; then \
@@ -150,11 +175,12 @@ ramboot_verbose=\
   setenv bootargs console=ttyPS0,115200 maxcpus=${maxcpus} rootfstype=ramfs root=/dev/ram0 rw earlyprintk UBOOT_MODEBOOT=$modeboot UBOOT_VERSION='\"'${uboot-version}'\"' \
   && bootm ${fit_load_address}#${fit_config}
 
-ramdisk_image=uramdisk.image.gz
+ramdisk_image=uramdisk.image.lzma
 ramdisk_load_address=0x4000000
 ramdisk_size=0x400000
 read_sf=sf probe 0:0 50000000 0 && run qspiboot_extraenv && sf read ${fit_load_address} 0x200000 ${fit_size} && iminfo ${fit_load_address} || sf read ${fit_load_address} 0x200000 0x1E00000;
 refclk_source=internal
+resetenv=env default -f -a; run uenvboot; env save
 sdboot=\
   if test -n "${mode_rootfs}" && test "${mode_rootfs}" = "kuiper"; then \
     run sdboot_kuiper; \
@@ -207,5 +233,8 @@ usbboot=\
     && load usb 0 ${devicetree_load_address} ${devicetree_image} \
     && load usb 0 ${ramdisk_load_address} ${ramdisk_image} \
     && run fpgaload \
+    && sf probe \
+    && run adi_loadvals; \
+    setenv bootargs console=ttyPS0,115200 rootfstype=ramfs root=/dev/ram0 rw rootwait earlycon clk_ignore_unused cpuidle.off=1 uio_pdrv_genirq.of_id=uio_pdrv_genirq UBOOT_MODEBOOT=$modeboot UBOOT_VERSION='"\'${uboot-version}'\"' \
     && bootm ${fit_load_address} ${ramdisk_load_address} ${devicetree_load_address}; \
   fi

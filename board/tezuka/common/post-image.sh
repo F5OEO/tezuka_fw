@@ -25,6 +25,10 @@ fi
 DEVICE_VID=0x0456
 DEVICE_PID=0xb673
 
+skip=$(LC_ALL=C grep -a -b -o -P '\x1f\x8b\x08' "$BIN_DIR/zImage" | head -1 | cut -d: -f1)
+dd if="$BIN_DIR/zImage" bs=1 skip="$skip" | gunzip > "$BIN_DIR/Image" 2>/dev/null || true
+lzma -z -k -f "$BIN_DIR/Image"
+
 cp "$BOARD_DIR/plutomaia.its" "$BIN_DIR/plutomaia.its"
 
 echo "# entering $BIN_DIR for the next command"
@@ -61,25 +65,32 @@ mv "$BIN_DIR/uboot-env.bin.tmp" "$BIN_DIR/uboot-env.dfu"
 echo "generating sd"
 SDIMGDIR="$BIN_DIR/sdimg"
 mkdir -p "$SDIMGDIR"
-echo "img : {[bootloader] $BIN_DIR/fsbl.elf $BIN_DIR/system_top.bit $BIN_DIR/u-boot.elf}" > "$SDIMGDIR/boot.bif"
+echo "img : {[bootloader] $BIN_DIR/fsbl.elf [load = 0x1000000] $BIN_DIR/system_top.bit $BIN_DIR/u-boot.elf}" > "$SDIMGDIR/boot.bif"
 "$BOOTGEN" -image "$SDIMGDIR/boot.bif" -w -o i "$SDIMGDIR/BOOT.bin"
 
 if [ -e "$BOARD_DIR/bitstream/overclock/" ]; then
     mkdir -p "$SDIMGDIR/overclock"
     for filename in "$BOARD_DIR/bitstream/overclock/"*.elf ; do
-        echo "img : {[bootloader] $filename $BIN_DIR/system_top.bit $BIN_DIR/u-boot.elf}" > "$SDIMGDIR/boot.bif"
+        echo "img : {[bootloader] $filename [load = 0x1000000] $BIN_DIR/system_top.bit $BIN_DIR/u-boot.elf}" > "$SDIMGDIR/boot.bif"
         NAME=$(basename -- "$filename" .elf)
         "$BOOTGEN" -image "$SDIMGDIR/boot.bif" -w -o i "$SDIMGDIR/overclock/BOOT_${NAME}"
     done
 fi
 
 # SYSTEM TOP.BIN when need to launch from USB or SD without BOOT.BIN
-#echo "img : {$SDIMGDIR/system_top.bit }" >  $SDIMGDIR/system.bif
-#bootgen -image $SDIMGDIR/system.bif -process_bitstream bin -arch zynq -w -o i $SDIMGDIR/system_top.bin
+echo "img : {$BIN_DIR/system_top.bit }" >  $BIN_DIR/system.bif
+"$BOOTGEN" -image $BIN_DIR/system.bif -process_bitstream bin -arch zynq -w -o i $BIN_DIR/system_top.bin
+cp $BIN_DIR/system_top.bit.bin $SDIMGDIR/system_top.bin
 
 rm "$SDIMGDIR/boot.bif"
-mkimage -A arm -T ramdisk -C gzip -d "$BIN_DIR/rootfs.cpio.gz" "$SDIMGDIR/uramdisk.image.gz"
-mkimage -A arm -O linux -T kernel -C none -a 0x2080000 -e 2080000 -n "Linux kernel" -d "$BIN_DIR/zImage" "$SDIMGDIR/uImage"
+xz -dfk "$BIN_DIR/rootfs.cpio.xz"
+
+mkimage -A arm -T ramdisk -C lzma -d "$BIN_DIR/rootfs.cpio.lzma" "$SDIMGDIR/uramdisk.image.lzma"
+
+lzma -z -k -f "$BIN_DIR/Image"
+mkimage -A arm -O linux -T kernel -C lzma -a 0x8000 -e 0x8000 \
+  -n "Linux kernel" -d "$BIN_DIR/Image.lzma" "$SDIMGDIR/uImage"
+  
 cp "$BIN_DIR/$DTB_NAME" "$SDIMGDIR/devicetree.dtb"
 cp "$COMMON_DIR/uboot-env.txt" "$SDIMGDIR/uEnv.txt"
 
