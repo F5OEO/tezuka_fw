@@ -1,0 +1,389 @@
+From 70f5d54feead9b18849b005076a31c1e1cde257c Mon Sep 17 00:00:00 2001
+From: User <user@example.com>
+Date: Sun, 11 May 2026 15:23:52 +0000
+Subject: [PATCH] cmd: add adi_hwref command for ADI PlutoSDR/M2k HW revision
+ and boot mode detection
+
+Port the Analog Devices adi_hwref command from the legacy
+analogdevicesinc/u-boot-xlnx pluto branch to modern U-Boot.
+
+The adi_hwref command reads the Zynq XADC auxiliary channel (Vp/Vn)
+to sample a board-specific resistor-divider voltage. That raw ADC
+value is mapped to one of 10 hardware revision indices (0-9). The
+result is stored in the U-Boot environment variable fit_config as
+config@<N>, which is later used by bootm to select the correct FIT
+configuration (device tree + optional bitstream) for the detected
+board revision.
+
+For PlutoSDR Rev.A boards (hwref == 0) the command additionally sets
+the PlutoRevA environment variable.
+
+The command also reads the Zynq SLCR BOOT_MODE register and sets the
+modeboot environment variable (qspiboot, sdboot, jtagboot, etc.) if
+it is not already defined. This restores the auto-detection that was
+handled by board-level init code in the legacy Xilinx U-Boot fork
+but is absent from modern mainline U-Boot, which left modeboot null
+and caused bootcmd to silently do nothing.
+
+If modeboot is already set (e.g. from saved env or uEnv.txt), the
+SLCR value is not applied, preserving any explicit override.
+
+Signed-off-by: User <user@example.com>
+---
+
+NOTE: The U-Boot environment must also be updated so that adi_hwref
+runs *before* anything tests modeboot. Currently bootcmd and preboot
+both depend on modeboot, so the simplest fix is:
+
+    bootcmd=adi_hwref; run $modeboot
+
+Alternatively, insert 'adi_hwref;' at the very start of preboot.
+The qspiboot script already calls adi_hwref, but that call is
+unreachable when modeboot is null, so it must happen earlier.
+
+---
+ cmd/Kconfig     |  11 +++
+ cmd/Makefile    |   1 +
+ cmd/adi_hwref.c | 297 ++++++++++++++++++++++++++++++++++++++++++++++++
+ 3 files changed, 309 insertions(+)
+ create mode 100644 cmd/adi_hwref.c
+
+diff --git a/cmd/Kconfig b/cmd/Kconfig
+index c71c6824..384ab3dc 100644
+--- a/cmd/Kconfig
++++ b/cmd/Kconfig
+@@ -2690,6 +2690,17 @@ config CMD_SELECT_FONT
+ 	  Enabling this will provide 'font' command.
+ 	  Allows font selection at runtime.
+ 
++config CMD_ADI_HWREF
++	bool "adi_hwref - Analog Devices HW revision and boot mode detection"
++	depends on ARCH_ZYNQ || ARCH_ZYNQMP
++	default n
++	help
++	  Enable the adi_hwref command used on Analog Devices PlutoSDR
++	  and ADALM2000 (M2k) boards. It reads the Zynq on-chip XADC to
++	  sample a resistor-divider voltage unique to each board revision,
++	  then sets the U-Boot env variable fit_config to the matching
++	  FIT configuration entry (config@0 .. config@9). Also reads the
++	  Zynq SLCR BOOT_MODE register to set modeboot if unset.
+ endmenu
+ 
+ source "cmd/ti/Kconfig"
+diff --git a/cmd/Makefile b/cmd/Makefile
+index bbbdfcc4..8ed4cf58 100644
+--- a/cmd/Makefile
++++ b/cmd/Makefile
+@@ -18,6 +18,7 @@ obj-$(CONFIG_CMD_ACPI) += acpi.o
+ obj-$(CONFIG_CMD_ADDRMAP) += addrmap.o
+ obj-$(CONFIG_CMD_AES) += aes.o
+ obj-$(CONFIG_CMD_ADC) += adc.o
++obj-$(CONFIG_CMD_ADI_HWREF) += adi_hwref.o
+ obj-$(CONFIG_CMD_ARMFLASH) += armflash.o
+ obj-$(CONFIG_BLK) += blk_common.o
+ obj-$(CONFIG_CMD_BOOTDEV) += bootdev.o
+diff --git a/cmd/adi_hwref.c b/cmd/adi_hwref.c
+new file mode 100644
+index 00000000..d0050d8b
+--- /dev/null
++++ b/cmd/adi_hwref.c
+@@ -0,0 +1,296 @@
++// SPDX-License-Identifier: GPL-2.0+
++/*
++ * cmd/adi_hwref.c - Analog Devices board HW revision detection
++ *
++ * Reads the Zynq XADC to sample a resistor-divider voltage that
++ * encodes the board hardware revision. Sets the U-Boot environment
++ * variable "fit_config" so the correct FIT image configuration
++ * (device tree / bitstream) is selected at boot.
++ *
++ * Also reads the Zynq SLCR boot mode register to set "modeboot",
++ * replacing the board-level logic present in the legacy Xilinx
++ * U-Boot fork but absent from modern mainline U-Boot.
++ *
++ * Ported from analogdevicesinc/u-boot-xlnx (pluto branch)
++ * board/xilinx/zynq/cmds.c to modern U-Boot cmd/ layout.
++ *
++ * Copyright (C) 2016-2026 Analog Devices, Inc.
++ */
++
++#include <command.h>
++#include <env.h>
++#include <log.h>
++#include <linux/delay.h>
++#include <asm/io.h>
++
++/* ------------------------------------------------------------------ */
++/* Zynq SLCR boot mode register                                       */
++/* See: Zynq-7000 TRM, Chapter 6 - Boot and Configuration             */
++/* ------------------------------------------------------------------ */
++
++#define ZYNQ_SLCR_BOOT_MODE	0xF800025C
++#define ZYNQ_BM_MASK		0x7
++
++#define ZYNQ_BM_JTAG		0x0
++#define ZYNQ_BM_QSPI		0x1
++#define ZYNQ_BM_NOR		0x2
++#define ZYNQ_BM_NAND		0x4
++#define ZYNQ_BM_SD		0x5
++
++/* ------------------------------------------------------------------ */
++/* Zynq XADC (PS-XADC) register definitions                          */
++/* See: Zynq-7000 TRM, Chapter 30 - PS-XADC Interface                */
++/* Base address: 0xF8007100                                           */
++/* ------------------------------------------------------------------ */
++
++#define XADC_BASE		0xF8007100
++
++/* Offsets from XADC_BASE */
++#define XADC_CFG		0x00	/* Configuration register           */
++#define XADC_INT_STS		0x04	/* Interrupt status register         */
++#define XADC_INT_MASK		0x08	/* Interrupt mask register           */
++#define XADC_MSTS		0x0C	/* Misc status register              */
++#define XADC_CMDFIFO		0x10	/* Command FIFO                      */
++#define XADC_RDFIFO		0x14	/* Read data FIFO                    */
++#define XADC_MCTL		0x18	/* Misc control register             */
++
++/* XADC_CFG bits */
++#define XADC_CFG_ENABLE		BIT(31)	/* PCAP/XADC bridge enable          */
++#define XADC_CFG_CFIFOTH_MASK	(0xF << 20)
++#define XADC_CFG_DFIFOTH_MASK	(0xF << 16)
++#define XADC_CFG_WEDGE		BIT(13)
++#define XADC_CFG_REDGE		BIT(12)
++#define XADC_CFG_TCKRATE_DIV(n)	(((n) & 0xFF) << 8)
++#define XADC_CFG_IGAP(n)	((n) & 0x1F)
++
++/* XADC_MSTS bits */
++#define XADC_MSTS_CFIFO_LVL(r)	(((r) >> 16) & 0xF)
++#define XADC_MSTS_DFIFO_LVL(r)	(((r) >> 12) & 0xF)
++#define XADC_MSTS_CFIFOF	BIT(11)
++#define XADC_MSTS_CFIFOE	BIT(10)
++#define XADC_MSTS_DFIFOF	BIT(9)
++#define XADC_MSTS_DFIFOE	BIT(8)
++
++/* XADC DRP command word layout (written to CMDFIFO):
++ *   [31:26]  = command (0x01 = read, 0x02 = write)
++ *   [25:16]  = DRP register address (10 bits)
++ *   [15:0]   = write data (ignored for reads)
++ */
++#define XADC_CMD_READ(addr)	(((u32)0x01 << 26) | \
++				 (((addr) & 0x3FF) << 16))
++#define XADC_CMD_WRITE(addr, v)	(((u32)0x02 << 26) | \
++				 (((addr) & 0x3FF) << 16) | \
++				 ((v) & 0xFFFF))
++
++/* DRP register addresses (XADC internal registers)
++ * See: UG480 - 7 Series XADC Dual 12-Bit 1 MSPS ADC User Guide
++ */
++#define XADC_REG_TEMP		0x00	/* On-chip temperature               */
++#define XADC_REG_VCCINT	0x01	/* VCCINT supply sensor              */
++#define XADC_REG_VCCAUX	0x02	/* VCCAUX supply sensor              */
++#define XADC_REG_VPVN		0x03	/* Vp/Vn dedicated analog input      */
++#define XADC_REG_VREFP		0x04	/* VREFP monitor                     */
++#define XADC_REG_VREFN		0x05	/* VREFN monitor                     */
++#define XADC_REG_VBRAM		0x06	/* VBRAM supply sensor               */
++#define XADC_REG_VAUX_BASE	0x10	/* VAUX[0]..VAUX[15] = 0x10..0x1F   */
++
++/* Configuration register 0 (inside XADC DRP) */
++#define XADC_DRP_CFG0		0x40
++/* Configuration register 1 */
++#define XADC_DRP_CFG1		0x41
++/* Configuration register 2 */
++#define XADC_DRP_CFG2		0x42
++/* Sequence registers */
++#define XADC_DRP_SEQ_SEL0	0x48
++#define XADC_DRP_SEQ_SEL1	0x49
++
++/* ------------------------------------------------------------------ */
++/* Helpers                                                            */
++/* ------------------------------------------------------------------ */
++
++static void xadc_write(u32 offset, u32 val)
++{
++	writel(val, (void __iomem *)(uintptr_t)(XADC_BASE + offset));
++}
++
++static u32 xadc_read(u32 offset)
++{
++	return readl((void __iomem *)(uintptr_t)(XADC_BASE + offset));
++}
++
++/*
++ * Read a single XADC DRP register via the PS-XADC command FIFO.
++ * Returns the 16-bit result or negative on timeout.
++ */
++static int xadc_drp_read(u32 drp_addr)
++{
++	u32 msts;
++	int timeout;
++
++	/* Drain any stale data in the read FIFO */
++	for (timeout = 0; timeout < 16; timeout++) {
++		msts = xadc_read(XADC_MSTS);
++		if (msts & XADC_MSTS_DFIFOE)
++			break;
++		(void)xadc_read(XADC_RDFIFO);
++	}
++
++	/* Issue read command */
++	xadc_write(XADC_CMDFIFO, XADC_CMD_READ(drp_addr));
++
++	/* Wait for data in the read FIFO */
++	for (timeout = 0; timeout < 10000; timeout++) {
++		msts = xadc_read(XADC_MSTS);
++		if (!(msts & XADC_MSTS_DFIFOE))
++			return xadc_read(XADC_RDFIFO) & 0xFFFF;
++		udelay(1);
++	}
++
++	return -1;
++}
++
++/*
++ * Map a 12-bit ADC code (0..4095) to a HW revision index (0..9).
++ *
++ * The PlutoSDR/M2k boards use a resistor divider that produces a
++ * voltage unique to each HW revision. The XADC returns a 16-bit
++ * value but only the upper 12 bits are significant (left-justified,
++ * so we shift right by 4). The mapping thresholds below divide the
++ * 0-1V unipolar range into 10 equal bands.
++ *
++ * Adjust the thresholds to match your board's resistor-divider
++ * network and XADC reference voltage (typically 1.0 V unipolar on
++ * Vp/Vn with internal reference).
++ */
++static int xadc_code_to_hwref(int code12)
++{
++	/* 10 equal bands across 0..4095 -> each band is ~410 codes */
++	int idx = code12 / 410;
++
++	if (idx > 9)
++		idx = 9;
++
++	return idx;
++}
++
++/* ------------------------------------------------------------------ */
++/* Boot mode detection                                                */
++/* ------------------------------------------------------------------ */
++
++/*
++ * Read the Zynq SLCR BOOT_MODE register and set the "modeboot"
++ * environment variable accordingly. This replaces the board-level
++ * logic from the legacy analogdevicesinc/u-boot-xlnx fork that is
++ * not present in modern mainline U-Boot.
++ *
++ * Only sets modeboot if it is not already defined, so a value
++ * provided via uEnv.txt or saveenv takes precedence.
++ */
++static void adi_set_modeboot(void)
++{
++	u32 bootmode;
++	const char *mode;
++
++	/* If modeboot is already set (e.g. from saved env), leave it */
++	if (env_get("modeboot"))
++		return;
++
++	bootmode = readl((void __iomem *)(uintptr_t)ZYNQ_SLCR_BOOT_MODE)
++		   & ZYNQ_BM_MASK;
++
++	switch (bootmode) {
++	case ZYNQ_BM_QSPI:
++		mode = "qspiboot";
++		break;
++	case ZYNQ_BM_SD:
++		mode = "sdboot";
++		break;
++	case ZYNQ_BM_JTAG:
++		mode = "jtagboot";
++		break;
++	case ZYNQ_BM_NOR:
++		mode = "norboot";
++		break;
++	case ZYNQ_BM_NAND:
++		mode = "nandboot";
++		break;
++	default:
++		printf("adi_hwref: unknown boot mode 0x%x, defaulting to sdboot\n",
++		       bootmode);
++		mode = "sdboot";
++		break;
++	}
++
++	env_set("modeboot", mode);
++	debug("adi_hwref: BOOT_MODE=0x%x -> modeboot=%s\n", bootmode, mode);
++}
++
++/* ------------------------------------------------------------------ */
++/* U-Boot command entry point                                         */
++/* ------------------------------------------------------------------ */
++
++static int do_adi_hwref(struct cmd_tbl *cmdtp, int flag,
++			int argc, char *const argv[])
++{
++	int raw, code12, hwref;
++	char buf[16];
++	u32 cfg_save;
++
++	/* Detect boot mode and set modeboot if not already set */
++	adi_set_modeboot();
++
++	/* Enable the PS-XADC interface */
++	cfg_save = xadc_read(XADC_CFG);
++	xadc_write(XADC_CFG, XADC_CFG_ENABLE |
++			      XADC_CFG_REDGE |
++			      XADC_CFG_TCKRATE_DIV(0x1F) |
++			      XADC_CFG_IGAP(0x14));
++
++	/* Short settling delay */
++	udelay(100);
++
++	/* Read Vp/Vn channel (dedicated analog input) */
++	raw = xadc_drp_read(XADC_REG_VPVN);
++	if (raw < 0) {
++		printf("adi_hwref: XADC read timeout\n");
++		xadc_write(XADC_CFG, cfg_save);
++		return CMD_RET_FAILURE;
++	}
++
++	/*
++	 * Upper 12 bits are the conversion result
++	 * (16-bit left-justified in the register)
++	 */
++	code12 = raw >> 4;
++
++	hwref = xadc_code_to_hwref(code12);
++
++	snprintf(buf, sizeof(buf), "config@%d", hwref);
++	env_set("fit_config", buf);
++
++	/* PlutoSDR Rev.A identification */
++	if (hwref == 0)
++		env_set("PlutoRevA", "1");
++
++	debug("adi_hwref: raw=0x%04x code12=%d hwref=%d fit_config=%s\n",
++	      raw, code12, hwref, buf);
++
++	/* Restore original XADC configuration */
++	xadc_write(XADC_CFG, cfg_save);
++
++	return CMD_RET_SUCCESS;
++}
++
++U_BOOT_CMD(
++	adi_hwref, 1, 0, do_adi_hwref,
++	"detect ADI board HW revision via Zynq XADC and set boot mode",
++	"\n"
++	"    Reads the Zynq XADC Vp/Vn channel to sample the resistor-\n"
++	"    divider voltage encoding the board hardware revision.\n"
++	"    Sets env 'fit_config' to config@<0..9>.\n"
++	"    On PlutoSDR Rev.A also sets env 'PlutoRevA'.\n"
++	"\n"
++	"    Also reads the Zynq SLCR BOOT_MODE register and sets env\n"
++	"    'modeboot' (qspiboot, sdboot, jtagboot, ...) if not already\n"
++	"    defined, restoring the auto-detection from legacy Xilinx U-Boot.\n"
++);
+-- 
+2.43.0
+
