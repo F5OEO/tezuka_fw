@@ -1,0 +1,21 @@
+--- a/board/xilinx/zynq/board.c	2026-05-07 16:30:06.161152432 +0200
++++ b/board/xilinx/zynq/board.c	2026-05-07 16:29:50.145169532 +0200
+@@ -143,11 +143,13 @@
+ 
+ 	switch (bootmode) {
+ 	case ZYNQ_BM_SD:
+-		if (IS_ENABLED(CONFIG_ENV_IS_IN_FAT))
+-			return ENVL_FAT;
+-		if (IS_ENABLED(CONFIG_ENV_IS_IN_EXT4))
+-			return ENVL_EXT4;
+-		return ENVL_NOWHERE;
++    if (IS_ENABLED(CONFIG_ENV_IS_IN_FAT))
++        return ENVL_FAT;
++    if (IS_ENABLED(CONFIG_ENV_IS_IN_EXT4))
++        return ENVL_EXT4;
++    if (IS_ENABLED(CONFIG_ENV_IS_IN_SPI_FLASH))
++        return ENVL_SPI_FLASH;
++    return ENVL_NOWHERE;
+ 	case ZYNQ_BM_NAND:
+ 		if (IS_ENABLED(CONFIG_ENV_IS_IN_NAND))
+ 			return ENVL_NAND;
