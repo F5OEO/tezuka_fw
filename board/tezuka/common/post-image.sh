@@ -32,6 +32,9 @@ lzma -z -k -f "$BIN_DIR/Image"
 cp "$BOARD_DIR/plutomaia.its" "$BIN_DIR/plutomaia.its"
 
 echo "# entering $BIN_DIR for the next command"
+
+echo "img : {$BIN_DIR/system_top.bit }" >  $BIN_DIR/system.bif
+"$BOOTGEN" -image $BIN_DIR/system.bif -process_bitstream bin -arch zynq -w -o i $BIN_DIR/system_top.bit.bin
 (cd "$BIN_DIR" && mkimage -f plutomaia.its pluto.itb)
 
 echo "generating the pluto.frm"
@@ -49,6 +52,10 @@ echo "img : {[bootloader] $BIN_DIR/fsbl.elf $BIN_DIR/u-boot.elf}" > "$BIN_DIR/bo
 "$BOOTGEN" -image "$BIN_DIR/boot.bif" -w -o i "$BIN_DIR/boot.img"
 
 echo "generating the boot.frm"
+FW_VERSION=$(cd "$COMMON_DIR" && git describe --abbrev=4 --always --tags)
+sed "s/#BUILD#/${FW_VERSION}/g" "$COMMON_DIR/uboot-env.txt" > "$BIN_DIR/uboot-env.txt"
+"$HOST_DIR/bin/mkenvimage" -s 0x20000 -o "$BIN_DIR/uboot-env.bin" "$COMMON_DIR/uboot-env.txt"
+
 cat "$BIN_DIR/boot.img" "$BIN_DIR/uboot-env.bin" "$COMMON_DIR/target_mtd_info.key" | \
 	tee "$BIN_DIR/boot.frm" | md5sum | cut -d ' ' -f1 | tee -a "$BIN_DIR/boot.frm"
 
@@ -78,14 +85,14 @@ if [ -e "$BOARD_DIR/bitstream/overclock/" ]; then
 fi
 
 # SYSTEM TOP.BIN when need to launch from USB or SD without BOOT.BIN
-echo "img : {$BIN_DIR/system_top.bit }" >  $BIN_DIR/system.bif
-"$BOOTGEN" -image $BIN_DIR/system.bif -process_bitstream bin -arch zynq -w -o i $BIN_DIR/system_top.bin
+#echo "img : {$BIN_DIR/system_top.bit }" >  $BIN_DIR/system.bif
+#"$BOOTGEN" -image $BIN_DIR/system.bif -process_bitstream bin -arch zynq -w -o i $BIN_DIR/system_top.bin
 cp $BIN_DIR/system_top.bit.bin $SDIMGDIR/system_top.bin
 
 rm "$SDIMGDIR/boot.bif"
-xz -dfk "$BIN_DIR/rootfs.cpio.xz"
 
-mkimage -A arm -T ramdisk -C lzma -d "$BIN_DIR/rootfs.cpio.lzma" "$SDIMGDIR/uramdisk.image.lzma"
+#Compression none, means uboot is not decompress it and let kernel decompress it
+mkimage -A arm -T ramdisk -C none -d "$BIN_DIR/rootfs.cpio.xz" "$SDIMGDIR/uramdisk.image.xz"
 
 lzma -z -k -f "$BIN_DIR/Image"
 mkimage -A arm -O linux -T kernel -C lzma -a 0x8000 -e 0x8000 \
