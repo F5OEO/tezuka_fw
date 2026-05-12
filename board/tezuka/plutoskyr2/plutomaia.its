@@ -29,6 +29,7 @@
 			type = "fpga";
 			arch = "arm";
 			compression = "none";
+			compatible = "u-boot,fpga-legacy";
 			load = <0xF000000>;
 			hash@1 {
 				algo = "md5";
@@ -54,7 +55,7 @@
 			type = "ramdisk";
 			arch = "arm";
 			os = "linux";
-			
+			compression = "none";
 			hash@1 {
 				algo = "md5";
 			};

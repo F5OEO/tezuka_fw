@@ -126,20 +126,30 @@ maxcpus=2
 
 netmask=255.255.255.0
 
-preboot=\
+preboot_main=\
   run banner; \
-  adi_hwref; \
   if test $modeboot = sdboot; then \
     if env run sd_uEnvtxt_existence_test; then \
       if env run loadbootenv; then \
           env run importbootenv; \
       fi; \
     fi; \
-      elif test $modeboot = qspiboot; then \
+  elif test $modeboot = qspiboot; then \
     if env run qspiboot_bootenv; then \
         env import -t ${loadbootenv_addr} 0x20000; \
     fi; \
   fi;
+
+
+preboot=adi_hwref; run preboot_main
+
+pl_init=\
+  echo "Initializing PL infrastructure..."; \
+  mw 0xF8000008 0xDF0D; \
+  mw 0xF8000900 0x0000000F; \
+  mw 0xF8000240 0x00000000; \
+  mw 0xF8000004 0x767B; \
+  echo "PL level shifters and clocks enabled";
 
 qspiboot_bootenv=sf probe && sf read ${extraenv_load_address} 0x100000 0x20000;
 qspiboot_extraenv=sf read ${extraenv_load_address} 0xFF000 0x1000;
@@ -148,14 +158,16 @@ qspiboot=\
   echo Copying Linux from QSPI flash to RAM... && run read_sf && if run adi_loadvals; then \
     echo Loaded AD936x refclk frequency and model into devicetree; \
   fi; \
+  run pl_init; \
   setenv bootargs console=ttyPS0,115200 maxcpus=${maxcpus} rootfstype=ramfs root=/dev/ram0 rw earlyprintk UBOOT_MODEBOOT=$modeboot UBOOT_VERSION='\"'${uboot-version}'\"' \
-  && bootm ${fit_load_address}#${fit_config} || echo BOOT failed entering DFU mode ...
+  && bootm ${fit_load_address}#${fit_config} || echo BOOT failed entering DFU mode
 
 qspiboot_verbose=\
   adi_hwref; \
   echo Copying Linux from QSPI flash to RAM... && run read_sf && if run adi_loadvals; then \
     echo Loaded AD936x refclk frequency and model into devicetree; \
   fi; \
+  run pl_init; \
   setenv bootargs console=ttyPS0,115200 maxcpus=${maxcpus} rootfstype=ramfs root=/dev/ram0 rw earlyprintk UBOOT_MODEBOOT=$modeboot UBOOT_VERSION='\"'${uboot-version}'\"' \
   && bootm ${fit_load_address}#${fit_config} || echo BOOT failed entering DFU mode ...
 
@@ -164,6 +176,7 @@ qspiboot_silent=\
   echo Booting silently; \
   set stdout nulldev; \
   run read_sf; run adi_loadvals; run qspiboot_extraenv; \
+  run pl_init; \
   setenv bootargs console=ttyPS0,115200 maxcpus=${maxcpus} rootfstype=ramfs root=/dev/ram0 rw quiet loglevel=4 UBOOT_MODEBOOT=$modeboot UBOOT_VERSION='\"'${uboot-version}'\"' \
   && bootm ${fit_load_address}#${fit_config} || set stdout serial@e0000000;
 
@@ -175,12 +188,12 @@ ramboot_verbose=\
   setenv bootargs console=ttyPS0,115200 maxcpus=${maxcpus} rootfstype=ramfs root=/dev/ram0 rw earlyprintk UBOOT_MODEBOOT=$modeboot UBOOT_VERSION='\"'${uboot-version}'\"' \
   && bootm ${fit_load_address}#${fit_config}
 
-ramdisk_image=uramdisk.image.lzma
+ramdisk_image=uramdisk.image.xz
 ramdisk_load_address=0x4000000
 ramdisk_size=0x400000
 read_sf=sf probe 0:0 50000000 0 && run qspiboot_extraenv && sf read ${fit_load_address} 0x200000 ${fit_size} && iminfo ${fit_load_address} || sf read ${fit_load_address} 0x200000 0x1E00000;
 refclk_source=internal
-resetenv=env default -f -a; run uenvboot; env save
+resetenv=env default -f -a; env save
 sdboot=\
   if test -n "${mode_rootfs}" && test "${mode_rootfs}" = "kuiper"; then \
     run sdboot_kuiper; \
