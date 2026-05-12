@@ -1,0 +1,58 @@
+Remove nfc0 references from unrelated board DTS files
+
+DTC 1.7.2 intermittently fails to resolve the nfc0 label from
+zynq-7000.dtsi during overlay-aware DTS compilation. Remove the
+nfc0 references from bitmain-antminer-s9.dts and zynq-zc770-xm011.dts
+since these boards are irrelevant to tezuka builds.
+
+--- a/arch/arm/dts/bitmain-antminer-s9.dts
++++ b/arch/arm/dts/bitmain-antminer-s9.dts
+@@ -50,14 +50,6 @@
+ 	ps-clk-frequency = <33333333>;
+ };
+ 
+-&nfc0 {
+-	status = "okay";
+-	#address-cells = <1>;
+-	#size-cells = <0>;
+-	nand@0 {
+-		reg = <0>;
+-	};
+-};
+ 
+ &smcc {
+ 	status = "okay";
+--- a/arch/arm/dts/zynq-zc770-xm011.dts
++++ b/arch/arm/dts/zynq-zc770-xm011.dts
+@@ -47,31 +47,6 @@
+ 	};
+ };
+ 
+-&nfc0 {
+-	status = "okay";
+-	#address-cells = <1>;
+-	#size-cells = <0>;
+-	nand@0 {
+-		reg = <0>;
+-		partitions {
+-			compatible = "fixed-partitions";
+-			#address-cells = <1>;
+-			#size-cells = <1>;
+-			partition@0 {
+-				label = "nand-fsbl-uboot";
+-				reg = <0x0 0x1000000>;
+-			};
+-			partition@1000000 {
+-				label = "nand-linux";
+-				reg = <0x1000000 0x2000000>;
+-			};
+-			partition@3000000 {
+-				label = "nand-rootfs";
+-				reg = <0x3000000 0x200000>;
+-			};
+-		};
+-	};
+-};
+ 
+ &smcc {
+ 	status = "okay";

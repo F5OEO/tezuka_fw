@@ -1,0 +1,17 @@
+Fix dfu_fill_entity_sf redefinition when CONFIG_DFU_SF is enabled
+
+CONFIG_IS_ENABLED(DFU_SF) evaluates to false even when CONFIG_DFU_SF=1
+in autoconf.h, because the XPL_ prefix expansion checks SPL_DFU_SF
+in some build contexts. Use a direct ifdef check instead.
+
+--- a/include/dfu.h
++++ b/include/dfu.h
+@@ -489,7 +489,7 @@
+ }
+ #endif
+ 
+-#if CONFIG_IS_ENABLED(DFU_SF)
++#ifdef CONFIG_DFU_SF
+ extern int dfu_fill_entity_sf(struct dfu_entity *dfu, char *devstr,
+ 			      char **argv, int argc);
+ #else
