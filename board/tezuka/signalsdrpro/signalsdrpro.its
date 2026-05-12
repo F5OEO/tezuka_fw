@@ -53,11 +53,11 @@
 
 		linux_kernel@1 {
 			description = "Linux";
-			data = /incbin/("zImage");
+			data = /incbin/("Image.lzma");
 			type = "kernel";
 			arch = "arm";
 			os = "linux";
-			compression = "none";
+			compression = "lzma";
 			load = <0x8000>;
 			entry = <0x8000>;
 			hash@1 {
@@ -66,11 +66,11 @@
 		};
 		ramdisk@1 {
 			description = "Ramdisk";
-			data = /incbin/("rootfs.cpio.gz");
+			data = /incbin/("rootfs.cpio.xz");
 			type = "ramdisk";
 			arch = "arm";
 			os = "linux";
-			compression = "gzip";
+			compression = "none";
 			hash@1 {
 				algo = "md5";
 			};
