@@ -1,4 +1,6 @@
 [
+  {"board": "fishball_mini",      "defconfig": "fishball_mini_defconfig"},
+  {"board": "fishball_mini_7020", "defconfig": "fishball_mini_7020_defconfig"},
   {"board": "pluto",              "defconfig": "pluto_maiasdr_defconfig"},
   {"board": "plutoplus",          "defconfig": "plutoplus_maiasdr_defconfig"},
   {"board": "e200",               "defconfig": "e200_maiasdr_defconfig"},
@@ -6,8 +8,6 @@
   {"board": "libre",              "defconfig": "libre_maiasdr_defconfig"},
   {"board": "fishball",           "defconfig": "fishball_maiasdr_defconfig"},
   {"board": "fishball7020",       "defconfig": "fishball_maiasdr_7020_defconfig"},
-  {"board": "fishball_mini",      "defconfig": "fishball_mini_defconfig"},
-  {"board": "fishball_mini_7020", "defconfig": "fishball_mini_7020_defconfig"},
   {"board": "nano",               "defconfig": "nano_defconfig"},
   {"board": "plutoskyr2",         "defconfig": "plutoskyr2_defconfig"},
   {"board": "signalsdrpro",       "defconfig": "signalsdrpro_defconfig"}
