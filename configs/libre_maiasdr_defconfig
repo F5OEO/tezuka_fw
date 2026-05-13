@@ -137,7 +137,7 @@ BR2_LINUX_KERNEL_CUSTOM_CONFIG_FILE="$(BR2_EXTERNAL_PLUTOSDR_PATH)/board/tezuka/
 BR2_LINUX_KERNEL_CONFIG_FRAGMENT_FILES="$(BR2_EXTERNAL_PLUTOSDR_PATH)/board/tezuka/libre/kernel/fragment/frag1.config"
 BR2_TARGET_UBOOT_CUSTOM_CONFIG_FILE="$(BR2_EXTERNAL_PLUTOSDR_PATH)/board/tezuka/common/uboot.config"
 BR2_TARGET_UBOOT_CUSTOM_DTS_PATH="$(BR2_EXTERNAL_PLUTOSDR_PATH)/board/tezuka/libre/u-boot-dts/zynq-pluto-sdr.dts"
-BR2_PACKAGE_HOST_UBOOT_TOOLS_ENVIMAGE_SOURCE="${BR2_EXTERNAL_PLUTOSDR_PATH}/board/tezuka/libre/uboot-env.txt"
+BR2_PACKAGE_HOST_UBOOT_TOOLS_ENVIMAGE_SOURCE="${BR2_EXTERNAL_PLUTOSDR_PATH}/board/tezuka/common/uboot-env.txt"
 BR2_TARGET_UBOOT_CONFIG_FRAGMENT_FILES="${BR2_EXTERNAL_PLUTOSDR_PATH}/board/tezuka/common/uboot-env.config ${BR2_EXTERNAL_PLUTOSDR_PATH}/board/tezuka/libre/u-boot-config/board_frag.config"
 
 BR2_LINUX_KERNEL_CUSTOM_DTS_PATH="$(BR2_EXTERNAL_PLUTOSDR_PATH)/board/tezuka/libre/dts/zynq-libre.dts $(BR2_EXTERNAL_PLUTOSDR_PATH)/board/tezuka/libre/dts/zynq-libre.dtsi $(BR2_EXTERNAL_PLUTOSDR_PATH)/board/tezuka/libre/dts/zynq-7000.dtsi "
