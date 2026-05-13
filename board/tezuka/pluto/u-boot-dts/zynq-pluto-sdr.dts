@@ -35,16 +35,12 @@
 	};
 };
 
-/* If you can't modify dtsi, add to your board DTS: */
-/ {
-    amba {
-        slcr: slcr@f8000000 {
-            bootph-all;
-            clkc: clkc@100 {
-                bootph-all;
-            };
-        };
-    };
+&slcr {
+	bootph-all;
+};
+
+&clkc {
+	bootph-all;
 };
 
 
