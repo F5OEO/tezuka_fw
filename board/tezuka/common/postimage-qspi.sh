@@ -28,7 +28,7 @@ fi
 # boot.img: FSBL + U-Boot only (no bitstream — FPGA loaded via pluto.itb FIT image)
 # pluto.itb: FIT image bundling kernel + rootfs + bitstream + DTB
 QSPIDIR="$BIN_DIR/flash"
-mkdir -p "$QSPIDIR"
+SDIMGDIR="$BIN_DIR/sdimg"
 
 echo "generating FIT image (pluto.itb)"
 cp "$BOARD_DIR/plutomaia.its" "$BIN_DIR/plutomaia.its"

@@ -28,7 +28,7 @@ fi
 # (produced by postimage-qspi.sh when called via post-image.sh)
 
 SDIMGDIR="$BIN_DIR/sdimg"
-mkdir -p "$SDIMGDIR"
+
 
 echo "generating BOOT.bin"
 echo "img : {[bootloader] $BIN_DIR/fsbl.elf [load = 0x1000000] $BIN_DIR/system_top.bit $BIN_DIR/u-boot.elf}" > "$SDIMGDIR/boot.bif"
@@ -55,6 +55,4 @@ mkimage -A arm -O linux -T kernel -C lzma -a 0x8000 -e 0x8000 \
 cp "$BIN_DIR/$DTB_NAME" "$SDIMGDIR/devicetree.dtb"
 cp "$COMMON_DIR/uboot-env.txt" "$SDIMGDIR/uEnv.txt"
 
-# ── Package ───────────────────────────────────────────────────────────────────
 
-cd "$BIN_DIR" && zip -r tezuka.zip boot.dfu boot.frm pluto.frm pluto.dfu sdimg/*

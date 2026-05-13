@@ -42,3 +42,9 @@ sed -e "s/#BUILD#/${FW_VERSION}/g" \
     -e "s/^fit_size=.*/fit_size=${FIT_SIZE}/" \
     "$COMMON_DIR/uboot-env.txt" > "$BIN_DIR/uboot-env.txt"
 "$HOST_DIR/bin/mkenvimage" -s 0x20000 -o "$BIN_DIR/uboot-env.bin" "$BIN_DIR/uboot-env.txt"
+
+QSPIDIR="$BIN_DIR/flash"
+mkdir -p "$QSPIDIR"
+
+SDIMGDIR="$BIN_DIR/sdimg"
+mkdir -p "$SDIMGDIR"
