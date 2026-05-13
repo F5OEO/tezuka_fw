@@ -38,11 +38,11 @@
 
 		linux_kernel@1 {
 			description = "Linux";
-			data = /incbin/("Image.lzma");
+			data = /incbin/("zImage");
 			type = "kernel";
 			arch = "arm";
 			os = "linux";
-			compression = "lzma";
+			compression = "none";
 			load = <0x8000>;
 			entry = <0x8000>;
 			hash@1 {

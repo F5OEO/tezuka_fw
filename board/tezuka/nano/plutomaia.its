@@ -27,6 +27,7 @@
 			description = "FPGA";
 			data = /incbin/("system_top.bit");
 			type = "fpga";
+			compatible = "u-boot,fpga-legacy";
 			arch = "arm";
 			compression = "none";
 			load = <0xF000000>;
