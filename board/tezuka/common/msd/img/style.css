@@ -10,7 +10,7 @@ body {
 /* ── Header ── */
 
 header {
-  margin-bottom: 1.5rem;
+  margin-bottom: 0.75rem;
 }
 
 a.logo-link {
@@ -29,7 +29,6 @@ pre.logo {
   color: var(--logo);
   white-space: pre;
   overflow-x: auto;
-  margin-bottom: 0.6rem;
   user-select: none;
   transition: color 0.15s;
 }
@@ -40,8 +39,8 @@ nav {
   display: flex;
   gap: 0.5rem;
   flex-wrap: wrap;
-  margin-bottom: 2rem;
-  padding-bottom: 1.25rem;
+  margin-bottom: 1rem;
+  padding-bottom: 0.75rem;
   border-bottom: 1px solid var(--border);
 }
 
