@@ -14,6 +14,7 @@ BR2_OPTIMIZE_3=y
 BR2_SSP_STRONG=y
 BR2_RELRO_FULL=y
 BR2_FORTIFY_SOURCE_2=y
+BR2_TIME_BITS_64=y
 BR2_TARGET_OPTIMIZATION="-mfpu=neon -ftree-vectorize -funsafe-math-optimizations"
 BR2_LINUX_KERNEL_PATCH="${BR2_EXTERNAL_PLUTOSDR_PATH}/board/tezuka/common/patches/linux/01e1dcc848ad2b63ec32384c3846f686fae6652c"
 BR2_GLOBAL_PATCH_DIR="${BR2_EXTERNAL_PLUTOSDR_PATH}/board/tezuka/common/patches"
