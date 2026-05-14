@@ -1,6 +1,0 @@
-config BR2_PACKAGE_PLUTO_SYSTEM_TOP_BIT
-	bool "pluto default system_top.bit"
-	help
-	  PlutoSDR default sytem_top.bit
-
-
