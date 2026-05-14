@@ -103,7 +103,7 @@ fdt_high=0x20000000
 fit_config=config@0
 fit_load_address=0x2080000
 fit_size=0x1E00000
-fpgaload=fatload mmc 0 0xF000000 system_top.bit.bin;fpga load 0 0xF000000 ${filesize}
+fpgaload=fatload usb 0 0xF000000 system_top.bin;fpga load 0 0xF000000 ${filesize}
 importbootenv=echo Importing environment from SD ...; env import -t ${loadbootenv_addr} $filesize
 initrd_high=0x20000000
 ipaddr=192.168.2.1
@@ -247,7 +247,9 @@ usbboot=\
     && load usb 0 ${ramdisk_load_address} ${ramdisk_image} \
     && run fpgaload \
     && sf probe \
+    && run read_sf \
     && run adi_loadvals; \
+    run pl_init; \
     setenv bootargs console=ttyPS0,115200 rootfstype=ramfs root=/dev/ram0 rw rootwait earlycon clk_ignore_unused cpuidle.off=1 uio_pdrv_genirq.of_id=uio_pdrv_genirq UBOOT_MODEBOOT=$modeboot UBOOT_VERSION='"\'${uboot-version}'\"' \
     && bootm ${fit_load_address} ${ramdisk_load_address} ${devicetree_load_address}; \
   fi
