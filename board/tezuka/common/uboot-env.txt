@@ -142,7 +142,7 @@ preboot_main=\
   elif test $modeboot = usbboot; then \
     if env run loadbootenv_usb; then \
         env run importbootenv; \
-    fi; \  
+    fi; \
   fi;
 
 
