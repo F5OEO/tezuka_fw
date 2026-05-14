@@ -159,7 +159,7 @@ qspiboot=\
     echo Loaded AD936x refclk frequency and model into devicetree; \
   fi; \
   run pl_init; \
-  setenv bootargs console=ttyPS0,115200 maxcpus=${maxcpus} rootfstype=ramfs root=/dev/ram0 rw earlyprintk UBOOT_MODEBOOT=$modeboot UBOOT_VERSION='\"'${uboot-version}'\"' \
+  setenv bootargs console=ttyPS0,115200 maxcpus=${maxcpus} rootfstype=ramfs root=/dev/ram0 rw earlyprintk clk_ignore_unused cpuidle.off=1 uio_pdrv_genirq.of_id=uio_pdrv_genirq UBOOT_MODEBOOT=$modeboot UBOOT_VERSION='\"'${uboot-version}'\"' \
   && bootm ${fit_load_address}#${fit_config} || echo BOOT failed entering DFU mode
 
 qspiboot_verbose=\
@@ -168,7 +168,7 @@ qspiboot_verbose=\
     echo Loaded AD936x refclk frequency and model into devicetree; \
   fi; \
   run pl_init; \
-  setenv bootargs console=ttyPS0,115200 maxcpus=${maxcpus} rootfstype=ramfs root=/dev/ram0 rw earlyprintk UBOOT_MODEBOOT=$modeboot UBOOT_VERSION='\"'${uboot-version}'\"' \
+  setenv bootargs console=ttyPS0,115200 maxcpus=${maxcpus} rootfstype=ramfs root=/dev/ram0 rw earlyprintk clk_ignore_unused cpuidle.off=1 uio_pdrv_genirq.of_id=uio_pdrv_genirq UBOOT_MODEBOOT=$modeboot UBOOT_VERSION='\"'${uboot-version}'\"' \
   && bootm ${fit_load_address}#${fit_config} || echo BOOT failed entering DFU mode ...
 
 qspiboot_silent=\
@@ -177,7 +177,7 @@ qspiboot_silent=\
   set stdout nulldev; \
   run read_sf; run adi_loadvals; run qspiboot_extraenv; \
   run pl_init; \
-  setenv bootargs console=ttyPS0,115200 maxcpus=${maxcpus} rootfstype=ramfs root=/dev/ram0 rw quiet loglevel=4 UBOOT_MODEBOOT=$modeboot UBOOT_VERSION='\"'${uboot-version}'\"' \
+  setenv bootargs console=ttyPS0,115200 maxcpus=${maxcpus} rootfstype=ramfs root=/dev/ram0 rw quiet loglevel=4 clk_ignore_unused cpuidle.off=1 uio_pdrv_genirq.of_id=uio_pdrv_genirq UBOOT_MODEBOOT=$modeboot UBOOT_VERSION='\"'${uboot-version}'\"' \
   && bootm ${fit_load_address}#${fit_config} || set stdout serial@e0000000;
 
 ramboot_verbose=\
@@ -185,7 +185,7 @@ ramboot_verbose=\
   echo Copying Linux from DFU to RAM... && run dfu_ram;if run adi_loadvals; then \
     echo Loaded AD936x refclk frequency and model into devicetree; \
   fi; \
-  setenv bootargs console=ttyPS0,115200 maxcpus=${maxcpus} rootfstype=ramfs root=/dev/ram0 rw earlyprintk UBOOT_MODEBOOT=$modeboot UBOOT_VERSION='\"'${uboot-version}'\"' \
+  setenv bootargs console=ttyPS0,115200 maxcpus=${maxcpus} rootfstype=ramfs root=/dev/ram0 rw earlyprintk clk_ignore_unused cpuidle.off=1 uio_pdrv_genirq.of_id=uio_pdrv_genirq UBOOT_MODEBOOT=$modeboot UBOOT_VERSION='\"'${uboot-version}'\"' \
   && bootm ${fit_load_address}#${fit_config}
 
 ramdisk_image=uramdisk.image.xz

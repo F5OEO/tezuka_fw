@@ -5,7 +5,7 @@
 kernel_version=$(uname -r)
 case "$1" in
   start)
-    /root/install_maia.sh
+    
 	printf "Loading maia-sdr.ko: "
 	# Module may be in extra/ (Buildroot <2026) or updates/ (Buildroot 2026+)
 	modprobe maia-sdr || insmod /lib/modules/"$kernel_version"/extra/maia-sdr.ko
