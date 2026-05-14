@@ -83,7 +83,7 @@ bootmenu_2=Boot from QSPI=setenv modeboot qspiboot; run qspiboot
 baudrate=115200
 bitstream_image=system.bit.bin
 bitstream_size=0x400000
-bootcmd=run $modeboot
+bootcmd=if test -n "${modeboot}"; then run ${modeboot}; else adi_hwref; run ${modeboot}; fi
 bootdelay=10
 bootenv=uEnv.txt
 boot_image=BOOT.bin
@@ -113,6 +113,7 @@ kernel_image=uImage
 loadbit_addr=0x100000
 loadbootenv_addr=0x2000000
 loadbootenv=load mmc 0 ${loadbootenv_addr} ${bootenv}
+loadbootenv_usb=load usb 0 ${loadbootenv_addr} ${bootenv}
 loaddfu=\
   if mmc rescan; then \
     fatload mmc 0 ${fit_load_address} pluto.dfu; \
@@ -138,10 +139,14 @@ preboot_main=\
     if env run qspiboot_bootenv; then \
         env import -t ${loadbootenv_addr} 0x20000; \
     fi; \
+  elif test $modeboot = usbboot; then \
+    if env run loadbootenv_usb; then \
+        env run importbootenv; \
+    fi; \  
   fi;
 
 
-preboot=adi_hwref; run preboot_main
+preboot=adi_hwref; run preboot_main ; adi_hwref;
 
 pl_init=\
   echo "Initializing PL infrastructure..."; \
