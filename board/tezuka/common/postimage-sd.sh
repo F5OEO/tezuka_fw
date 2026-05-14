@@ -53,6 +53,6 @@ mkimage -A arm -O linux -T kernel -C lzma -a 0x8000 -e 0x8000 \
 	-n "Linux kernel" -d "$BIN_DIR/Image.lzma" "$SDIMGDIR/uImage"
 
 cp "$BIN_DIR/$DTB_NAME" "$SDIMGDIR/devicetree.dtb"
-cp "$COMMON_DIR/uboot-env.txt" "$SDIMGDIR/uEnv.txt"
+cp "$BIN_DIR/uboot-env.txt" "$SDIMGDIR/uEnv.txt"
 
 
