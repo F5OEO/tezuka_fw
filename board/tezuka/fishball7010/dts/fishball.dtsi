@@ -233,17 +233,7 @@
 			adi,axi-dds-default-scale = <0>;
 		};
 
-		axi_uartlite_0:	serial@42C00000 {
-			compatible = "xlnx,xps-uartlite-1.00.a";
-			current-speed = <9600>;
-			device_type = "serial";
-			interrupt-names = "interrupt";
-			status = "okay";
-			reg = <0x42C00000 0x1000>;
-			interrupt-parent = <&intc>;
-			interrupts = <0 59 IRQ_TYPE_LEVEL_HIGH>;
-			clock = <100000000>;
-		};	
+		
 
 		
 	};
