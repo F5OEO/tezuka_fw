@@ -165,7 +165,7 @@ qspiboot=\
   fi; \
   run pl_init; \
   setenv bootargs console=ttyPS0,115200 maxcpus=${maxcpus} rootfstype=ramfs root=/dev/ram0 rw earlyprintk clk_ignore_unused cpuidle.off=1 uio_pdrv_genirq.of_id=uio_pdrv_genirq UBOOT_MODEBOOT=$modeboot UBOOT_VERSION='\"'${uboot-version}'\"' \
-  && bootm ${fit_load_address}#${fit_config} || echo BOOT failed entering DFU mode
+  && bootm ${fit_load_address}#${fit_config} || echo BOOT failed entering DFU mode && run dfu_sf
 
 qspiboot_verbose=\
   adi_hwref; \
@@ -174,7 +174,7 @@ qspiboot_verbose=\
   fi; \
   run pl_init; \
   setenv bootargs console=ttyPS0,115200 maxcpus=${maxcpus} rootfstype=ramfs root=/dev/ram0 rw earlyprintk clk_ignore_unused cpuidle.off=1 uio_pdrv_genirq.of_id=uio_pdrv_genirq UBOOT_MODEBOOT=$modeboot UBOOT_VERSION='\"'${uboot-version}'\"' \
-  && bootm ${fit_load_address}#${fit_config} || echo BOOT failed entering DFU mode ...
+  && bootm ${fit_load_address}#${fit_config} || echo BOOT failed entering DFU mode && run dfu_sf
 
 qspiboot_silent=\
   set stdout serial@e0000000 && sf probe; \
