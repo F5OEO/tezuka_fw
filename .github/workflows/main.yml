@@ -70,7 +70,9 @@ jobs:
 
         mkdir ${{runner.workspace}}/build && cd ${{runner.workspace}}/build
         wget -O- https://buildroot.org/downloads/buildroot-2025.05.tar.gz | tar -xz --one-top-level=buildroot --strip-components=1
-               
+        # Remove built-in libiio .mk — BR2_EXTERNAL package provides v1.0
+        rm -f ${{runner.workspace}}/build/buildroot/package/libiio/libiio.mk
+
         cd  ${{runner.workspace}}/build/buildroot
         make pluto_maiasdr_defconfig && make && mv ${{runner.workspace}}/build/buildroot/output/images/tezuka.zip ${{runner.workspace}}/build/pluto.zip
         rm output/images/sdimg/* -r
