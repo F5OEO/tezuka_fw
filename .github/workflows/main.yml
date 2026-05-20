@@ -5,8 +5,8 @@ on:
   # zips. SemVer pattern (v-prefixed) triggers the release pipeline.
   push:
     tags:
-      - 'v[0-9]+.[0-9]+.[0-9]+'
-      - 'v[0-9]+.[0-9]+.[0-9]+-*'
+      - "v[0-9]+.[0-9]+.[0-9]+"
+      - "v[0-9]+.[0-9]+.[0-9]+-*"
   # Manual dispatch for smoke testing. The release job is skipped for
   # dispatch runs; only artifacts are produced.
   workflow_dispatch:
@@ -15,7 +15,12 @@ on:
         description: 'Comma-separated board names, or "all" (validated against boards.json)'
         type: string
         required: false
-        default: 'all'
+        default: "all"
+      release:
+        description: "Create a draft release (for testing)"
+        type: boolean
+        required: false
+        default: false
 
 # Cancel in-progress dispatch runs on new dispatch of the same ref, but
 # never cancel a tag-push release build (a half-published release is worse
@@ -87,6 +92,10 @@ jobs:
     needs: matrix
     runs-on: ubuntu-22.04
     name: ${{ matrix.defconfig }}
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
     strategy:
       fail-fast: false
       matrix: ${{ fromJson(needs.matrix.outputs.matrix) }}
@@ -160,20 +169,6 @@ jobs:
         with:
           path: ${{ env.OUTPUT_DIR }}
           key: output-${{ matrix.board }}-${{ hashFiles('package/**/*.mk', 'package/**/*.hash', 'buildroot.version', 'patches/buildroot/**', format('configs/{0}', matrix.defconfig)) }}
-
-      # Renders a per-leg cache hit/miss table on the run page.
-      - name: Cache restore summary
-        run: |
-          {
-            echo "### Cache restore (${{ matrix.board }})"
-            echo
-            echo "| cache | hit |"
-            echo "|---|---|"
-            echo "| Buildroot downloads | ${{ steps.dl-cache.outputs.cache-hit || 'miss' }} |"
-            echo "| ccache              | ${{ steps.ccache-cache.outputs.cache-hit || 'miss' }} |"
-            echo "| Buildroot tree      | ${{ steps.br-cache.outputs.cache-hit || 'miss' }} |"
-            echo "| Buildroot output    | ${{ steps.output-cache.outputs.cache-hit || 'miss' }} |"
-          } >> "$GITHUB_STEP_SUMMARY"
 
       # uboot-env-hook.mk writes this in the source tree at U-Boot
       # extract time; with output/ cached, extract is skipped and the
@@ -263,6 +258,52 @@ jobs:
             echo
           } >> "$GITHUB_STEP_SUMMARY"
 
+      - name: Generate SBOM
+        run: |
+          python3 -m pip install -q cyclonedx-buildroot
+          make -C buildroot O="${OUTPUT_DIR}" legal-info
+          python3 -m cyclonedx_buildroot \
+            -i "${OUTPUT_DIR}/legal-info/manifest.csv" \
+            -n "tezuka-${{ matrix.board }}" \
+            -v "${GITHUB_SHA::7}" \
+            -o "artifacts/tezuka-${{ matrix.board }}/sbom"
+
+          # bom/ — license texts + SBOM copies for the release
+          ARTIFACT="artifacts/tezuka-${{ matrix.board }}"
+          mkdir -p "${ARTIFACT}/bom/licenses"
+          cp -r "${OUTPUT_DIR}/legal-info/licenses/." "${ARTIFACT}/bom/licenses/."
+          cp "${ARTIFACT}/sbom.json" "${ARTIFACT}/bom/sbom.json"
+          cp "${ARTIFACT}/sbom.xml" "${ARTIFACT}/bom/sbom.xml"
+
+          # README + LICENSE at artifact root
+          cp README.md "${ARTIFACT}/README.md"
+          cp LICENSE "${ARTIFACT}/LICENSE"
+          ls -la "${ARTIFACT}/"
+
+      - name: Attest artifact with SBOM
+        uses: actions/attest@v4
+        with:
+          subject-path: ${{ github.workspace }}/build/${{ matrix.board }}.zip
+          sbom-path: ${{ github.workspace }}/artifacts/tezuka-${{ matrix.board }}/sbom.json
+
+      - name: Clean up root duplicates
+        run: |
+          rm -f "artifacts/tezuka-${{ matrix.board }}/sbom.json"
+          rm -f "artifacts/tezuka-${{ matrix.board }}/sbom.xml"
+
+      - name: Cache restore summary
+        run: |
+          {
+            echo "### Cache restore (${{ matrix.board }})"
+            echo
+            echo "| cache | hit |"
+            echo "|---|---|"
+            echo "| Buildroot downloads | ${{ steps.dl-cache.outputs.cache-hit || 'miss' }} |"
+            echo "| ccache              | ${{ steps.ccache-cache.outputs.cache-hit || 'miss' }} |"
+            echo "| Buildroot tree      | ${{ steps.br-cache.outputs.cache-hit || 'miss' }} |"
+            echo "| Buildroot output    | ${{ steps.output-cache.outputs.cache-hit || 'miss' }} |"
+          } >> "$GITHUB_STEP_SUMMARY"
+
       - name: Upload artifact
         uses: actions/upload-artifact@v7
         with:
@@ -271,18 +312,20 @@ jobs:
           if-no-files-found: error
 
   release:
-    # Publish only on tag push. Dispatch runs build artifacts but skip
-    # release so they can be used for smoke testing without polluting
-    # the release stream.
     needs: tezuka
-    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
+    if: |
+      github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
+      || github.event_name == 'workflow_dispatch' && inputs.release
     runs-on: ubuntu-22.04
     permissions:
       contents: write
+      id-token: write
+      attestations: write
+      pull-requests: read
     steps:
       - uses: actions/checkout@v6
         with:
-          fetch-depth: 0     # git-cliff walks full history
+          fetch-depth: 0 # git-cliff walks full history
 
       - name: Compute changelog range
         id: cliff-range
@@ -302,6 +345,8 @@ jobs:
           echo "Changelog range: ${RANGE}"
 
       - name: Generate release notes
+        if: github.event_name == 'push'
+        continue-on-error: true
         uses: orhun/git-cliff-action@v4
         with:
           config: cliff.toml
@@ -313,31 +358,52 @@ jobs:
           GITHUB_REPO: ${{ github.repository }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Fallback release notes
+        run: |
+          if [ ! -f NOTES.md ]; then
+            echo 'CI test release' > NOTES.md
+          fi
+
       - uses: actions/download-artifact@v8
         with:
           path: artifacts/
           pattern: tezuka-*
 
-      - name: Package zips and publish
+      - name: Package release zips
+        env:
+          TAG: ${{ github.event_name == 'push' && github.ref_name || format('ci-test-{0}', github.sha) }}
+        run: |
+          set -euo pipefail
+          REV="${GITHUB_SHA::7}"
+          # Works with both flat (single artifact) and subdirectory layout
+          if ls artifacts/tezuka-*/ >/dev/null 2>&1; then
+            for dir in artifacts/tezuka-*/; do
+              board="$(basename "${dir%/}")"
+              board="${board#tezuka-}"
+              mv "${dir%/}" "artifacts/tezuka-${board}-${TAG}-${REV}"
+              (cd artifacts && zip -rq "../tezuka-${board}-${TAG}-${REV}.zip" "tezuka-${board}-${TAG}-${REV}")
+            done
+          else
+            # Flat download — rename and zip the whole tree
+            mv artifacts "tezuka-${TAG}-${REV}"
+            zip -rq "tezuka-${TAG}-${REV}.zip" "tezuka-${TAG}-${REV}"
+            mkdir artifacts
+            mv "tezuka-${TAG}-${REV}" artifacts/
+          fi
+
+      - name: Publish release
+        if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ github.ref_name }}
         run: |
           set -euo pipefail
-          REV="${GITHUB_SHA::7}"
-          # Artifacts come down as tezuka-<board>/. Zip each as
-          # tezuka-<board>-<tag>-<rev>.zip for the release.
-          for dir in artifacts/tezuka-*/; do
-            board="$(basename "${dir%/}")"
-            board="${board#tezuka-}"
-            mv "${dir%/}" "artifacts/tezuka-${board}-${TAG}-${REV}"
-            (cd artifacts && zip -rq "../tezuka-${board}-${TAG}-${REV}.zip" "tezuka-${board}-${TAG}-${REV}")
-          done
-          # Prerelease if tag has a dash suffix (vX.Y.Z-rc1), stable otherwise.
           flags=""
           [[ "$TAG" == *-* ]] && flags="--prerelease"
           gh release create "$TAG" $flags --draft --title "$TAG" --notes-file NOTES.md tezuka-*.zip
-          # Release summary for the workflow run page.
+
+      - name: Release summary
+        run: |
           {
             echo "## Release ${TAG}"
             echo
@@ -351,3 +417,8 @@ jobs:
               printf '| `%s` | %s | `%s` |\n' "${zip}" "${human}" "${sha}"
             done
           } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Attest release zips
+        uses: actions/attest@v4
+        with:
+          subject-path: ${{ github.workspace }}/tezuka-*.zip
