@@ -53,6 +53,7 @@ rm -Rf "${TARGET_DIR}/etc/dropbear"
 
 mkdir -p "${TARGET_DIR}/root/img"
 mkdir -p "${TARGET_DIR}/root/sweep"
+mkdir -p "${TARGET_DIR}/root/dash"
 mkdir -p "${TARGET_DIR}/mnt/jffs2"
 mkdir -p "${TARGET_DIR}/mnt/msd"
 mkdir -p "${TARGET_DIR}/mnt/nfs"
@@ -62,6 +63,7 @@ mkdir -p "${TARGET_DIR}/var/spool/cron/crontabs"
 
 ${INSTALL} -D -m 0644 "${BOARD_DIR}/msd/img/"* "${TARGET_DIR}/root/img/"
 ${INSTALL} -D -m 0644 "${BOARD_DIR}/msd/sweep/"* "${TARGET_DIR}/root/sweep/"
+cp -Rp "${BOARD_DIR}/msd/dash/"* "${TARGET_DIR}/root/dash/"
 ${INSTALL} -D -m 0644 "${BOARD_DIR}/msd/"*.* "${TARGET_DIR}/root/"
 
 ln -sf ../../wpa_supplicant/ifupdown.sh "${TARGET_DIR}/etc/network/if-up.d/wpasupplicant"
