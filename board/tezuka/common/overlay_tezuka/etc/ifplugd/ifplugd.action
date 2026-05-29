@@ -1,7 +1,11 @@
 #!/bin/sh
+ETH_IPADDR=$(fw_printenv -n ipaddr_eth 2> /dev/null)
+
 case "$2" in
     up)
-          /sbin/udhcpc -i "$1" -t 15 -T 4 -n -q -x hostname:"$(HOSTNAME)"
+        if [ -z "$ETH_IPADDR" ] || [ "$ETH_IPADDR" = "dhcp" ]; then
+          /sbin/udhcpc -i "$1" -t 15 -T 4 -n -q -x hostname:"$(hostname)"
+        fi  
         ;;
     down)
         /sbin/ip addr flush dev "$1"
