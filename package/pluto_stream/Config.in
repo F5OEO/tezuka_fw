@@ -1,0 +1,16 @@
+config BR2_PACKAGE_PLUTO_STREAM
+	bool "pluto-stream"
+	depends on BR2_TOOLCHAIN_HAS_THREADS
+	depends on BR2_ARM_CPU_HAS_NEON
+	select BR2_PACKAGE_LIBIIO
+	select BR2_PACKAGE_MOSQUITTO
+	help
+	  PlutoSDR DVB-S2 streaming and MQTT control applications.
+
+	  Builds two binaries:
+	    - pluto_mqtt_ctrl  (MQTT-based device control)
+	    - pluto_stream     (DVB-S2 TX/RX streaming)
+
+	  Requires libgse, Ne10 and civetweb at runtime.
+
+	  https://github.com/YOUR_USER/pluto-stream
