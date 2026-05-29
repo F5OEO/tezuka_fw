@@ -1,0 +1,20 @@
+--- a/fl2000_drm.c
++++ b/fl2000_drm.c
+@@ -125,7 +125,7 @@
+ /* Integer division compute of ppm error */
+ static u64 fl2000_pll_ppm_err(u64 clock_mil, u32 vco_clk, u32 divisor)
+ {
+-	u64 pll_clk_mil = (u64)vco_clk * FL2000_PLL_PRECISION / divisor;
++	u64 pll_clk_mil = div_u64((u64)vco_clk * FL2000_PLL_PRECISION, divisor);
+ 	u64 pll_clk_err;
+ 
+ 	/* Not using abs() here to avoid possible overflow */
+@@ -134,7 +134,7 @@
+ 	else
+ 		pll_clk_err = clock_mil - pll_clk_mil;
+ 
+-	return pll_clk_err / (clock_mil / FL2000_PLL_PRECISION);
++	return div_u64(pll_clk_err, (u32)div_u64(clock_mil, FL2000_PLL_PRECISION));
+ }
+ 
+ static inline u32 fl2000_pll_get_divisor(u64 clock_mil, u32 vco_clk, u64 *min_ppm_err)

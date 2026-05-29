@@ -1,0 +1,7 @@
+config BR2_PACKAGE_FL2K_KMOD
+	bool "fl2k module"
+    depends on BR2_LINUX_KERNEL
+	help
+	  FL2K kernel module
+
+
