@@ -15,14 +15,19 @@ adi_loadfdt=\
   else \
     echo "Loading devicetree from FIT image..."; \
     run adi_loadfdt_multiple; \
-  fi;
+  fi; \
+  fdt resize;
 
 adi_config_clocks=\
   if test -n "${ad936x_ext_refclk}" && test ! -n "${ad936x_skip_ext_refclk}"; then \
-    fdt set /clocks/clock@0 clock-frequency ${ad936x_ext_refclk}; \
+    echo "Setting ext refclk to ${ad936x_ext_refclk}"; \
+    fdt set /clocks/clock@0 clock-frequency <${ad936x_ext_refclk}>; \
+  else \
+    echo "WARN: ad936x_ext_refclk not set or skipped"; \
   fi; \
   if test -n "${ad936x_ext_refclk_override}"; then \
-    fdt set /clocks/clock@0 clock-frequency ${ad936x_ext_refclk_override}; \
+    echo "Overriding refclk to ${ad936x_ext_refclk_override}"; \
+    fdt set /clocks/clock@0 clock-frequency <${ad936x_ext_refclk_override}>; \
   fi;
 
 adi_config_gpio_by_refclk=\
@@ -62,7 +67,8 @@ adi_loadvals=\
   run adi_config_clocks; \
   run adi_config_gpio_by_refclk; \
   run adi_config_rf_mode; \
-  run adi_config_devicetree;
+  run adi_config_devicetree; \
+  saveenv;
 
 banner=\
   echo "___________                  __            "; \
