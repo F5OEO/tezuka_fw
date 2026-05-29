@@ -1,0 +1,11 @@
+config BR2_PACKAGE_SATDUMP
+	bool "satdump"
+	select BR2_PACKAGE_VOLK
+	select BR2_PACKAGE_NANOMSG
+	help
+	  Satdump
+	  github (release)
+
+	  
+
+	  

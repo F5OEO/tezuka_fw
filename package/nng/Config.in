@@ -1,0 +1,11 @@
+config BR2_PACKAGE_NNG
+	bool "nng"
+	select BR2_PACKAGE_VOLK
+	
+	help
+	  Nano Message NNG
+	  github (release)
+
+	  
+
+	  
