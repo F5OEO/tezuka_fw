@@ -1,12 +1,11 @@
 #!/bin/bash
 
 SERIAL_PORT="/dev/ttyACM0"
-
-# declare folder, files and their corresponding aliases (seen by client)
+MQTT_FIFO="/tmp/mqtt_fifo"
 
 folder='/sys/bus/iio/devices/iio:device0/'
- echo 280000000 > /tmp/sweep_frequency
- echo 480000000 > /tmp/sweep_span
+echo 280000000 > /tmp/sweep_frequency
+echo 480000000 > /tmp/sweep_span
 
 # List of current values for different settings
 declare -A VMAP=(
@@ -44,77 +43,125 @@ declare -A cVMAP=(
   [${folder}out_voltage0_hardwaregain_available]='caps/tx/gain'
 )
 
-# based on VMAP, declare rVMAP
+# Reverse map for write commands
 declare -A rVMAP=(
   [rx/gain]=${folder}in_voltage0_hardwaregain
-  
 )
-#for K in "${!VMAP[@]}"; do rVMAP[${VMAP[$K]}]=$K; done
 
-# Publish to mqtt
+# ============================================================
+#  CACHE + PERSISTENT CONNECTIONS
+# ============================================================
+
+declare -A CACHE
+
+# --- MQTT: FIFO-fed background publisher (one persistent process) ---
+rm -f "$MQTT_FIFO"
+mkfifo "$MQTT_FIFO"
+
+# Background consumer reads "topic\tpayload" lines via --stdin-line pattern
+# Single loop, no fork-per-message: mosquitto_pub is called only for
+# messages that passed the cache check.
+(
+  while IFS=$'\t' read -r topic payload; do
+    /usr/bin/mosquitto_pub -r -i "tezuka_pub" -t "$topic" -m "$payload"
+  done
+) < "$MQTT_FIFO" &
+MQTT_PID=$!
+
+# Keep the write-end open so the FIFO never sees EOF
+exec 4>"$MQTT_FIFO"
+
+# --- Serial: open once, reuse file descriptor ---
+SERIAL_FD=""
+if [ -e "${SERIAL_PORT}" ]; then
+  exec 5>"${SERIAL_PORT}"
+  SERIAL_FD=5
+fi
+
+# Cleanup on exit
+cleanup () {
+  exec 4>&- 2>/dev/null
+  [ -n "$SERIAL_FD" ] && exec 5>&- 2>/dev/null
+  kill "$MQTT_PID" 2>/dev/null
+  rm -f "$MQTT_FIFO"
+}
+trap cleanup EXIT
+
+# ============================================================
+#  LOW-LEVEL PUBLISH HELPERS
+# ============================================================
+
+# Send to MQTT via the persistent FIFO (no fork)
 mqtt_publish () {
-  /usr/bin/mosquitto_pub -r -i "tezuka_pub" -t "state/${1}" -m "${2}"
+  printf '%s\t%s\n' "state/${1}" "${2}" >&4
 }
 
-# Publish to serial port.
+# Send to serial via the persistent FD (no fork)
 serial_publish () {
-  if [ -e "${SERIAL_PORT}" ]; then
-		echo "${1}" "${2}" > "${SERIAL_PORT}"
-  fi
-  
+  [ -n "$SERIAL_FD" ] && echo "${1} ${2}" >&5
 }
 
-# Generic publish function
+# Publish only if the value changed (cached)
 publish () {
-  mqtt_publish "${1}" "${2}"
-  serial_publish "${1}" "${2}"
+  local key="$1" val="$2"
+  if [ "${CACHE[$key]}" != "$val" ]; then
+    CACHE[$key]="$val"
+    mqtt_publish "$key" "$val"
+    serial_publish "$key" "$val"
+  fi
 }
 
-# File reader with error handling
+# Force-publish (bypass cache — use after a write command)
+publish_force () {
+  CACHE[$1]="$2"
+  mqtt_publish "$1" "$2"
+  serial_publish "$1" "$2"
+}
+
+# ============================================================
+#  FILE READING (bash built-in, no fork)
+# ============================================================
+
 read_file () {
   if [ -r "$1" ]; then
-    cat "${1}"
+    echo "$(<"$1")"
   else
     echo 'n/a'
   fi
 }
 
-# Publish data
-update_data () {
-  while read -r j; do
-    k=${VMAP[$j]};
-    v="$(read_file "$j")";
-    publish "${k}" "${v}";
-  done
-}
+# ============================================================
+#  DATA PUBLISHING
+# ============================================================
 
-declare -x sweep_frequency=200000000
-#export sweep_frequency
-#sweep_span=480000000
-#sweep_on=0
-
-# Collect all settings we want to report
+# Poll all data every cycle — cache prevents redundant MQTT/serial writes
 dump_data () {
+  # IIO settings (VMAP)
   for K in "${!VMAP[@]}"; do publish "${VMAP[$K]}" "$(read_file "$K")"; done
-  for K in "${!cVMAP[@]}"; do publish "${cVMAP[$K]}" "$(read_file "$K")"; done
-  publish "main/serial" "$(read_file /etc/serial)"
-  publish "main/hw_model" "$(grep 'hw_model=' /etc/libiio.ini | sed s,hw_model=,,)"
-  publish "main/fw_version" "$(grep 'fw_version=' /etc/libiio.ini | sed s,fw_version=,,)"
-  sweep=$(iio_attr -D ad9361-phy adi,rx-fastlock-pincontrol-enable)
 
+  # Capabilities (cVMAP)
+  for K in "${!cVMAP[@]}"; do publish "${cVMAP[$K]}" "$(read_file "$K")"; done
+
+  # Device info
+  publish "main/serial"     "$(read_file /etc/serial)"
+  publish "main/hw_model"   "$(grep 'hw_model='   /etc/libiio.ini | sed 's,hw_model=,,')"
+  publish "main/fw_version" "$(grep 'fw_version=' /etc/libiio.ini | sed 's,fw_version=,,')"
+
+  # Sweep state
+  sweep=$(iio_attr -D ad9361-phy adi,rx-fastlock-pincontrol-enable)
   if [ "$sweep" == "1" ]; then
     publish "rx/sweep/activate" "1"
-    
   else
     publish "rx/sweep/activate" "0"
   fi
-  echo  "$sweep" > /tmp/sweep_on
-  sweep_frequency=$(cat /tmp/sweep_frequency)
-  sweep_span=$(cat /tmp/sweep_span)
-  
+  echo "$sweep" > /tmp/sweep_on
+
+  sweep_frequency=$(< /tmp/sweep_frequency)
+  sweep_span=$(< /tmp/sweep_span)
   publish "rx/sweep/frequency" "$sweep_frequency"
   publish "rx/span" "$sweep_span"
 
+  # RX overload flag
   rx_overload=$(iio_attr -D ad9361-phy direct_reg_access 0x5E)
   rx_overload=$((rx_overload & 1))
   if [ "$rx_overload" == "1" ]; then
@@ -122,110 +169,90 @@ dump_data () {
   else
     publish "rx/overload" "0"
   fi
-
 }
 
-#frequency,span,on
+# ============================================================
+#  SWEEP HELPER
+# ============================================================
 
 update_sweep () {
-   
-      /root/sweep.sh "$1" "$2" "$3"
-   
+  /root/sweep.sh "$1" "$2" "$3"
 }
 
-# Parse data provided on mqtt and execute commands
+# ============================================================
+#  COMMAND PARSER (from MQTT cmd/# topic)
+# ============================================================
+
 parse_cmd () {
-  
-  cmd="${1//cmd\//}"  
-  shift       
+  cmd="${1//cmd\//}"
+  shift
   val="${*}"
-  #echo ${val} > ${rVMAP[$cmd]}
-  #First check if it is a classical iio cmd
-  if  [ "${rVMAP[$cmd]}" ]; then
-      #echo "Cmd known ${cmd} ${val}"  
-      echo "${val}" > "${rVMAP[$cmd]}" &
+
+  # Fast path: direct sysfs write via reverse map
+  if [ "${rVMAP[$cmd]}" ]; then
+    echo "${val}" > "${rVMAP[$cmd]}" &
   else
-    echo "${cmd}" "${val}"
     case $cmd in
     rx/rfinput)
       /root/switch_rfinput.sh "${val}" &
     ;;
     rx/span)
       SPAN=$(printf "%0.f" "$val")
-     
       echo "$SPAN" > /tmp/sweep_span
       if [ "$SPAN" -gt "60000000" ]; then
-        current_frequency=$(cat ${folder}out_altvoltage0_RX_LO_frequency)
-         update_sweep "$current_frequency" "$SPAN" 1        
+        current_frequency=$(< "${folder}out_altvoltage0_RX_LO_frequency")
+        update_sweep "$current_frequency" "$SPAN" 1
       else
         /root/sweep_stop.sh
-        echo 60000000 > ${folder}in_voltage_sampling_frequency
-
+        echo 60000000 > "${folder}in_voltage_sampling_frequency"
       fi
-       
     ;;
     rx/frequency)
-      
-      SPAN=$(cat /tmp/sweep_span)
-      sweep_on=$(cat /tmp/sweep_on)
+      SPAN=$(< /tmp/sweep_span)
+      sweep_on=$(< /tmp/sweep_on)
       echo "$val" > /tmp/sweep_frequency
-
       if [ "$sweep_on" == "1" ]; then
-        
-         update_sweep "$val" "$SPAN" 1        
+        update_sweep "$val" "$SPAN" 1
       else
-        echo "$val" > ${folder}out_altvoltage0_RX_LO_frequency
-
+        echo "$val" > "${folder}out_altvoltage0_RX_LO_frequency"
       fi
-       
     ;;
     rx/sweep/frequency)
-    if [ "$sweep_frequency" != "$val" ]; then
-    sweep_frequency=$val
-    echo "$sweep_frequency" > /tmp/sweep_frequency
-    echo "Sweep Freqency $sweep_frequency"
-    update_sweep "$sweep_frequency" "$sweep_span" "$sweep_on" 
-    fi
+      if [ "$sweep_frequency" != "$val" ]; then
+        sweep_frequency=$val
+        echo "$sweep_frequency" > /tmp/sweep_frequency
+        update_sweep "$sweep_frequency" "$sweep_span" "$sweep_on"
+      fi
     ;;
     rx/sweep/span)
-    if [ "$sweep_span" != "$val" ] ; then
-    sweep_span=$val
-    echo "$sweep_span" > /tmp/sweep_span
-    echo "Sweep span $val"
-    update_sweep "$sweep_frequency" "$sweep_span" "$sweep_on" 
-    fi
+      if [ "$sweep_span" != "$val" ]; then
+        sweep_span=$val
+        echo "$sweep_span" > /tmp/sweep_span
+        update_sweep "$sweep_frequency" "$sweep_span" "$sweep_on"
+      fi
     ;;
     rx/sweep/activate)
-    sweep_on=$(cat /tmp/sweep_on)
-    if [ "$val" == "1" ]; then
-    sweep_on=$val
-    update_sweep "$sweep_frequency" "$sweep_span" "$sweep_on" 
-    else
-    /root/sweep_stop.sh
-    fi
+      sweep_on=$(< /tmp/sweep_on)
+      if [ "$val" == "1" ]; then
+        sweep_on=$val
+        update_sweep "$sweep_frequency" "$sweep_span" "$sweep_on"
+      else
+        /root/sweep_stop.sh
+      fi
     ;;
     esac
-      
-  fi  
-}   
+  fi
+}
 
-# Watch files and publish information to multiple outputs
+# ============================================================
+#  MAIN
+# ============================================================
 
-# Initial dump of data
-#dump_data
+# Subscribe to commands (background)
+/usr/bin/mosquitto_sub -v -i "tezuka_sub" -t "cmd/#" | while read -r i; do parse_cmd $i ; done &
 
-# Observer changes in files
-#inotifywait --format %w%f -r -q -m -e create -e modify ${folder}* | update_data &
-
-# Watch files and publish information to multiple outputs
-/usr/bin/mosquitto_sub -v -i "tezuka_sub" -t "cmd/#" | while read -r i; do parse_cmd "$i" ; done &
-
-# Dump data every 10 seconds
-
+# Poll dynamic data every 2 seconds (cache prevents redundant publishes)
 while true; do
-
-  #update_data
-  
   dump_data
   sleep 2
 done
