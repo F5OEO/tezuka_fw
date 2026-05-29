@@ -1,0 +1,35 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: buildroot <buildroot@buildroot.org>
+Date: Mon, 19 May 2026 00:00:00 +0000
+Subject: [PATCH] modules/NE10_init.c: add missing ne10_init_physics
+ declaration
+
+ne10_init_physics() is called in ne10_init() when NE10_ENABLE_PHYSICS
+is defined, but the function prototype is not exposed in any public
+header — it is only defined in NE10_init_physics.c. This causes an
+implicit function declaration error with modern GCC (which defaults
+to -Werror=implicit-function-declaration).
+
+Add a forward declaration guarded by the same NE10_ENABLE_PHYSICS
+preprocessor conditional.
+
+Signed-off-by: buildroot <buildroot@buildroot.org>
+---
+ modules/NE10_init.c | 4 ++++
+ 1 file changed, 4 insertions(+)
+
+diff --git a/modules/NE10_init.c b/modules/NE10_init.c
+index 1234567..abcdefg 100644
+--- a/modules/NE10_init.c
++++ b/modules/NE10_init.c
+@@ -31,6 +31,10 @@
+ 
+ #include "NE10.h"
+ 
++#if defined(NE10_ENABLE_PHYSICS)
++extern ne10_result_t ne10_init_physics(ne10_int32_t is_NEON_available);
++#endif
++
+ #define CPUINFO_BUFFER_SIZE  (1024*4)
+ 
+ // This local variable indicates whether or not the running platform supports ARM NEON
