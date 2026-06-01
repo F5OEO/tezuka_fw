@@ -26,6 +26,7 @@
 
         maia_sdr: maia-sdr@7C400000 {
                 compatible = "uio_pdrv_genirq";
+                linux,uio-name = "maia-sdr";
                 reg = <0x7c400000 0x1000>;
                 clocks = <&clkc 15>;
                 interrupt-parent = <&intc>;
