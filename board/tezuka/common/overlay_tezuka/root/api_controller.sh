@@ -3,7 +3,11 @@
 SERIAL_PORT="/dev/ttyACM0"
 MQTT_FIFO="/tmp/mqtt_fifo"
 
-folder='/sys/bus/iio/devices/iio:device0/'
+folder=$(grep -rl 'ad9361-phy' /sys/bus/iio/devices/*/name 2>/dev/null | head -1 | xargs dirname)/
+if [ -z "$folder" ] || [ "$folder" = "/" ]; then
+  echo "ERROR: Could not find IIO device with name 'ad9361-phy'" >&2
+  exit 1
+fi
 echo 280000000 > /tmp/sweep_frequency
 echo 480000000 > /tmp/sweep_span
 
