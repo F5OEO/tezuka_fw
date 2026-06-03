@@ -257,7 +257,8 @@
 		adi,rx-frame-pulse-mode-enable;
 		/* Enable CMOS Mode */
 		adi,full-port-enable;
-		adi,digital-interface-tune-fir-disable;
+		/*La propriété booléenne adi,digital-interface-tune-fir-disable; dans le Device Tree (DTS) d'Analog Devices indique au pilote Linux de ne pas utiliser les filtres FIR internes de l'AD9361/AD9364 pendant la phase de calibration automatique des timings de l'interface numérique.*/
+		#adi,digital-interface-tune-fir-disable;
 
 		adi,digital-interface-tune-skip-mode = <0>; /* TUNE RX & TX */
 		adi,tx-fb-clock-delay = <0>;

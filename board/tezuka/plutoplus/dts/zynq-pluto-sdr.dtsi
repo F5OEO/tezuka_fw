@@ -204,7 +204,7 @@
 
 		/* Enable CMOS Mode */
 		adi,full-port-enable;
-		adi,digital-interface-tune-fir-disable;
+		#adi,digital-interface-tune-fir-disable;
 
 		adi,digital-interface-tune-skip-mode = <0>; /* TUNE RX & TX */
 		adi,tx-fb-clock-delay = <0>;
