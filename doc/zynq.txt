@@ -12,3 +12,5 @@ Zynq‑7045 → 0x04750093
 -> 0x23727093 -> Zynq‑7020
 
 
+To see clock    
+/sys/kernel/debug/clk/
