@@ -2,82 +2,95 @@
 
 [![Tezuka](https://github.com/F5OEO/tezuka_fw/actions/workflows/main.yml/badge.svg?branch=main)](https://github.com/F5OEO/tezuka_fw/actions/workflows/main.yml)
 [![GitHub Release](https://img.shields.io/github/release/F5OEO/tezuka_fw.svg)](https://github.com/F5OEO/tezuka_fw/releases/latest)  [![Github Releases](https://img.shields.io/github/downloads/F5OEO/tezuka_fw/total.svg)](https://github.com/F5OEO/tezuka_fw/releases/latest)
-# About tezuka_fw 
-**tezuka** (name referenced to [pluto](https://en.wikipedia.org/wiki/Pluto:_Urasawa_x_Tezuka)) aims to be Universal Zynq/AD9363 firmware builder for plutosdr board and other boards:
-- PlutoSDR
-- Pluto+
-- AntSDR (e200)
-- LibreSDR/ZynqSDR
-- Fishball (Hamgeek or OpenSDRLab SDR Zynq7010/20 + AD9363),PlutoSky
-- SignalSDRPro
 
-Target of **tezuka** firmware is to **maximize features** of the board and integrate interesting projects on multi-target boards.
+## About tezuka firmware 
 
-# New features
-- Frequencies extension : **47.5Mhz**-6Ghz
-- Switch **RX1/RX2 , TX1/TX2** seamlessly
-- Complex **8bit mode** to extend streaming bandwidth with host (**14Mhz** stable bandwidth through usb, **45MHz** through GbE network)
-- Audio gadget to be recognized as a soundcard (**virtual cable** not needed anymore)
-- **SD boot support : easy update, no risk of flashing, high amount of memory**
-- Include **Maia-sdr** transparently
-- Fast sweep
-- Gpios handling (OpenSDRLab Pluto Sky)
-- Publish basic information about the current state on local mqtt server
-- Many other (need to be documented)
+* **Universal firmware** builder designed to unlock the full potential of your PlutoSDR/clone. 
 
-# Why not Analog Device or firmware ?
-ADI launch PlutoSDR as a learning platform and it is ! But since 2 years, updates are mainly focused on expensive phaser (around 2500 Euros) product https://wiki.analog.com/resources/eval/user-guides/circuits-from-the-lab/cn0566
+* Built entirely for the **SDR enthusiast** community—bringing new features, wider frequency ranges, and massive performance boosts to your existing device.
 
-Thus, official firmware updates are no longer focus on new features for SDR enthusiastic people.
+* **Quick addition** of new board (already 10 boards supported)
 
-# Installing
-- In release section (https://github.com/F5OEO/tezuka_fw/releases)
-- Choose your right firmware depending on hardware and software, depending on name.
-- Download your selected configuration on https://github.com/F5OEO/tezuka_fw/releases
-- Unzip it.
-- **DO NOT USE standard method of flashing with frm**
-- Write SD card : Copy contents of sdimg folder to a fresh FAT32 card formated.
-  
-**ONLY FOR PLUTOSDR (no SD card) :**
-- Flash on memory : paste pluto.frm to pluto drive and eject (detailed update procedure https://wiki.analog.com/university/tools/pluto/users/firmware)
+---
 
-# Disclaimer
+## Key Features
 
-Most of boards use non protected flash memory. Flashing could break your card. **Until you know what you are doing, always boot in SD mode.** 
+* **Frequency Extension:** Expanded tuning range from **47.5 MHz to 6 GHz**.
+* **Seamless Input Switching:** Easily switch between RX1/RX2 and TX1/TX2.
+* **Extended Bandwidth:** Complex 8-bit mode unlocks stable streaming up to **14 MHz over USB** and **45 MHz over GbE network**.
+* **Risk-Free Booting:** Built-in **SD Card boot support** for effortless updates with zero risk of bricking your flash memory.
+* **Integrated Apps:** Includes Maia-SDR transparently, fast sweep, and MQTT status publishing and more.
 
-# Configuring
-A soon as firmware is updated, you could see a usb drive with parameters in config.txt (orginal parameters are described at (https://wiki.analog.com/university/tools/pluto/users/customizing)
+---
 
-# Third party software which could use extra features
-- Satdump (https://github.com/F5OEO/SatDump)
-- sdr++ (https://github.com/F5OEO/SDRPlusPlus)
-- Soapy based software(https://github.com/F5OEO/SoapyPlutoPAPR)
+## Support the Project
 
-Other great SDR software could use soon new features (SDRConsole, SDRAngel...), stay tuned !
+This firmware is developed entirely in my free time. Maintaining multiple boards, buying hardware for testing, and adding features takes significant time and resources. If **tezuka** supercharges your SDR experience, please consider supporting the project!
 
-# Calling for contribution
-If you like this firmware you can help me maintaining it by
-- Donate at https://paypal.me/f5oeodev
-- Write some documentation
-- Make some pull request
+[![GitHub Sponsors](https://img.shields.io/badge/Sponsor-GitHub-ea4aaa?style=for-the-badge&logo=github-sponsors)](https://github.com/sponsors/F5OEO)
+[![PayPal](https://img.shields.io/badge/Donate-PayPal-00457C?style=for-the-badge&logo=paypal)](https://paypal.me/f5oeodev)
+
+*No funds? You can still support by **starring the repository** or helping improve the documentation!*
+
+---
+
+## Hardware Matrix
+
+| Device Platform | Architecture | SD card | Gbe | DATV |
+| :--- | :--- | :---: | :---: | :---: |
+| PlutoSDR | 7010 | <span><img src="https://img.shields.io/badge/-%E2%9C%97-red" alt="No"></span> | <span><img src="https://img.shields.io/badge/-%E2%9C%97-red" alt="No"></span> | <span><img src="https://img.shields.io/badge/-%E2%9C%97-red" alt="No"></span> |
+| PlutoPlus | 7010 | <span><img src="https://img.shields.io/badge/-%E2%9C%93-green" alt="Yes"></span> | <span><img src="https://img.shields.io/badge/-%E2%9C%93-green" alt="Yes"></span> | <span><img src="https://img.shields.io/badge/-%E2%9C%97-red" alt="No"></span> |
+| Antsdr E200 | 7020 | <span><img src="https://img.shields.io/badge/-%E2%9C%93-green" alt="Yes"></span> | <span><img src="https://img.shields.io/badge/-%E2%9C%93-green" alt="Yes"></span> | <span><img src="https://img.shields.io/badge/-%E2%9C%93-green" alt="Yes"></span> |
+| Antsdr E310 | 7020 | <span><img src="https://img.shields.io/badge/-%E2%9C%93-green" alt="Yes"></span> | <span><img src="https://img.shields.io/badge/-%E2%9C%93-green" alt="Yes"></span> | <span><img src="https://img.shields.io/badge/-%E2%9C%93-green" alt="Yes"></span> |
+| Fishball/PlutoSky | 7010 | <span><img src="https://img.shields.io/badge/-%E2%9C%93-green" alt="Yes"></span> | <span><img src="https://img.shields.io/badge/-%E2%9C%93-green" alt="Yes"></span> | <span><img src="https://img.shields.io/badge/-%E2%9C%97-red" alt="No"></span> |
+| Fishball/PlutoSky | 7020 | <span><img src="https://img.shields.io/badge/-%E2%9C%93-green" alt="Yes"></span> | <span><img src="https://img.shields.io/badge/-%E2%9C%93-green" alt="Yes"></span> | <span><img src="https://img.shields.io/badge/-%E2%9C%93-green" alt="Yes"></span> |
+| SignalSDRPro | 7020 | <span><img src="https://img.shields.io/badge/-%E2%9C%93-green" alt="Yes"></span> | <span><img src="https://img.shields.io/badge/-%E2%9C%93-green" alt="Yes"></span> | <span><img src="https://img.shields.io/badge/-%E2%9C%93-green" alt="Yes"></span> |
+| LibreSDR/ZynqSDR | 7020 | <span><img src="https://img.shields.io/badge/-%E2%9C%93-green" alt="Yes"></span> | <span><img src="https://img.shields.io/badge/-%E2%9C%93-green" alt="Yes"></span> | <span><img src="https://img.shields.io/badge/-%E2%9C%93-green" alt="Yes"></span> |
+| PlutoSky R2 | 7020 | <span><img src="https://img.shields.io/badge/-%E2%9C%93-green" alt="Yes"></span> | <span><img src="https://img.shields.io/badge/-%E2%9C%93-green" alt="Yes"></span> | <span><img src="https://img.shields.io/badge/-%E2%9C%93-green" alt="Yes"></span> |
+| Pluto Nano | 7010 | <span><img src="https://img.shields.io/badge/-%E2%9C%97-red" alt="No"></span> | <span><img src="https://img.shields.io/badge/-%E2%9C%97-red" alt="No"></span> | <span><img src="https://img.shields.io/badge/-%E2%9C%97-red" alt="No"></span> |
 
 
-# For developers
-## Building from source (linux Debian based)
-### Install once
-#### Add required packages
-Buildroot documentation has the [list of required packages](https://buildroot.org/downloads/manual/manual.html#requirement-mandatory).
+---
 
-The following packages must be installed for building Maia-fw related code:
+## Installation : Use the SD boot mode 
+
+ **CRITICAL: DO NOT use the standard `frm` flashing method. To prevent bricking, always boot via SD card mode unless you know what you are doing.**
+
+1. Go to the [Releases Section](https://github.com/F5OEO/tezuka_fw/releases).
+2. Download and unzip the specific package matching your hardware configuration.
+3. Format a fresh SD Card to **FAT32**.
+4. Copy the entire contents of the **`sdimg`** folder onto the root of the SD Card.
+5. Insert into your board and power on.
+
+***Only for original PlutoSDR (No SD Slot):*** Follow the [official ADI flashing procedure](https://wiki.analog.com/university/tools/pluto/users/firmware) using the `pluto.frm` file.
+
+---
+
+## Configuration & Software
+
+Once booted, the firmware exposes a USB drive containing `config.txt`. Modify this file to tweak your settings (based on standard [ADI customization parameters](https://wiki.analog.com/university/tools/pluto/users/customizing)).
+
+### Compatible Software
+Enjoy extra features out-of-the-box with custom-tailored software branches:
+* [SatDump](https://github.com/F5OEO/SatDump)
+* [SDR++](https://github.com/F5OEO/SDRPlusPlus)
+* [SoapyPlutoPAPR](https://github.com/F5OEO/SoapyPlutoPAPR)
+*(Standard apps like SDRConsole and SDRAngel are also compatible).*
+
+---
+
+## For Developers
+
+### Setup Environment (Debian/Ubuntu)
 ```bash
-sudo apt install pkg-config libssl-dev libclang-dev
-```
+# Install mandatory dependencies
+sudo apt install pkg-config libssl-dev libclang-dev jq
 
-Now clone this repo and get buildroot
-```bash
-git clone https://github.com/F5OEO/tezuka_fw
+# Clone the repository & pull Buildroot
+git clone [https://github.com/F5OEO/tezuka_fw](https://github.com/F5OEO/tezuka_fw)
 cd tezuka_fw
 ./getbuildroot.sh
+
 
 ```
 ### Build
@@ -131,7 +144,3 @@ All materials are in buildroot/output/images
 - LamaBleu for helping me with buildroot and introduce me Plutosdr
 - https://github.com/hz12opensource/libresdr for overclock and fpga inspiration
 - All the opensource community !
-
-
-
-

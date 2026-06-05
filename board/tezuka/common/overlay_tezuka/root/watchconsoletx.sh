@@ -121,7 +121,7 @@ pttoff
 
 check_tx_flux() {
     A=$(grep "7c42" /proc/interrupts | awk '{print $2}')
-    sleep 0.5
+    sleep 1
     B=$(grep "7c42" /proc/interrupts | awk '{print $2}')
     DELTA=$((B - A))
 
