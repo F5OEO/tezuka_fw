@@ -1,6 +1,13 @@
 // pages1.jsx — Dashboard + RF Parameters
 const { useState: useS1, useEffect: useE1 } = React;
 
+const fmtBytes = (b) => {
+  if (b == null) return null;
+  if (b >= 1048576) return (b / 1048576).toFixed(1) + ' MB';
+  if (b >= 1024)    return (b / 1024).toFixed(1) + ' KB';
+  return b + ' B';
+};
+
 function StatTile({ label, value, unit, spark, color, tone }) {
   return (
     <div className="stat-tile">
@@ -144,7 +151,8 @@ function Dashboard({ d, ver }) {
               </Field>
               <div className="led-row">
                 <Led label="Clipping" alarm={d.rxOverload} />
-                <Led label="Overflow" alarm={d.cpu > 80} />
+                <Led label="Underflow" alarm={d.rxUnderflow} />
+                {d.rxBufferSize != null && <span className="mono" style={{fontSize:'0.75em',opacity:0.7}}>{fmtBytes(d.rxBufferSize)}</span>}
               </div>
               <div className="bigstat-grid">
                 <BigStat label="Input" value={RX[input]} options color={d.rxDmaTransfer > 0 ? "var(--accent)" : undefined} onCycle={() => { const next = (input + 1) % 2; setInput(next); d.publish("rx/rfinput", next + 1); }} />
@@ -159,8 +167,9 @@ function Dashboard({ d, ver }) {
               </div>
               <Field label="TX gain">{txGain != null && <Slider value={txGain} min={-89} max={0} step={0.25} onChange={onTxGain} unit=" dB" fmt={(v) => v.toFixed(2)} />}</Field>
               <div className="led-row">
-                <Led label="Clipping" alarm={txGain > -1.5} />
-                <Led label="Underflow" alarm={d.cpu > 82} />
+                <Led label="Clipping" alarm={d.txOverload} />
+                <Led label="Underflow" alarm={d.txUnderflow} />
+                {d.txBufferSize != null && <span className="mono" style={{fontSize:'0.75em',opacity:0.7}}>{fmtBytes(d.txBufferSize)}</span>}
               </div>
               <div className="bigstat-grid">
                 <BigStat label="Output" value={TX[output]} options color={d.txDmaTransfer > 0 ? "var(--c-pink)" : undefined} onCycle={() => { const next = (output + 1) % 2; setOutput(next); d.publish("tx/rfinput", next + 1); }} />

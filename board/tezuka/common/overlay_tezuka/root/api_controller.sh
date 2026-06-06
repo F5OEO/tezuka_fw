@@ -11,6 +11,7 @@ fi
 
 xadc_folder=$(grep -rl 'xadc' /sys/bus/iio/devices/*/name 2>/dev/null | head -1 | xargs dirname 2>/dev/null)/
 dds_folder=$(grep -rl 'cf-ad9361-dds-core-lpc' /sys/bus/iio/devices/*/name 2>/dev/null | head -1 | xargs dirname 2>/dev/null)/
+adc_folder=$(grep -rl 'cf-ad9361-lpc'         /sys/bus/iio/devices/*/name 2>/dev/null | head -1 | xargs dirname 2>/dev/null)/
 
 # Static version strings — read once at startup, never change at runtime
 IIO_VERSION=$(iio_info --version 2>/dev/null | awk 'NR==1{print $3; exit}')
@@ -225,6 +226,10 @@ dump_data () {
   # FIR config header only (full file is multi-line, breaks FIFO protocol)
   publish "main/fir_config" "$(head -1 "${folder}filter_fir_config" 2>/dev/null || echo 'n/a')"
 
+  # RX buffer size
+  publish "rx/buffer_size" "$(read_file "${adc_folder}buffer/length")"
+  publish "tx/buffer_size" "$(read_file "${dds_folder}buffer/length")"
+
   # RX overload flag
   rx_overload=$(iio_attr -D ad9361-phy direct_reg_access 0x5E)
   rx_overload=$((rx_overload & 1))
@@ -232,6 +237,14 @@ dump_data () {
     publish "rx/overload" "1"
   else
     publish "rx/overload" "0"
+  fi
+
+  # TX overflow flag (reg 0x5F, bits D2-D6: TFIR/HB1/HB2/HB3/INT3 overflow)
+  tx_overload=$(iio_attr -D ad9361-phy direct_reg_access 0x5F)
+  if (( (tx_overload & 0x7C) != 0 )); then
+    publish "tx/overload" "1"
+  else
+    publish "tx/overload" "0"
   fi
 
   # CPU usage (delta between ticks)
@@ -279,18 +292,40 @@ dump_data () {
   publish "main/uptime" "${uptime_s%%.*}"
 
   # TX DMA transfer rate (interrupts/s from f8007c42 DMA channel)
-  local tx_dma_now; tx_dma_now=$(grep "7c42" /proc/interrupts 2>/dev/null | head -1 | awk '{s=0; for(i=2;i<=NF;i++){if($i~/^[0-9]+$/)s+=$i}; print s}')
+  local tx_dma_now tx_dma_rate=0
+  tx_dma_now=$(grep "7c42" /proc/interrupts 2>/dev/null | head -1 | awk '{s=0; for(i=2;i<=NF;i++){if($i~/^[0-9]+$/)s+=$i}; print s}')
   if [ -n "$tx_dma_now" ] && [ "$TX_DMA_PREV" -gt 0 ]; then
-    publish "tx/dma_transfer" $(( (tx_dma_now - TX_DMA_PREV) / 2 ))
+    tx_dma_rate=$(( (tx_dma_now - TX_DMA_PREV) / 2 ))
+    publish "tx/dma_transfer" "$tx_dma_rate"
   fi
   [ -n "$tx_dma_now" ] && TX_DMA_PREV=$tx_dma_now
 
+  # TX underflow flag — only when DMA is active (AXI DAC core reg 0x80000088, bit 2; write-back to clear)
+  tx_under_raw=$(iio_attr -D cf-ad9361-dds-core-lpc direct_reg_access 0x80000088 2>/dev/null)
+  if [ -n "$tx_under_raw" ] && (( (tx_under_raw & 4) != 0 )) && (( tx_dma_rate > 0 )); then
+    publish "tx/underflow" "1"
+    iio_attr -D cf-ad9361-dds-core-lpc direct_reg_access "0x80000088 $tx_under_raw" >/dev/null 2>&1
+  else
+    publish "tx/underflow" "0"
+  fi
+
   # RX DMA transfer rate (interrupts/s from f8007c40 DMA channel)
-  local rx_dma_now; rx_dma_now=$(grep "7c40" /proc/interrupts 2>/dev/null | head -1 | awk '{s=0; for(i=2;i<=NF;i++){if($i~/^[0-9]+$/)s+=$i}; print s}')
+  local rx_dma_now rx_dma_rate=0
+  rx_dma_now=$(grep "7c40" /proc/interrupts 2>/dev/null | head -1 | awk '{s=0; for(i=2;i<=NF;i++){if($i~/^[0-9]+$/)s+=$i}; print s}')
   if [ -n "$rx_dma_now" ] && [ "$RX_DMA_PREV" -gt 0 ]; then
-    publish "rx/dma_transfer" $(( (rx_dma_now - RX_DMA_PREV) / 2 ))
+    rx_dma_rate=$(( (rx_dma_now - RX_DMA_PREV) / 2 ))
+    publish "rx/dma_transfer" "$rx_dma_rate"
   fi
   [ -n "$rx_dma_now" ] && RX_DMA_PREV=$rx_dma_now
+
+  # RX underflow flag — only when DMA is active (AXI ADC core reg 0x80000088, bit 2; write-back to clear)
+  rx_under_raw=$(iio_attr -D cf-ad9361-lpc direct_reg_access 0x80000088 2>/dev/null)
+  if [ -n "$rx_under_raw" ] && (( (rx_under_raw & 4) != 0 )) && (( rx_dma_rate > 0 )); then
+    publish "rx/underflow" "1"
+    iio_attr -D cf-ad9361-lpc direct_reg_access "0x80000088 $rx_under_raw" >/dev/null 2>&1
+  else
+    publish "rx/underflow" "0"
+  fi
 
   # IQ network rate via USB gadget interface (Mbps, 2 s tick)
   local iq_rx iq_tx

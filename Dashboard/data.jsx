@@ -29,6 +29,11 @@ function applyMqtt(prev, path, raw) {
     case 'tx/rfinput':          return { ...prev, txRfinput: parseInt(raw) };
     case 'rx/fir_enable':       return { ...prev, rxFirEnable: raw === '1' };
     case 'rx/overload':         return { ...prev, rxOverload: raw === '1' };
+    case 'tx/overload':         return { ...prev, txOverload: raw === '1' };
+    case 'rx/underflow':        return { ...prev, rxUnderflow: raw === '1' };
+    case 'tx/underflow':        return { ...prev, txUnderflow: raw === '1' };
+    case 'rx/buffer_size':      return { ...prev, rxBufferSize: parseInt(raw) };
+    case 'tx/buffer_size':      return { ...prev, txBufferSize: parseInt(raw) };
     case 'rx/sweep/activate':   return { ...prev, sweepActive: raw === '1' };
     case 'rx/sweep/frequency':  return { ...prev, sweepFreq: parseFloat(raw) };
     case 'rx/span':             return { ...prev, span: parseFloat(raw) };
@@ -91,7 +96,7 @@ function useLiveData(running = true) {
     rxGainMode: null,
     rxAnt: null, txAnt: null,
     rxActive: null, txActive: null,
-    rxRfinput: null, rxFirEnable: null, rxOverload: false,
+    rxRfinput: null, rxFirEnable: null, rxOverload: false, txOverload: false, rxUnderflow: false, txUnderflow: false, rxBufferSize: null, txBufferSize: null,
     sweepActive: false, sweepFreq: null, span: null,
     serial: null, hwModel: null, fwVersion: null, freqCorrection: null,
     caps: {},

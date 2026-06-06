@@ -93,7 +93,7 @@ function DATV({ d, callsign }) {
                   setFec(v);
                   if (v === 'auto') { pub('tx/dvbs2/fecmode', 'variable'); }
                   else { pub('tx/dvbs2/fecmode', 'fixed'); pub('tx/dvbs2/fec', v); }
-                }} options={[{ v: 'auto', l: 'Auto' }, '1/4', '1/3', '2/5', '3/5', '4/5', '8/9', '9/10']} />
+                }} options={[{ v: 'auto', l: 'Auto' }, '1/4', '1/3', '2/5', '3/5', '4/5', '5/6', '8/9', '9/10']} />
               </Field>
               <Field label="Pilots">
                 <Select value={pilots} onChange={(v) => { setPilots(v); pub('tx/dvbs2/pilots', v); }} options={[{ v: '0', l: 'Off' }, { v: '1', l: 'On' }]} />
