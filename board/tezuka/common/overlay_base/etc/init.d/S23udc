@@ -118,7 +118,8 @@ case "$1" in
 
 	mkdir -p $GADGET/configs/c.1
 	mkdir -p $GADGET/configs/c.1/strings/0x409
-	echo "RNDIS/MSD/ACM/IIOUSBD" > $GADGET/configs/c.1/strings/0x409/configuration
+	USB_ETH_MODE_UPPER=$(echo "$USB_ETH_MODE" | tr '[:lower:]' '[:upper:]')
+	echo "${USB_ETH_MODE_UPPER}/MSD/ACM/IIOUSBD" > $GADGET/configs/c.1/strings/0x409/configuration
 	echo 500 > $GADGET/configs/c.1/MaxPower
 	
 if [ "$AUDIO_MODE" = "on" ]
@@ -156,7 +157,8 @@ if [ "$AUDIO_MODE" = "on" ]
 	if [ "$AUDIO_MODE" = "on" ]
 	then
 	ln -s $GADGET/functions/uac2.usb0 $GADGET/configs/c.1
-	echo "Config 1: ECM network" > $GADGET/configs/c.1/strings/0x409/configuration
+	USB_ETH_MODE_UPPER=$(echo "$USB_ETH_MODE" | tr '[:lower:]' '[:upper:]')
+	echo "Config 1: ${USB_ETH_MODE_UPPER} + Audio network" > $GADGET/configs/c.1/strings/0x409/configuration
 	#ln -s $GADGET/functions/hid.keyboard $GADGET/configs/c.1
 	fi
 	
