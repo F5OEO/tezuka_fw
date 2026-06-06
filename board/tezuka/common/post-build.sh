@@ -12,6 +12,8 @@ fi
 
 cp "${BOARD_DIR}/LICENSE.template" "${BINARIES_DIR}/msd/LICENSE.html"
 cp -r "${BOARD_DIR}/msd/"* "${BINARIES_DIR}/msd/"
+python3 "${BOARD_DIR}/../../../Dashboard/bundle.py" "${BINARIES_DIR}/msd/dash/index.html"
+rm -rf "${BINARIES_DIR}/msd/dash/assets"
 LINUX_VERS=$(grep '^BR2_LINUX_KERNEL_VERSION' "${BR2_CONFIG}" | cut -d\" -f 2)
 UBOOT_VERS=$(grep '^BR2_TARGET_UBOOT_VERSION' "${BR2_CONFIG}" | cut -d\" -f 2)
 FW_VERSION=$(cd "${BOARD_DIR}" && git describe --abbrev=4 --always --tags)
@@ -20,10 +22,24 @@ sed -i s/##LINUX_VERSION##/${LINUX_VERS}/g "${BINARIES_DIR}/msd/LICENSE.html"
 sed -i s/##UBOOT_VERSION##/${UBOOT_VERS}/g "${BINARIES_DIR}/msd/LICENSE.html"
 
 BR_VERSION=$(sed -n 's/^VERSION_ID=//p' "${TARGET_DIR}/etc/os-release" 2>/dev/null)
+
+# FPGA bitstream version — look up board name from boards.json then read bit.txt
+_defconfig=$(basename "$(grep '^BR2_DEFCONFIG' "${BR2_CONFIG}" | cut -d= -f2 | tr -d '"')")
+_board=$(python3 -c "
+import json, sys
+try:
+    d = json.load(open('${BOARD_DIR}/../../../boards.json'))
+    r = [b['board'] for b in d if b.get('defconfig') == '${_defconfig}']
+    print(r[0] if r else '')
+except: pass
+" 2>/dev/null)
+FPGA_VERS=$(cat "${BOARD_DIR}/../${_board}/bitstream/maia-iio/bit.txt" 2>/dev/null || echo "")
+
 {
 	echo "device-fw tezuka-${FW_VERSION}"
 	echo "uboot ${UBOOT_VERS}"
 	echo "buildroot ${BR_VERSION}"
+	[ -n "${FPGA_VERS}" ] && echo "fpga ${FPGA_VERS}" || true
 } > "${TARGET_DIR}/opt/VERSIONS"
 
 GENIMAGE_CFG="${BOARD_DIR}/genimage-msd.cfg"
@@ -63,7 +79,7 @@ mkdir -p "${TARGET_DIR}/var/spool/cron/crontabs"
 
 ${INSTALL} -D -m 0644 "${BOARD_DIR}/msd/img/"* "${TARGET_DIR}/root/img/"
 ${INSTALL} -D -m 0644 "${BOARD_DIR}/msd/sweep/"* "${TARGET_DIR}/root/sweep/"
-cp -Rp "${BOARD_DIR}/msd/dash/"* "${TARGET_DIR}/root/dash/"
+python3 "${BOARD_DIR}/../../../Dashboard/bundle.py" "${TARGET_DIR}/root/dash/index.html"
 ${INSTALL} -D -m 0644 "${BOARD_DIR}/msd/"*.* "${TARGET_DIR}/root/"
 
 ln -sf ../../wpa_supplicant/ifupdown.sh "${TARGET_DIR}/etc/network/if-up.d/wpasupplicant"
