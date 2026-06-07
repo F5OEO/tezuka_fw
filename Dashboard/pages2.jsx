@@ -240,8 +240,15 @@ function Analysis({ d }) {
 
 // ---- Network --------------------------------------------------------------
 function Network({ d }) {
-  const [dhcp, setDhcp] = useS2(true);
-  const [tab, setTab] = useS2("lan");
+  const [tab, setTab] = useS2("usb");
+  const net = d.net || {};
+  const iface = tab === "usb" ? "usb0" : tab === "lan" ? "eth0" : null;
+  const ip   = (iface && net[`${iface}/ip`])   || '—';
+  const mask = (iface && net[`${iface}/mask`]) || '—';
+  const mac  = (iface && net[`${iface}/mac`])  || '—';
+  const gw   = net['gateway']  || '—';
+  const dns  = net['dns']      || '—';
+  const host = net['hostname'] || '—';
   return (
     <div className="page">
       <div className="grid-12">
@@ -252,25 +259,23 @@ function Network({ d }) {
             ))}
           </div>
           <div className="form-grid mt">
-            <Field label="DHCP"><Toggle on={dhcp} onChange={setDhcp} /></Field>
-            <div />
-            <Field label="IP address"><TextInput value="10.0.0.70" onChange={() => {}} /></Field>
-            <Field label="Subnet mask"><TextInput value="255.255.255.0" onChange={() => {}} /></Field>
-            <Field label="Gateway"><TextInput value="10.0.0.1" onChange={() => {}} /></Field>
-            <Field label="DNS"><TextInput value="8.8.8.8" onChange={() => {}} /></Field>
-            <Field label="MAC"><TextInput value="88:33:0B:5A:98:5D" onChange={() => {}} /></Field>
-            <Field label="Hostname"><TextInput value="tezuka" onChange={() => {}} /></Field>
+            <Field label="IP address"><TextInput value={ip} onChange={() => {}} /></Field>
+            <Field label="Subnet mask"><TextInput value={mask} onChange={() => {}} /></Field>
+            <Field label="Gateway"><TextInput value={gw} onChange={() => {}} /></Field>
+            <Field label="DNS"><TextInput value={dns} onChange={() => {}} /></Field>
+            <Field label="MAC"><TextInput value={mac} onChange={() => {}} /></Field>
+            <Field label="Hostname"><TextInput value={host} onChange={() => {}} /></Field>
           </div>
         </Card>
 
         <div className="span-5 tile-stack">
           <Card title="MQTT broker">
             <div className="form-grid">
-              <Field label="Host"><TextInput value="10.0.0.70" onChange={() => {}} /></Field>
+              <Field label="Host"><TextInput value={ip !== '—' ? ip : '—'} onChange={() => {}} /></Field>
               <Field label="Port"><TextInput value="1883" onChange={() => {}} /></Field>
             </div>
-            <Field label="Base topic"><TextInput value="tezuka/+/status" onChange={() => {}} /></Field>
-            <div className="mqtt-status"><Pill tone="ok" dot>Connected</Pill><span className="dim mono">42 topics · 1.2 msg/s</span></div>
+            <Field label="Base topic"><TextInput value="state/#" onChange={() => {}} /></Field>
+            <div className="mqtt-status"><Pill tone={d.mqtt ? "ok" : "warn"} dot>{d.mqtt ? "Connected" : "Offline"}</Pill><span className="dim mono">{d.mqttHost || '—'}</span></div>
           </Card>
           <Card title="Service ports" pad={false}>
             <table className="ver-table compact">
@@ -296,71 +301,45 @@ function Network({ d }) {
             ]} />
         </Card>
       </div>
-      <div className="action-bar">
-        <span>All changes applied</span>
-        <div className="ab-btns"><button className="btn ghost">Reset</button><button className="btn primary"><Icon name="check" size={16} />Save</button></div>
-      </div>
     </div>
   );
 }
 
 // ---- Transverter ----------------------------------------------------------
 function Transverter({ d }) {
-  const [rxFreq, setRxFreq] = useS2(null);
-  const [rxBw, setRxBw] = useS2(null);
-  const [txFreq, setTxFreq] = useS2(null);
-  const [txBw, setTxBw] = useS2(null);
-  const [enabled, setEnabled] = useS2(true);
-  const [dirty, setDirty] = useS2(false);
-  useE2(() => { if (d.rxFreq      != null) setRxFreq(d.rxFreq); },      [d.rxFreq]);
-  useE2(() => { if (d.txFreq      != null) setTxFreq(d.txFreq); },      [d.txFreq]);
-  useE2(() => { if (d.rxBandwidth != null) setRxBw(d.rxBandwidth); },   [d.rxBandwidth]);
-  useE2(() => { if (d.txBandwidth != null) setTxBw(d.txBandwidth); },   [d.txBandwidth]);
-  const mk = (fn) => (v) => { fn(v); setDirty(true); };
   const mhz = (v) => (v / 1e6).toFixed(3) + " MHz";
+  const active = d.loopback === 2;
 
   return (
     <div className="page">
       <div className="grid-12">
-        <Card className="span-12">
-          <label className="chk transverter-enable">
-            <input type="checkbox" checked={enabled} onChange={(e) => {setEnabled(e.target.checked);setDirty(true);}} />
-            <span className="chk-box"><Icon name="check" size={12} /></span>
-            <span className="chk-lbl">Transverter Enable</span>
-          </label>
+        <Card title="Transverter mode" sub="IIO loopback · routes ADC output directly to DAC" className="span-12">
+          <Field label="Loopback" hint="Mode 2: ADC → DAC internal routing for frequency conversion">
+            <Toggle on={active} onChange={(on) => d.publish('rx/loopback', on ? '2' : '0')} labels={["Off", "Active"]} />
+          </Field>
         </Card>
 
-        <Card title="RX path" sub="Down-converter · receive" className={`span-6 ${enabled ? "" : "ftuner-disabled"}`}>
+        <Card title="RX path" sub="Down-converter · receive" className={`span-6 ${active ? "" : "ftuner-disabled"}`}>
           <Field label="RX frequency" hint="47 MHz – 6 GHz · scroll or click a digit to tune">
-            {rxFreq != null && <FreqTuner value={rxFreq} digits={12} min={47000000} max={6000000000} unit="Hz" sub={mhz} onChange={mk(setRxFreq)} />}
+            {d.rxFreq != null && <FreqTuner value={d.rxFreq} digits={12} min={47000000} max={6000000000} unit="Hz" sub={mhz} onChange={(v) => d.publish('rx/frequency', v)} />}
           </Field>
           <Field label="RX bandwidth" hint="200 kHz – 56 MHz">
-            {rxBw != null && <FreqTuner value={rxBw} digits={8} min={200000} max={56000000} unit="Hz" sub={mhz} onChange={mk(setRxBw)} />}
+            {d.rxBandwidth != null && <FreqTuner value={d.rxBandwidth} digits={8} min={200000} max={56000000} unit="Hz" sub={mhz} onChange={(v) => d.publish('rx/bandwidth', v)} />}
           </Field>
         </Card>
 
-        <Card title="TX path" sub="Up-converter · transmit" className={`span-6 ${enabled ? "" : "ftuner-disabled"}`}>
+        <Card title="TX path" sub="Up-converter · transmit" className={`span-6 ${active ? "" : "ftuner-disabled"}`}>
           <Field label="TX frequency" hint="47 MHz – 6 GHz · scroll or click a digit to tune">
-            {txFreq != null && <FreqTuner value={txFreq} digits={12} min={47000000} max={6000000000} unit="Hz" sub={mhz} onChange={mk(setTxFreq)} />}
+            {d.txFreq != null && <FreqTuner value={d.txFreq} digits={12} min={47000000} max={6000000000} unit="Hz" sub={mhz} onChange={(v) => d.publish('tx/frequency', v)} />}
           </Field>
           <Field label="TX bandwidth" hint="200 kHz – 56 MHz">
-            {txBw != null && <FreqTuner value={txBw} digits={8} min={200000} max={56000000} unit="Hz" sub={mhz} onChange={mk(setTxBw)} />}
+            {d.txBandwidth != null && <FreqTuner value={d.txBandwidth} digits={8} min={200000} max={56000000} unit="Hz" sub={mhz} onChange={(v) => d.publish('tx/bandwidth', v)} />}
+          </Field>
+          <Field label="TX output power" hint="−89.75 to 0 dB">
+            {d.txGain != null && <Slider value={d.txGain} min={-89.75} max={0} step={0.25} unit=" dB"
+              fmt={(v) => (v >= 0 ? "+" : "") + v.toFixed(2)} onChange={(v) => d.publish('tx/gain', v)} />}
           </Field>
         </Card>
-      </div>
-
-      <div className={`action-bar ${dirty ? "show" : ""}`}>
-        <span>{dirty ? "Unsaved transverter changes" : "All changes applied"}</span>
-        <div className="ab-btns">
-          <button className="btn ghost" onClick={() => { setRxFreq(d.rxFreq); setTxFreq(d.txFreq); setRxBw(d.rxBandwidth); setTxBw(d.txBandwidth); setDirty(false); }}>Reset</button>
-          <button className="btn primary" onClick={() => {
-            if (rxFreq != null) d.publish('rx/frequency', rxFreq);
-            if (txFreq != null) d.publish('tx/frequency', txFreq);
-            if (rxBw != null)   d.publish('rx/bandwidth', rxBw);
-            if (txBw != null)   d.publish('tx/bandwidth', txBw);
-            setDirty(false);
-          }}><Icon name="check" size={16} />Apply</button>
-        </div>
       </div>
     </div>
   );
@@ -497,15 +476,26 @@ function Calibrate({ d }) {
   const [freqCalOn, setFreqCalOn] = useS2(true);
   const [ppm, setPpm] = useS2(0);
   const [curve, setCurve] = useS2(GAIN_CURVE);
+  const [gainDirty, setGainDirty] = useS2(false);
   const [dac, setDac] = useS2(DAC_CURVE);
+  useE2(() => {
+    if (d.gainTableConfig && d.gainTableConfig.length) {
+      setCurve(d.gainTableConfig.map(({ freq, gain }) => ({ x: freq, y: gain })));
+      setGainDirty(false);
+    }
+  }, [d.gainTableConfig]);
   const [calRun, setCalRun] = useS2(false);
   useE2(() => {
     if (d.freqCorrection != null)
       setPpm(parseFloat(freqCorrToPpm(d.freqCorrection).toFixed(2)));
   }, [d.freqCorrection]);
   const fmtMHz = (v) => (v >= 1000 ? (v / 1000).toFixed(2) + "G" : Math.round(v) + "M");
-  const setPoint = (i, y) => setCurve((c) => c.map((p, j) => (j === i ? { ...p, y } : p)));
+  const setPoint = (i, y) => { setCurve((c) => c.map((p, j) => (j === i ? { ...p, y } : p))); setGainDirty(true); };
   const setDacPoint = (i, y) => setDac((c) => c.map((p, j) => (j === i ? { ...p, y } : p)));
+  const applyGain = () => {
+    d.publish('main/gain_table_config', curve.map(p => `${Math.round(p.x)}:${Math.round(p.y)}`).join(','));
+    setGainDirty(false);
+  };
   const launchCal = () => {
     if (calRun) return;
     setCalRun(true);
@@ -543,9 +533,15 @@ function Calibrate({ d }) {
           </div>
         </Card>
 
-        <Card title="Gain vs frequency" sub="Drag any point up or down to set its gain" className="span-12">
-          <XYChart points={curve} height={300} xUnit="MHz" editable onPointChange={setPoint}
-            yMin={0} yMax={20} fmtX={fmtMHz} fmtY={(v) => v.toFixed(0)} yUnit=" dB" />
+        <Card title="Gain vs frequency" sub={d.gainTableConfig ? "Live from IIO gain_table_config" : "Drag any point up or down to set its gain"} className="span-12"
+          right={gainDirty && <button className="btn primary" onClick={applyGain}><Icon name="check" size={14} /> Apply</button>}>
+          {(() => {
+            const ys = curve.map(p => p.y);
+            const yMin = ys.length ? Math.floor(Math.min(...ys) / 5) * 5 : 0;
+            const yMax = ys.length ? Math.ceil(Math.max(...ys) / 5) * 5 : 20;
+            return <XYChart points={curve} height={300} xUnit="MHz" editable onPointChange={setPoint}
+              yMin={yMin} yMax={yMax} fmtX={fmtMHz} fmtY={(v) => v.toFixed(0)} yUnit=" dB" />;
+          })()}
         </Card>
 
         <Card title="DAC gain vs amplitude" sub="Drag any point up or down to set its gain" className="span-12">
@@ -558,41 +554,34 @@ function Calibrate({ d }) {
 }
 
 // ---- Diagnostic -----------------------------------------------------------
-const clockStr = (off = 0) => new Date(Date.now() + off * 1000).toTimeString().slice(0, 8);
-const SEED_LOGS = [
-  ["INFO", "System boot complete · Tezuka v2.4.1-g9a3f"],
-  ["INFO", "AD9363 transceiver initialized @ 2.400 MS/s"],
-  ["OK", "PLL locked · reference 10 MHz external"],
-  ["INFO", "MQTT broker connected · 192.168.1.10:1883"],
-  ["WARN", "FPGA core temperature 58.2 °C approaching soft limit"],
-  ["INFO", "DATV encoder idle · codec H.265"],
-  ["OK", "IIO context healthy · libiio 0.25 (git tag v0.25)"],
-];
+const clockStr = () => new Date().toTimeString().slice(0, 8);
 
-function Diagnostic() {
-  const [logs, setLogs] = useS2(() => SEED_LOGS.map((l, i) => ({ t: clockStr(-(SEED_LOGS.length - i) * 7), lvl: l[0], msg: l[1] })));
-  const [running, setRunning] = useS2(false);
+function Diagnostic({ d }) {
+  const [logs, setLogs] = useS2([]);
+  const [waiting, setWaiting] = useS2(false);
   const winRef = React.useRef(null);
+  const seenRef = React.useRef(0);
+
   useE2(() => { const el = winRef.current; if (el) el.scrollTop = el.scrollHeight; }, [logs]);
 
-  const checkPerf = () => {
-    if (running) return;
-    setRunning(true);
-    const steps = [
-      ["INFO", "Performance check started"],
-      ["INFO", "CPU load test · 4 threads · 5 s"],
-      ["OK", `CPU score ${8900 + Math.floor(Math.random() * 600)} · peak load ${(18 + Math.random() * 22).toFixed(0)}%`],
-      ["INFO", "Memory bandwidth test"],
-      ["OK", `Memory ${(38 + Math.random() * 8).toFixed(0)}% used · ${(2.6 + Math.random() * 0.6).toFixed(1)} GB/s throughput`],
-      ["INFO", "RF datapath loopback · RX→TX"],
-      ["OK", `Latency ${(0.8 + Math.random()).toFixed(2)} ms · 0 dropped samples`],
-      ["WARN", `FPGA temperature ${(54 + Math.random() * 6).toFixed(1)} °C under load`],
-      ["OK", "Performance check complete · all subsystems nominal"],
-    ];
-    steps.forEach((s, i) => setTimeout(() => {
-      setLogs((l) => [...l, { t: clockStr(0), lvl: s[0], msg: s[1] }]);
-      if (i === steps.length - 1) setRunning(false);
-    }, (i + 1) * 480));
+  useE2(() => {
+    const sysLog = d.systemLog || [];
+    if (sysLog.length > seenRef.current) {
+      const newLines = sysLog.slice(seenRef.current).map(msg => ({ t: clockStr(), msg }));
+      setLogs(l => [...l, ...newLines]);
+      seenRef.current = sysLog.length;
+      setWaiting(false);
+    }
+  }, [(d.systemLog || []).length]);
+
+  const requestLog = () => {
+    setWaiting(true);
+    d.publish('system/logrequest', '1');
+  };
+
+  const clearLogs = () => {
+    setLogs([]);
+    seenRef.current = (d.systemLog || []).length;
   };
 
   return (
@@ -600,23 +589,22 @@ function Diagnostic() {
       <div className="datv-head">
         <div className="datv-title">
           <h1>Diagnostic</h1>
-          <span className="datv-sub mono">System logs &amp; performance checks</span>
+          <span className="datv-sub mono">System log · dmesg from device</span>
         </div>
-        <button className="btn primary" onClick={checkPerf} disabled={running}>
-          <span className={running ? "spin" : ""} style={{ display: "inline-flex" }}><Icon name={running ? "refresh" : "pulse"} size={16} /></span>
-          {running ? "Checking…" : "Check performance"}
+        <button className="btn primary" onClick={requestLog} disabled={waiting}>
+          <span className={waiting ? "spin" : ""} style={{ display: "inline-flex" }}><Icon name={waiting ? "refresh" : "pulse"} size={16} /></span>
+          {waiting ? "Waiting…" : "Provide log"}
         </button>
       </div>
 
       <div className="grid-12">
-        <Card title="System log" sub="Live diagnostic output" className="span-12" pad={false}
-          right={<button className="btn ghost btn-sm" onClick={() => setLogs([])}>Clear</button>}>
+        <Card title="System log" sub="dmesg output" className="span-12" pad={false}
+          right={<button className="btn ghost btn-sm" onClick={clearLogs}>Clear</button>}>
           <div className="logwin" ref={winRef}>
-            {logs.length === 0 && <div className="logline log-empty mono">— log cleared —</div>}
+            {logs.length === 0 && <div className="logline log-empty mono">— press "Provide log" to fetch dmesg —</div>}
             {logs.map((l, i) => (
               <div key={i} className="logline">
                 <span className="log-time mono">{l.t}</span>
-                <span className={`log-lvl lvl-${l.lvl.toLowerCase()}`}>{l.lvl}</span>
                 <span className="log-msg mono">{l.msg}</span>
               </div>
             ))}
@@ -640,7 +628,10 @@ function Reboot({ d, ver }) {
     const id = setTimeout(() => setSecs((s) => s - 1), 1000);
     return () => clearTimeout(id);
   }, [phase, secs]);
-  const start = (kind) => { setPending(null); setAction(kind); setPhase("busy"); setSecs(kind === "shutdown" ? 6 : 18); };
+  const start = (kind) => {
+    setPending(null); setAction(kind); setPhase("busy"); setSecs(kind === "shutdown" ? 6 : 18);
+    d.publish('system/reboot', kind === "shutdown" ? "poweroff" : "reboot");
+  };
 
   return (
     <div className="page">
@@ -764,4 +755,123 @@ function Operator({ operator, onSave }) {
   );
 }
 
-Object.assign(window, { DATV, Versions, Analysis, Network, Transverter, IQTape, SigGen, Calibrate, Diagnostic, Reboot, Operator });
+// ---- Kalibrate from RF -----------------------------------------------------
+const KAL_BANDS = ['GSM850', 'GSM-R', 'GSM900', 'EGSM', 'DCS'];
+
+function Kalibrate({ d }) {
+  const [calChan, setCalChan] = useS2(null);
+  const [band, setBand] = useS2('GSM900');
+  const logRef = React.useRef(null);
+  const seenRef = React.useRef(0);
+  const [logLines, setLogLines] = useS2([]);
+
+  const status = d.kalibrateStatus || '';
+  const channels = d.kalibrateChannels || [];
+  const sorted = [...channels].sort((a, b) => b.power - a.power);
+  const scanning = status === 'scanning';
+  const calibrating = status === 'calibrating';
+
+
+  useE2(() => { const el = logRef.current; if (el) el.scrollTop = el.scrollHeight; }, [logLines]);
+
+  useE2(() => {
+    const log = d.kalibrateLog || [];
+    if (log.length > seenRef.current) {
+      setLogLines(l => [...l, ...log.slice(seenRef.current)]);
+      seenRef.current = log.length;
+    }
+  }, [(d.kalibrateLog || []).length]);
+
+  const scan = () => { d.publish('system/kalibrate/scan', band); };
+  const calibrate = (chan) => { setCalChan(chan); d.publish('system/kalibrate/run', String(chan)); };
+
+  return (
+    <div className="page">
+      <div className="datv-head">
+        <div className="datv-title">
+          <h1>Kalibrate from RF</h1>
+          <span className="datv-sub mono">Scan GSM channels · calibrate XO offset</span>
+        </div>
+        <div style={{ display: "flex", gap: "0.5em", alignItems: "center" }}>
+          <Select value={band} onChange={setBand} options={KAL_BANDS} />
+          <button className="btn primary" onClick={scan} disabled={scanning || calibrating}>
+          <span className={scanning ? "spin" : ""} style={{ display: "inline-flex" }}><Icon name={scanning ? "refresh" : "search"} size={16} /></span>
+          {scanning ? "Scanning…" : "Launch scan"}
+        </button>
+        </div>
+      </div>
+
+      <div className="grid-12">
+        <Card title="XO correction" className="span-12">
+          <div style={{ display: "flex", alignItems: "center", gap: "1.5em" }}>
+            <Field label="Current correction">
+              <span className="mono">{d.freqCorrection != null ? freqCorrToPpm(d.freqCorrection).toFixed(2) + ' ppm' : '—'}</span>
+            </Field>
+            {d.kalibrateResultPpb != null && (
+              <Field label="Kalibrate result">
+                <span className="mono"><b>{d.kalibrateResultPpm != null ? d.kalibrateResultPpm.toFixed(3) + ' ppm' : ''}</b> ({d.kalibrateResultPpb.toFixed(1)} ppb)</span>
+              </Field>
+            )}
+            {d.kalibrateResultPpb != null && status === 'done' && (
+              <button className="btn primary btn-sm" style={{ marginLeft: "auto" }}
+                onClick={() => {
+                  const hz = ppmToFreqCorr(d.kalibrateResultPpb / 1000);
+                  d.publish('main/freq_correction', String(hz));
+                }}>
+                Apply to XO
+              </button>
+            )}
+          </div>
+        </Card>
+
+        {status && (
+          <Card title="Status" className="span-12">
+            <Pill tone={status === 'done' ? 'ok' : status === 'error' ? 'warn' : 'info'} dot>{status}</Pill>
+          </Card>
+        )}
+
+        {sorted.length > 0 ? (
+          <Card title="GSM-900 channels" sub="Sorted by signal strength · click to calibrate" className="span-12" pad={false}>
+            <table className="ver-table">
+              <thead><tr><th>Chan</th><th>Freq (MHz)</th><th>Power (dBFS)</th><th></th></tr></thead>
+              <tbody>
+                {sorted.map(ch => {
+                  const isCal = calChan === ch.chan;
+                  const showResult = isCal && d.kalibrateResultPpm != null && status === 'done';
+                  return (
+                    <tr key={ch.chan}>
+                      <td className="mono">{ch.chan}</td>
+                      <td className="mono">{Number(ch.freq).toFixed(1)}</td>
+                      <td className="mono">{Number(ch.power).toFixed(0)}</td>
+                      <td>
+                        <button className="btn ghost btn-sm" disabled={calibrating} onClick={() => calibrate(ch.chan)}>
+                          {calibrating && isCal && <span className="spin" style={{ display: "inline-flex", marginRight: "4px" }}><Icon name="refresh" size={13} /></span>}
+                          {showResult ? `${d.kalibrateResultPpm.toFixed(2)} ppm` : 'Kalibrate'}
+                        </button>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </Card>
+        ) : (
+          !scanning && <Card className="span-12"><div className="logline log-empty mono">— launch a scan to discover GSM-900 channels —</div></Card>
+        )}
+
+        <Card title="kal output" sub="Raw stdout from kalibrate" className="span-12" pad={false}
+          right={<button className="btn ghost btn-sm" onClick={() => { setLogLines([]); seenRef.current = (d.kalibrateLog || []).length; }}>Clear</button>}>
+          <div className="logwin" ref={logRef}>
+            {logLines.length === 0
+              ? <div className="logline log-empty mono">— no output yet —</div>
+              : logLines.map((line, i) => (
+                <div key={i} className="logline"><span className="log-msg mono">{line}</span></div>
+              ))}
+          </div>
+        </Card>
+      </div>
+    </div>
+  );
+}
+
+Object.assign(window, { DATV, Versions, Analysis, Network, Transverter, IQTape, SigGen, Calibrate, Diagnostic, Reboot, Operator, Kalibrate });

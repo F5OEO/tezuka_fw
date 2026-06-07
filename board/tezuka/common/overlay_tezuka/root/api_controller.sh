@@ -12,9 +12,14 @@ fi
 xadc_folder=$(grep -rl 'xadc' /sys/bus/iio/devices/*/name 2>/dev/null | head -1 | xargs dirname 2>/dev/null)/
 dds_folder=$(grep -rl 'cf-ad9361-dds-core-lpc' /sys/bus/iio/devices/*/name 2>/dev/null | head -1 | xargs dirname 2>/dev/null)/
 adc_folder=$(grep -rl 'cf-ad9361-lpc'         /sys/bus/iio/devices/*/name 2>/dev/null | head -1 | xargs dirname 2>/dev/null)/
+debug_folder="/sys/kernel/debug/iio/$(basename "${folder%/}")/"
 
 # Static version strings — read once at startup, never change at runtime
 IIO_VERSION=$(iio_info --version 2>/dev/null | awk 'NR==1{print $3; exit}')
+
+# Base XO oscillator frequency — captured before any correction is applied
+XO_BASE=$(<"${folder}xo_correction" 2>/dev/null)
+XO_BASE=${XO_BASE:-40000000}
 
 echo 280000000 > /tmp/sweep_frequency
 echo 480000000 > /tmp/sweep_span
@@ -51,9 +56,10 @@ declare -A VMAP=(
   # Clock chain rates (read-only)
   [${folder}rx_path_rates]='main/rx_path_rates'
   [${folder}tx_path_rates]='main/tx_path_rates'
-  # RF input mux (debug fs)
-  [/sys/kernel/debug/iio/iio:device0/adi,1rx-1tx-mode-use-rx-num]='rx/rfinput'
-  [/sys/kernel/debug/iio/iio:device0/adi,1rx-1tx-mode-use-tx-num]='tx/rfinput'
+  # RF input mux + loopback mode (debug fs)
+  [${debug_folder}adi,1rx-1tx-mode-use-rx-num]='rx/rfinput'
+  [${debug_folder}adi,1rx-1tx-mode-use-tx-num]='tx/rfinput'
+  [${debug_folder}loopback]='rx/loopback'
 )
 
 # List of possible values (capabilities/caps) for reported values settings
@@ -61,7 +67,7 @@ declare -A cVMAP=(
   [${folder}out_voltage_rf_port_select_available]='caps/tx/ant'
   [${folder}in_voltage_rf_port_select_available]='caps/rx/ant'
   [${folder}out_altvoltage1_TX_LO_frequency_available]='caps/tx/frequency'
-  [${folder}out_altvoltage0_RX_LO_frequency_available]='caps/rx/frequency'
+  [${folder}out_altvoltage0_RX_LO_frequency_available]='caps/caps/rx/frequency'
   [${folder}out_voltage_rf_bandwidth_available]='caps/tx/bandwidth'
   [${folder}in_voltage_rf_bandwidth_available]='caps/rx/bandwidth'
   [${folder}xo_correction_available]='caps/main/freq_correction'
@@ -74,8 +80,6 @@ declare -A cVMAP=(
 )
 
 # Reverse map: cmd/<path> → sysfs file to write
-# Mirrors VMAP for all directly writable attributes.
-# Special cases (rx/frequency sweep logic, rx/rfinput, sweep cmds) stay in parse_cmd.
 declare -A rVMAP=(
   [rx/gain]=${folder}in_voltage0_hardwaregain
   [tx/gain]=${folder}out_voltage0_hardwaregain
@@ -107,13 +111,10 @@ declare -A rVMAP=(
 
 declare -A CACHE
 
-# --- MQTT: FIFO-fed background publisher (one persistent process) ---
+# --- MQTT: FIFO-fed background publisher ---
 rm -f "$MQTT_FIFO"
 mkfifo "$MQTT_FIFO"
 
-# Background consumer reads "topic\tpayload" lines and publishes each one.
-# Every poll cycle sends fresh IIO state to MQTT; broker retain handles
-# dedup for new dashboard subscribers.
 (
   while IFS=$'\t' read -r topic payload; do
     /usr/bin/mosquitto_pub -r -i "tezuka_pub" -t "$topic" -m "$payload"
@@ -121,7 +122,6 @@ mkfifo "$MQTT_FIFO"
 ) < "$MQTT_FIFO" &
 MQTT_PID=$!
 
-# Keep the write-end open so the FIFO never sees EOF
 exec 4>"$MQTT_FIFO"
 
 # --- Serial: open once, reuse file descriptor ---
@@ -131,7 +131,6 @@ if [ -e "${SERIAL_PORT}" ]; then
   SERIAL_FD=5
 fi
 
-# Cleanup on exit
 cleanup () {
   exec 4>&- 2>/dev/null
   [ -n "$SERIAL_FD" ] && exec 5>&- 2>/dev/null
@@ -144,18 +143,14 @@ trap cleanup EXIT
 #  LOW-LEVEL PUBLISH HELPERS
 # ============================================================
 
-# Send to MQTT via the persistent FIFO (no fork)
 mqtt_publish () {
   printf '%s\t%s\n' "state/${1}" "${2}" >&4
 }
 
-# Send to serial via the persistent FD (no fork)
 serial_publish () {
   [ -n "$SERIAL_FD" ] && echo "${1} ${2}" >&5
 }
 
-# Always publish to MQTT (broker retain handles dedup for new subscribers).
-# Cache is kept only to deduplicate serial port writes.
 publish () {
   local key="$1" val="$2"
   mqtt_publish "$key" "$val"
@@ -165,7 +160,6 @@ publish () {
   fi
 }
 
-# Force-publish after a write command: MQTT always goes out, serial forced too.
 publish_force () {
   mqtt_publish "$1" "$2"
   CACHE[$1]="$2"
@@ -184,11 +178,21 @@ read_file () {
   fi
 }
 
+prefix_to_mask () {
+  local p=$1 i octet m=""
+  for i in 1 2 3 4; do
+    local b=$(( p > 8 ? 8 : p < 0 ? 0 : p ))
+    octet=$(( b == 0 ? 0 : 256 - (1 << (8 - b)) ))
+    m="${m:+$m.}$octet"
+    p=$(( p - b ))
+  done
+  echo "$m"
+}
+
 # ============================================================
 #  DATA PUBLISHING
 # ============================================================
 
-# Poll all data every cycle — cache prevents redundant MQTT/serial writes
 dump_data () {
   # IIO settings (VMAP)
   for K in "${!VMAP[@]}"; do publish "${VMAP[$K]}" "$(read_file "$K")"; done
@@ -196,7 +200,7 @@ dump_data () {
   # Capabilities (cVMAP)
   for K in "${!cVMAP[@]}"; do publish "${cVMAP[$K]}" "$(read_file "$K")"; done
 
-  # Device info — from /etc/libiio.ini and /opt/VERSIONS
+  # Device info
   publish "main/serial"            "$(read_file /etc/serial)"
   publish "main/hw_model"          "$(grep 'hw_model='          /etc/libiio.ini | sed 's,hw_model=,,')"
   publish "main/fw_version"        "$(grep 'fw_version='        /etc/libiio.ini | sed 's,fw_version=,,')"
@@ -209,6 +213,24 @@ dump_data () {
   local _fpga_ver;  _fpga_ver=$(grep '^fpga '     /opt/VERSIONS 2>/dev/null | cut -d' ' -f2)
   [ -n "$_fpga_ver" ]    && publish "main/fpga"       "$_fpga_ver"
   [ -n "$IIO_VERSION" ] && publish "main/iio" "$IIO_VERSION"
+
+  # Network info
+  local _iface _cidr _prefix _mac _gw _dns
+  publish "net/hostname" "$(hostname 2>/dev/null || echo 'n/a')"
+  _gw=$(ip route show default 2>/dev/null | awk '/default/{print $3; exit}')
+  publish "net/gateway" "${_gw:-n/a}"
+  _dns=$(awk '/^nameserver/{print $2; exit}' /etc/resolv.conf 2>/dev/null)
+  publish "net/dns" "${_dns:-n/a}"
+  for _iface in usb0 eth0; do
+    [ -d "/sys/class/net/$_iface" ] || continue
+    _cidr=$(ip -4 addr show "$_iface" 2>/dev/null | awk '/inet /{print $2; exit}')
+    _mac=$(ip link show "$_iface" 2>/dev/null | awk '/ether/{print $2; exit}')
+    [ -n "$_cidr" ] && publish "net/$_iface/ip"   "${_cidr%%/*}"
+    if [ -n "$_cidr" ] && [[ "$_cidr" == */* ]]; then
+      publish "net/$_iface/mask" "$(prefix_to_mask "${_cidr##*/}")"
+    fi
+    [ -n "$_mac" ] && publish "net/$_iface/mac" "$_mac"
+  done
 
   # Sweep state
   sweep=$(iio_attr -D ad9361-phy adi,rx-fastlock-pincontrol-enable)
@@ -223,12 +245,53 @@ dump_data () {
   sweep_span=$(< /tmp/sweep_span)
   publish "rx/sweep/frequency" "$sweep_frequency"
   publish "rx/span" "$sweep_span"
-  # FIR config header only (full file is multi-line, breaks FIFO protocol)
   publish "main/fir_config" "$(head -1 "${folder}filter_fir_config" 2>/dev/null || echo 'n/a')"
 
   # RX buffer size
   publish "rx/buffer_size" "$(read_file "${adc_folder}buffer/length")"
   publish "tx/buffer_size" "$(read_file "${dds_folder}buffer/length")"
+
+  # FIXED: Copy sysfs attribute safely to disk first before executing awk processing
+  if [ -r "${folder}gain_table_config" ]; then
+    cp "${folder}gain_table_config" /tmp/gain_table_raw 2>/dev/null
+    local _gtj
+    _gtj=$(awk '
+      BEGIN { printf "["; first=1 }
+      /^<gaintable/ {
+        if (in_section && max > -999) {
+          mid=int((s+e)/2000000)
+          if (!first) printf ","
+          printf "{\"freq\":%d,\"gain\":%d}", mid, max
+          first=0
+        }
+        in_section=1; max=-999
+        tmp=$0; sub(/.*start=/,"",tmp); sub(/[^0-9].*/,"",tmp); s=tmp+0
+        tmp=$0; sub(/.*end=/,"",tmp);   sub(/[^0-9].*/,"",tmp); e=tmp+0
+        next
+      }
+      /^<\/gaintable>/ {
+        if (in_section && max > -999) {
+          mid=int((s+e)/2000000)
+          if (!first) printf ","
+          printf "{\"freq\":%d,\"gain\":%d}", mid, max
+          first=0
+        }
+        in_section=0; next
+      }
+      in_section && /^[[:space:]]*[0-9]/ {
+        gsub(/,/," "); if (NF>=2){g=$2+0; if(g>max)max=g}
+      }
+      END {
+        if (in_section && max > -999) {
+          mid=int((s+e)/2000000)
+          if (!first) printf ","
+          printf "{\"freq\":%d,\"gain\":%d}", mid, max
+        }
+        printf "]"
+      }
+    ' /tmp/gain_table_raw) # Safely reads RAM cache instead of driver file
+    publish "main/gain_table_config" "$_gtj"
+  fi
 
   # RX overload flag
   rx_overload=$(iio_attr -D ad9361-phy direct_reg_access 0x5E)
@@ -239,7 +302,7 @@ dump_data () {
     publish "rx/overload" "0"
   fi
 
-  # TX overflow flag (reg 0x5F, bits D2-D6: TFIR/HB1/HB2/HB3/INT3 overflow)
+  # TX overflow flag
   tx_overload=$(iio_attr -D ad9361-phy direct_reg_access 0x5F)
   if (( (tx_overload & 0x7C) != 0 )); then
     publish "tx/overload" "1"
@@ -257,7 +320,6 @@ dump_data () {
     local cpu_sample=0
     [ "$cpu_dt" -gt 0 ] && cpu_sample=$(( cpu_dw * 100 * 2 / cpu_dt ))
     [ "$cpu_sample" -gt 100 ] && cpu_sample=100
-    # EMA: 30% new sample, 70% history (all × 10 for one decimal, then divide)
     CPU_EMA=$(( (CPU_EMA * 7 + cpu_sample * 3) / 10 ))
     publish "main/cpu" "$CPU_EMA"
   fi
@@ -274,12 +336,11 @@ dump_data () {
   done < /proc/meminfo
   publish "main/mem" $(( (mem_total - mem_avail) * 100 / mem_total ))
 
-  # AD9361 die temperature (IIO millidegrees → °C)
+  # AD9361 die temperature
   local temp_raw; temp_raw=$(read_file "${folder}in_temp0_input")
   [ "$temp_raw" != "n/a" ] && publish "main/temp" $(( temp_raw / 1000 ))
 
-  # Zynq die temperature via XADC IIO: (raw + offset) * scale ≈ millidegrees
-  # in_temp0_input gives the computed value directly if available
+  # Zynq die temperature via XADC IIO
   local fpga_raw; fpga_raw=$(read_file "${xadc_folder}in_temp0_input")
   if [ "$fpga_raw" = "n/a" ] && [ -n "$xadc_folder" ] && [ "$xadc_folder" != "/" ]; then
     local xraw xoff; xraw=$(read_file "${xadc_folder}in_temp0_raw"); xoff=$(read_file "${xadc_folder}in_temp0_offset")
@@ -287,11 +348,11 @@ dump_data () {
   fi
   [ "$fpga_raw" != "n/a" ] && publish "main/fpga_temp" $(( fpga_raw / 1000 - 20 ))
 
-  # System uptime (seconds)
+  # System uptime
   local uptime_s; read -r uptime_s _ < /proc/uptime
   publish "main/uptime" "${uptime_s%%.*}"
 
-  # TX DMA transfer rate (interrupts/s from f8007c42 DMA channel)
+  # TX DMA transfer rate
   local tx_dma_now tx_dma_rate=0
   tx_dma_now=$(grep "7c42" /proc/interrupts 2>/dev/null | head -1 | awk '{s=0; for(i=2;i<=NF;i++){if($i~/^[0-9]+$/)s+=$i}; print s}')
   if [ -n "$tx_dma_now" ] && [ "$TX_DMA_PREV" -gt 0 ]; then
@@ -300,7 +361,7 @@ dump_data () {
   fi
   [ -n "$tx_dma_now" ] && TX_DMA_PREV=$tx_dma_now
 
-  # TX underflow flag — only when DMA is active (AXI DAC core reg 0x80000088, bit 2; write-back to clear)
+  # TX underflow flag
   tx_under_raw=$(iio_attr -D cf-ad9361-dds-core-lpc direct_reg_access 0x80000088 2>/dev/null)
   if [ -n "$tx_under_raw" ] && (( (tx_under_raw & 4) != 0 )) && (( tx_dma_rate > 0 )); then
     publish "tx/underflow" "1"
@@ -309,7 +370,7 @@ dump_data () {
     publish "tx/underflow" "0"
   fi
 
-  # RX DMA transfer rate (interrupts/s from f8007c40 DMA channel)
+  # RX DMA transfer rate
   local rx_dma_now rx_dma_rate=0
   rx_dma_now=$(grep "7c40" /proc/interrupts 2>/dev/null | head -1 | awk '{s=0; for(i=2;i<=NF;i++){if($i~/^[0-9]+$/)s+=$i}; print s}')
   if [ -n "$rx_dma_now" ] && [ "$RX_DMA_PREV" -gt 0 ]; then
@@ -318,7 +379,7 @@ dump_data () {
   fi
   [ -n "$rx_dma_now" ] && RX_DMA_PREV=$rx_dma_now
 
-  # RX underflow flag — only when DMA is active (AXI ADC core reg 0x80000088, bit 2; write-back to clear)
+  # RX underflow flag
   rx_under_raw=$(iio_attr -D cf-ad9361-lpc direct_reg_access 0x80000088 2>/dev/null)
   if [ -n "$rx_under_raw" ] && (( (rx_under_raw & 4) != 0 )) && (( rx_dma_rate > 0 )); then
     publish "rx/underflow" "1"
@@ -327,7 +388,7 @@ dump_data () {
     publish "rx/underflow" "0"
   fi
 
-  # IQ network rate via USB gadget interface (Mbps, 2 s tick)
+  # IQ network rate
   local iq_rx iq_tx
   read -r iq_rx iq_tx <<< "$(grep "${IQ_IFF}:" /proc/net/dev 2>/dev/null | awk '{print $2, $10}')"
   if [ -n "$iq_rx" ]; then
@@ -340,7 +401,7 @@ dump_data () {
     IQ_INIT=1
   fi
 
-  # USB interface rates (usb0)
+  # USB interface rates
   local usb_rx usb_tx
   read -r usb_rx usb_tx <<< "$(grep "usb0:" /proc/net/dev 2>/dev/null | awk '{print $2, $10}')"
   if [ -n "$usb_rx" ]; then
@@ -363,7 +424,7 @@ update_sweep () {
 }
 
 # ============================================================
-#  COMMAND PARSER (from MQTT cmd/# topic)
+#  COMMAND PARSER
 # ============================================================
 
 parse_cmd () {
@@ -371,92 +432,10 @@ parse_cmd () {
   shift
   val="${*}"
 
-  # Direct sysfs write via reverse map; read back actual value and force-publish
   if [ "${rVMAP[$cmd]}" ]; then
     echo "${val}" > "${rVMAP[$cmd]}"
     publish_force "$cmd" "$(read_file "${rVMAP[$cmd]}")"
   else
     case $cmd in
     rx/rfinput)
-      /root/switch_rfinput.sh "rx${val}" &
-    ;;
-    tx/rfinput)
-      /root/switch_rfoutput.sh "tx${val}" &
-    ;;
-    rx/span)
-      SPAN=$(printf "%0.f" "$val")
-      echo "$SPAN" > /tmp/sweep_span
-      if [ "$SPAN" -gt "60000000" ]; then
-        current_frequency=$(< "${folder}out_altvoltage0_RX_LO_frequency")
-        update_sweep "$current_frequency" "$SPAN" 1
-      else
-        /root/sweep_stop.sh
-        echo 60000000 > "${folder}in_voltage_sampling_frequency"
-      fi
-    ;;
-    rx/frequency)
-      SPAN=$(< /tmp/sweep_span)
-      sweep_on=$(< /tmp/sweep_on)
-      echo "$val" > /tmp/sweep_frequency
-      if [ "$sweep_on" == "1" ]; then
-        update_sweep "$val" "$SPAN" 1
-      else
-        echo "$val" > "${folder}out_altvoltage0_RX_LO_frequency"
-      fi
-    ;;
-    rx/sweep/frequency)
-      if [ "$sweep_frequency" != "$val" ]; then
-        sweep_frequency=$val
-        echo "$sweep_frequency" > /tmp/sweep_frequency
-        update_sweep "$sweep_frequency" "$sweep_span" "$sweep_on"
-      fi
-    ;;
-    rx/sweep/span)
-      if [ "$sweep_span" != "$val" ]; then
-        sweep_span=$val
-        echo "$sweep_span" > /tmp/sweep_span
-        update_sweep "$sweep_frequency" "$sweep_span" "$sweep_on"
-      fi
-    ;;
-    rx/sweep/activate)
-      sweep_on=$(< /tmp/sweep_on)
-      if [ "$val" == "1" ]; then
-        sweep_on=$val
-        update_sweep "$sweep_frequency" "$sweep_span" "$sweep_on"
-      else
-        /root/sweep_stop.sh
-      fi
-    ;;
-    esac
-  fi
-}
-
-# ============================================================
-#  STATE FOR DELTA CALCULATIONS
-# ============================================================
-
-CPU_PREV_TOTAL=0
-CPU_PREV_WORK=0
-CPU_EMA=0       # exponential moving average of cpu%, α≈0.3
-TX_DMA_PREV=0
-RX_DMA_PREV=0
-IQ_IFF="eth0"   # network interface for IQ data rate
-IQ_RX_PREV=0
-IQ_TX_PREV=0
-IQ_INIT=0       # 0 until first read; avoids bogus delta on first tick
-USB_RX_PREV=0
-USB_TX_PREV=0
-USB_INIT=0
-
-# ============================================================
-#  MAIN
-# ============================================================
-
-# Subscribe to commands (background)
-/usr/bin/mosquitto_sub -v -i "tezuka_sub" -t "cmd/#" | while read -r i; do parse_cmd $i ; done &
-
-# Poll dynamic data every 2 seconds (cache prevents redundant publishes)
-while true; do
-  dump_data
-  sleep 2
-done
+      /root

@@ -11,6 +11,9 @@ function applyMqtt(prev, path, raw) {
   if (path.startsWith('caps/')) {
     return { ...prev, caps: { ...prev.caps, [path.slice(5)]: raw } };
   }
+  if (path.startsWith('net/')) {
+    return { ...prev, net: { ...prev.net, [path.slice(4)]: raw } };
+  }
   switch (path) {
     case 'rx/frequency':        return { ...prev, rxFreq: parseFloat(raw) };
     case 'tx/frequency':        return { ...prev, txFreq: parseFloat(raw) };
@@ -27,6 +30,7 @@ function applyMqtt(prev, path, raw) {
     case 'tx/active':           return { ...prev, txActive: raw === '0' };
     case 'rx/rfinput':          return { ...prev, rxRfinput: parseInt(raw) };
     case 'tx/rfinput':          return { ...prev, txRfinput: parseInt(raw) };
+    case 'rx/loopback':         return { ...prev, loopback: parseInt(raw) };
     case 'rx/fir_enable':       return { ...prev, rxFirEnable: raw === '1' };
     case 'rx/overload':         return { ...prev, rxOverload: raw === '1' };
     case 'tx/overload':         return { ...prev, txOverload: raw === '1' };
@@ -40,7 +44,7 @@ function applyMqtt(prev, path, raw) {
     case 'main/serial':         return { ...prev, serial: raw };
     case 'main/hw_model':       return { ...prev, hwModel: raw };
     case 'main/fw_version':     return { ...prev, fwVersion: raw };
-    case 'main/freq_correction':   return { ...prev, freqCorrection: parseFloat(raw) };
+    case 'main/freq_correction':   { const v = parseFloat(raw); return { ...prev, freqCorrection: isNaN(v) ? null : v }; }
     case 'main/ensm_mode':         return { ...prev, ensmMode: raw };
     case 'main/rx_path_rates':     return { ...prev, rxPathRates: raw };
     case 'main/tx_path_rates':     return { ...prev, txPathRates: raw };
@@ -72,6 +76,13 @@ function applyMqtt(prev, path, raw) {
     case 'rx/dma_transfer':  return { ...prev, rxDmaTransfer: parseInt(raw) };
     case 'usb/rx_rate':      return { ...prev, usbRxRate: parseInt(raw) };
     case 'usb/tx_rate':      return { ...prev, usbTxRate: parseInt(raw) };
+    case 'system/log':                  return { ...prev, systemLog: [...prev.systemLog, raw] };
+    case 'system/kalibrate/status':     return { ...prev, kalibrateStatus: raw };
+    case 'main/gain_table_config':      try { return { ...prev, gainTableConfig: JSON.parse(raw) }; } catch { return prev; }
+    case 'system/kalibrate/channels':   try { return { ...prev, kalibrateChannels: JSON.parse(raw) }; } catch { return prev; }
+    case 'system/kalibrate/result_ppm': return { ...prev, kalibrateResultPpm: parseFloat(raw) };
+    case 'system/kalibrate/result_ppb': return { ...prev, kalibrateResultPpb: parseFloat(raw) };
+    case 'system/kalibrate/log':        return { ...prev, kalibrateLog: [...prev.kalibrateLog, raw] };
     default:                    return prev;
   }
 }
@@ -96,10 +107,12 @@ function useLiveData(running = true) {
     rxGainMode: null,
     rxAnt: null, txAnt: null,
     rxActive: null, txActive: null,
-    rxRfinput: null, rxFirEnable: null, rxOverload: false, txOverload: false, rxUnderflow: false, txUnderflow: false, rxBufferSize: null, txBufferSize: null,
+    rxRfinput: null, rxFirEnable: null, loopback: null, rxOverload: false, txOverload: false, rxUnderflow: false, txUnderflow: false, rxBufferSize: null, txBufferSize: null,
     sweepActive: false, sweepFreq: null, span: null,
     serial: null, hwModel: null, fwVersion: null, freqCorrection: null,
-    caps: {},
+    caps: {}, net: {}, systemLog: [],
+    gainTableConfig: null,
+    kalibrateStatus: '', kalibrateChannels: [], kalibrateResultPpm: null, kalibrateResultPpb: null, kalibrateLog: [],
   }));
 
   // MQTT connection — ws://[hostname]:9001/mqtt
