@@ -874,4 +874,108 @@ function Kalibrate({ d }) {
   );
 }
 
-Object.assign(window, { DATV, Versions, Analysis, Network, Transverter, IQTape, SigGen, Calibrate, Diagnostic, Reboot, Operator, Kalibrate });
+// ---- Persistent storage ---------------------------------------------------
+function Persistent({ d }) {
+  const [loading, setLoading] = useS2(false);
+  const [edits, setEdits] = useS2({});
+  const [saved, setSaved] = useS2({});
+  const [filter, setFilter] = useS2('');
+  const envVars = d.envVars || {};
+  const requestedRef = React.useRef(false);
+
+  useE2(() => {
+    if (!d.mqtt || requestedRef.current) return;
+    requestedRef.current = true;
+    setLoading(true);
+    d.publish('system/getenv', 'all');
+  }, [d.mqtt]);
+
+  useE2(() => {
+    if (d.envCount != null) setLoading(false);
+  }, [d.envCount]);
+
+  const setEdit = (name, val) => setEdits(e => ({ ...e, [name]: val }));
+
+  const save = (name) => {
+    d.publish('system/setenv/' + name, edits[name]);
+    setEdits(e => { const n = { ...e }; delete n[name]; return n; });
+    setSaved(s => ({ ...s, [name]: true }));
+    setTimeout(() => setSaved(s => { const n = { ...s }; delete n[name]; return n; }), 2000);
+  };
+
+  const refresh = () => {
+    setLoading(true);
+    setEdits({});
+    requestedRef.current = false;
+    d.publish('system/getenv', 'all');
+  };
+
+  const entries = Object.entries(envVars)
+    .filter(([k, v]) => !filter ||
+      k.toLowerCase().includes(filter.toLowerCase()) ||
+      v.toLowerCase().includes(filter.toLowerCase()))
+    .sort(([a], [b]) => a.localeCompare(b));
+
+  return (
+    <div className="page">
+      <div className="datv-head">
+        <div className="datv-title">
+          <h1>Persistent storage</h1>
+          <span className="datv-sub mono">U-Boot environment · fw_printenv / fw_setenv</span>
+        </div>
+        <button className="btn primary" onClick={refresh} disabled={loading}>
+          <span className={loading ? "spin" : ""} style={{ display: "inline-flex" }}><Icon name="refresh" size={16} /></span>
+          {loading ? "Loading…" : "Refresh"}
+        </button>
+      </div>
+
+      <div className="grid-12">
+        <Card title="Environment variables" sub={`${entries.length} variable${entries.length !== 1 ? 's' : ''}`} className="span-12" pad={false}
+          right={<TextInput value={filter} onChange={setFilter} mono={false} placeholder="Filter…" />}>
+          {entries.length === 0 ? (
+            <div className="logline log-empty mono">
+              {loading ? "— loading environment variables…" : "— no variables · press Refresh —"}
+            </div>
+          ) : (
+            <table className="ver-table">
+              <thead><tr><th>Variable</th><th>Value</th><th></th></tr></thead>
+              <tbody>
+                {entries.map(([name, val]) => {
+                  const editVal = edits[name] !== undefined ? edits[name] : val;
+                  const dirty = edits[name] !== undefined && edits[name] !== val;
+                  const multiline = editVal.includes('\n');
+                  return (
+                    <tr key={name}>
+                      <td className="mono vt-name" style={{ whiteSpace: 'nowrap', verticalAlign: 'top', paddingTop: 10 }}>{name}</td>
+                      <td style={{ width: '100%' }}>
+                        {multiline
+                          ? <textarea className="mono" rows={Math.min(editVal.split('\n').length, 10)}
+                              value={editVal} onChange={(e) => setEdit(name, e.target.value)}
+                              style={{ width: '100%', resize: 'vertical', background: 'var(--bg-2)', color: 'var(--fg)', border: '1px solid var(--border)', borderRadius: 4, padding: '4px 6px', fontSize: 'inherit', fontFamily: 'inherit' }} />
+                          : <TextInput value={editVal} onChange={(v) => setEdit(name, v)} />}
+                      </td>
+                      <td style={{ whiteSpace: 'nowrap', verticalAlign: 'top', paddingTop: 10 }}>
+                        {dirty ? (
+                          <div className="ab-btns">
+                            <button className="btn primary btn-sm" onClick={() => save(name)}>
+                              <Icon name="save" size={13} /> Save
+                            </button>
+                            <button className="btn ghost btn-sm" onClick={() => setEdit(name, val)}>Reset</button>
+                          </div>
+                        ) : saved[name] ? (
+                          <Pill tone="ok" dot>saved</Pill>
+                        ) : null}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          )}
+        </Card>
+      </div>
+    </div>
+  );
+}
+
+Object.assign(window, { DATV, Versions, Analysis, Network, Transverter, IQTape, SigGen, Calibrate, Diagnostic, Reboot, Operator, Kalibrate, Persistent });

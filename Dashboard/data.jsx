@@ -14,6 +14,14 @@ function applyMqtt(prev, path, raw) {
   if (path.startsWith('net/')) {
     return { ...prev, net: { ...prev.net, [path.slice(4)]: raw } };
   }
+  if (path === 'system/env_count') {
+    return { ...prev, envCount: parseInt(raw) };
+  }
+  if (path.startsWith('system/env/')) {
+    const key = path.slice('system/env/'.length);
+    if (key) return { ...prev, envVars: { ...prev.envVars, [key]: raw } };
+    return prev;
+  }
   switch (path) {
     case 'rx/frequency':        return { ...prev, rxFreq: parseFloat(raw) };
     case 'tx/frequency':        return { ...prev, txFreq: parseFloat(raw) };
@@ -110,7 +118,7 @@ function useLiveData(running = true) {
     rxRfinput: null, rxFirEnable: null, loopback: null, rxOverload: false, txOverload: false, rxUnderflow: false, txUnderflow: false, rxBufferSize: null, txBufferSize: null,
     sweepActive: false, sweepFreq: null, span: null,
     serial: null, hwModel: null, fwVersion: null, freqCorrection: null,
-    caps: {}, net: {}, systemLog: [],
+    caps: {}, net: {}, envVars: {}, envCount: null, systemLog: [],
     gainTableConfig: null,
     kalibrateStatus: '', kalibrateChannels: [], kalibrateResultPpm: null, kalibrateResultPpb: null, kalibrateLog: [],
   }));
@@ -122,35 +130,43 @@ function useLiveData(running = true) {
     const clientId = 'tezuka_dash_' + Math.random().toString(16).slice(2, 8);
     const client = new Paho.MQTT.Client(host, 9001, '/mqtt', clientId);
     mqttRef.current = client;
+    let offlineTimer = null;
 
     client.onMessageArrived = (msg) => {
-      console.log('[mqtt]', msg.destinationName, msg.payloadString);
+      let payload;
+      try { payload = msg.payloadString; } catch (_) { return; }
       const dest = msg.destinationName;
       if (dest.startsWith('dt/pluto/')) {
-        // dt/pluto/<callsign>/<subpath> → d.datv['<subpath>']
         const subPath = dest.split('/').slice(3).join('/');
-        setD((p) => ({ ...p, datv: { ...p.datv, [subPath]: msg.payloadString } }));
+        setD((p) => ({ ...p, datv: { ...p.datv, [subPath]: payload } }));
       } else {
         const path = dest.replace(/^state\//, '');
-        setD((p) => applyMqtt(p, path, msg.payloadString));
+        setD((p) => applyMqtt(p, path, payload));
       }
     };
 
-    client.onConnectionLost = () => setD((p) => ({ ...p, mqtt: false }));
+    client.onConnectionLost = () => {
+      clearTimeout(offlineTimer);
+      offlineTimer = setTimeout(() => setD((p) => ({ ...p, mqtt: false })), 4000);
+    };
 
     client.connect({
       onSuccess: () => {
+        clearTimeout(offlineTimer);
         client.subscribe('state/#');
         client.subscribe('dt/pluto/#');
         setD((p) => ({ ...p, mqtt: true, mqttHost: `${host}:9001` }));
       },
-      onFailure: () => setD((p) => ({ ...p, mqtt: false })),
+      onFailure: () => {
+        clearTimeout(offlineTimer);
+        setD((p) => ({ ...p, mqtt: false }));
+      },
       reconnect: true,
       keepAliveInterval: 30,
       useSSL: window.location.protocol === 'https:',
     });
 
-    return () => { try { client.disconnect(); } catch (_) {} mqttRef.current = null; };
+    return () => { clearTimeout(offlineTimer); try { client.disconnect(); } catch (_) {} mqttRef.current = null; };
   }, []);
 
   const publish = useCBD((path, value) => {

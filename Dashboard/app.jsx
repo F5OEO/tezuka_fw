@@ -16,7 +16,7 @@ const NAV = [
   { group: null, items: [["dashboard", "Dashboard", "dashboard"]] },
   { group: "RF", items: [["spectrum", "Spectrum", "spectrum"], ["arch", "Architecture", "chip"]] },
   { group: "Application", items: [["datv", "DATV Controller", "datv", [["analysis", "Analysis", "analysis"]]], ["transverter", "Transverter", "transverter"], ["iqtape", "IQ Tape", "tape"], ["siggen", "Signal generator", "wave"]] },
-  { group: "System", items: [["versions", "Versions", "versions"], ["network", "Network", "network"], ["diagnostic", "Diagnostic", "pulse"], ["calibrate", "Calibrate", "target", [["kalibrate", "Kalibrate", "search"]]], ["reboot", "Reboot", "power"]] },
+  { group: "System", items: [["versions", "Versions", "versions"], ["network", "Network", "network"], ["diagnostic", "Diagnostic", "pulse"], ["calibrate", "Calibrate", "target", [["kalibrate", "Kalibrate", "search"]]], ["persistent", "Persistent", "save"], ["reboot", "Reboot", "power"]] },
 ];
 
 const TWEAK_DEFAULTS = /*EDITMODE-BEGIN*/{
@@ -78,7 +78,7 @@ function Sidebar({ route, setRoute, collapsed, labels, operator }) {
   );
 }
 
-const TITLES = { dashboard: "Dashboard", spectrum: "Spectrum", datv: "DATV Controller", transverter: "Transverter", iqtape: "IQ Tape", siggen: "Signal generator", calibrate: "Calibrate", analysis: "Analysis", arch: "Architecture", versions: "Versions & system", network: "Network", diagnostic: "Diagnostic", kalibrate: "Kalibrate from RF", reboot: "Reboot", operator: "Operator" };
+const TITLES = { dashboard: "Dashboard", spectrum: "Spectrum", datv: "DATV Controller", transverter: "Transverter", iqtape: "IQ Tape", siggen: "Signal generator", calibrate: "Calibrate", analysis: "Analysis", arch: "Architecture", versions: "Versions & system", network: "Network", diagnostic: "Diagnostic", kalibrate: "Kalibrate from RF", persistent: "Persistent storage", reboot: "Reboot", operator: "Operator" };
 
 function Topbar({ onMenu, route, mqtt }) {
   return (
@@ -144,6 +144,7 @@ function App() {
       case "network": return <Network d={d} />;
       case "diagnostic": return <Diagnostic d={d} />;
       case "kalibrate": return <Kalibrate d={d} />;
+      case "persistent": return <Persistent d={d} />;
       case "reboot": return <Reboot d={d} ver={ver} />;
       case "operator": return <Operator operator={op} onSave={setOperator} />;
       default: return <Dashboard d={d} ver={ver} />;

@@ -417,6 +417,45 @@ parse_cmd () {
           /usr/bin/mosquitto_pub -i "tezuka_log" -t "state/system/log" -m "$line"
         done ) &
     ;;
+    system/getenv)
+      if [[ "$val" == "all" ]]; then
+        (
+          n=0; cur_name=""; cur_val=""
+          while IFS= read -r line; do
+            if [[ "$line" == *=* ]] && [[ "${line%%=*}" =~ ^[a-zA-Z0-9_]+$ ]]; then
+              if [[ -n "$cur_name" ]]; then
+                /usr/bin/mosquitto_pub -r -i "tezuka_env" \
+                  -t "state/system/env/$cur_name" -m "$cur_val"
+                (( n++ ))
+              fi
+              cur_name="${line%%=*}"
+              cur_val="${line#*=}"
+            elif [[ -n "$cur_name" ]]; then
+              cur_val+=$'\n'"$line"
+            fi
+          done < <(fw_printenv 2>/dev/null)
+          if [[ -n "$cur_name" ]]; then
+            /usr/bin/mosquitto_pub -r -i "tezuka_env" \
+              -t "state/system/env/$cur_name" -m "$cur_val"
+            (( n++ ))
+          fi
+          /usr/bin/mosquitto_pub -r -i "tezuka_env" -t "state/system/env_count" -m "$n"
+        ) &
+      else
+        [[ "$val" =~ ^[a-zA-Z0-9_]+$ ]] || return
+        ( result=$(fw_printenv "$val" 2>/dev/null)
+          /usr/bin/mosquitto_pub -r -i "tezuka_env" \
+            -t "state/system/env/$val" -m "${result#*=}" ) &
+      fi
+    ;;
+    system/setenv/*)
+      local param="${cmd#system/setenv/}"
+      [[ "$param" =~ ^[a-zA-Z0-9_]+$ ]] || return
+      ( fw_setenv "$param" "$val" 2>/dev/null
+        result=$(fw_printenv "$param" 2>/dev/null)
+        /usr/bin/mosquitto_pub -r -i "tezuka_env" \
+          -t "state/system/env/$param" -m "${result#*=}" ) &
+    ;;
     system/kalibrate/scan)
       (
         KID="tezuka_kal_$$"
