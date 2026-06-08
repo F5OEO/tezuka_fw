@@ -389,6 +389,27 @@ function SpectrumStub({ freq, bw }) {
 // ---- Spectrum Page — HP CRT style, fresh canvas implementation ---------------
 const { useRef: useSpR, useEffect: useSpE, useState: useSpS, useCallback: useSpCb } = React;
 
+// Signed dB tuner: clickable '−' sign prefix + FreqTuner for magnitude (integer dBm steps)
+function DbTuner({ value, onChange, digits = 3, unit = 'dBm' }) {
+  const abs = Math.abs(Math.round(value));
+  const neg = value < 0;
+  // Clicking the sign toggles positive/negative; prevents getting stuck at ±0
+  const flip = () => onChange(neg ? abs : -(abs || 1));
+  return (
+    <span style={{ display: 'inline-flex', alignItems: 'baseline' }}>
+      <span className="hp-pfx"
+        style={{ cursor: 'pointer', userSelect: 'none', minWidth: '0.6ch', textAlign: 'right' }}
+        onClick={flip}>
+        {neg ? '−' : ' '}
+      </span>
+      <div className="hp-tuner">
+        <FreqTuner value={abs} digits={digits} min={0} max={999} unit={unit}
+          onChange={(v) => onChange(neg ? -(v || 1) : v)} />
+      </div>
+    </span>
+  );
+}
+
 // Phosphor palette — matches CSS --phos variables in .hp-crt
 const SP_PHOS      = '#FFC21A';
 const SP_PHOS_GRID = 'rgba(245,179,1,0.17)';
@@ -396,7 +417,8 @@ const SP_PHOS_DIM  = 'rgba(245,179,1,0.34)';
 const SP_BG        = '#0a0600';
 const SP_COLS = 10, SP_ROWS = 8;
 
-function spDraw(ctx, W, H, bins, refDb, dbDiv) {
+// range = total dB span visible (bottom = refDb - range)
+function spDraw(ctx, W, H, bins, refDb, range) {
   ctx.fillStyle = SP_BG;
   ctx.fillRect(0, 0, W, H);
 
@@ -427,7 +449,7 @@ function spDraw(ctx, W, H, bins, refDb, dbDiv) {
 
   const n   = bins.length;
   const top = refDb;
-  const bot = refDb - SP_ROWS * dbDiv;
+  const bot = refDb - range;
 
   const toY = (db) => H - Math.max(0, Math.min(H, ((db - bot) / (top - bot)) * H));
   const toX = (i)  => (i / (n - 1)) * W;
@@ -469,11 +491,11 @@ function SpectrumPage({ d }) {
   const sweepLenR  = useSpR(0);
   const dirtyRef   = useSpR(true);
   const refDbRef   = useSpR(130);
-  const dbDivRef   = useSpR(10);
+  const rangeRef   = useSpR(SP_ROWS * 10);   // total dB span, default 80
   const isSweepR   = useSpR(false);
 
   const [refDb,    setRefDb]    = useSpS(130);
-  const [dbDiv,    setDbDiv]    = useSpS(10);
+  const [range,    setRange]    = useSpS(SP_ROWS * 10);
   const [centerHz, setCenterHz] = useSpS(437e6);
   const [spanHz,   setSpanHz]   = useSpS(2.4e6);
   const [gain,     setGain]     = useSpS(50);
@@ -482,8 +504,8 @@ function SpectrumPage({ d }) {
   const [fps,      setFps]      = useSpS(0);
 
   // Keep refs current for RAF loop (avoids stale closures)
-  useSpE(() => { refDbRef.current = refDb; dirtyRef.current = true; }, [refDb]);
-  useSpE(() => { dbDivRef.current = dbDiv; dirtyRef.current = true; }, [dbDiv]);
+  useSpE(() => { refDbRef.current = refDb;  dirtyRef.current = true; }, [refDb]);
+  useSpE(() => { rangeRef.current = range;  dirtyRef.current = true; }, [range]);
 
   // Sync from MQTT state
   useSpE(() => { if (d.rxGain    != null) setGain(d.rxGain); },    [d.rxGain]);
@@ -524,7 +546,7 @@ function SpectrumPage({ d }) {
       syncSize();
       if (dirtyRef.current && canvas.width > 0 && canvas.height > 0) {
         const bins = isSweepR.current ? sweepBuf.current : binsRef.current;
-        spDraw(ctx, canvas.width, canvas.height, bins, refDbRef.current, dbDivRef.current);
+        spDraw(ctx, canvas.width, canvas.height, bins, refDbRef.current, rangeRef.current);
         dirtyRef.current = false;
         fCount++;
         if (ts - fTimer >= 1000) { setFps(fCount); fCount = 0; fTimer = ts; }
@@ -617,14 +639,14 @@ function SpectrumPage({ d }) {
     }
   }, [d]);
 
-  // Keyboard shortcuts: +/- shift REF, [/] change dB/DIV
+  // Keyboard shortcuts: +/- shift REF, [/] change RANGE (1 step = SP_ROWS dB)
   useSpE(() => {
     const onKey = (e) => {
       if (e.target.tagName === 'INPUT') return;
       if (e.key === '+' || e.key === '=') setRefDb(r => r + 5);
       if (e.key === '-' || e.key === '_') setRefDb(r => r - 5);
-      if (e.key === '[') setDbDiv(v => Math.max(1, v - 1));
-      if (e.key === ']') setDbDiv(v => v + 1);
+      if (e.key === '[') setRange(v => Math.max(SP_ROWS, v - SP_ROWS));
+      if (e.key === ']') setRange(v => v + SP_ROWS);
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
@@ -636,8 +658,6 @@ function SpectrumPage({ d }) {
   const stMs    = fps > 0 ? Math.round(1000 / fps) : 0;
   const wsTone  = wsState === 'connected' ? 'ok' : wsState === 'connecting' ? 'info' : 'warn';
 
-  const updRefDb    = (e) => { const v = parseFloat(e.target.value); if (!isNaN(v)) setRefDb(v); };
-  const updDbDiv    = (e) => { const v = parseFloat(e.target.value); if (v > 0) setDbDiv(v); };
   const pubGain     = (v) => { setGain(v);    d.publish('rx/gain',    v); };
   const pubInput    = (v) => { setRxInput(v); d.publish('rx/rfinput', v === 'rx2' ? 2 : 1); };
   const onCenterChg = useSpCb((hz) => { setCenterHz(hz); d.publish('rx/frequency', hz); }, [d]);
@@ -647,13 +667,22 @@ function SpectrumPage({ d }) {
       <div className="hp-crt">
         <div className="hp-rows">
           <div className="hp-row">
-            <CrtField pfx="REF"  val={refDb.toFixed(1)} sfx="dBm" onChange={updRefDb} />
-            <CrtField pfx="MKR"  val={fmtMHz(centerHz)} sfx="MHz" onChange={() => {}} />
+            <span className="hp-fld">
+              <span className="hp-pfx">REF</span>
+              <DbTuner value={Math.round(refDb)} digits={3} unit="dBm" onChange={setRefDb} />
+            </span>
+            <CrtField pfx="MKR" val={fmtMHz(centerHz)} sfx="MHz" onChange={() => {}} />
           </div>
           <div className="hp-row">
-            <CrtField val={dbDiv.toFixed(0)} sfx="dB/DIV" onChange={updDbDiv} />
-            <CrtField pfx="RANGE" val={(refDb - 4 * dbDiv).toFixed(1)} sfx="dBm" center onChange={() => {}} />
-            <CrtField val={(refDb - SP_ROWS * dbDiv).toFixed(1)} sfx="dB" onChange={() => {}} />
+            <CrtField val={(range / SP_ROWS).toFixed(0)} sfx="dB/DIV" onChange={() => {}} />
+            <span className="hp-fld ctr">
+              <span className="hp-pfx">RANGE</span>
+              <div className="hp-tuner">
+                <FreqTuner value={range} digits={3} min={SP_ROWS} max={800} unit="dB"
+                  onChange={setRange} />
+              </div>
+            </span>
+            <CrtField val={(refDb - range).toFixed(1)} sfx="dB" onChange={() => {}} />
           </div>
         </div>
 
