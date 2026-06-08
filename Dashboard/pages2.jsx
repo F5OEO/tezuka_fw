@@ -665,7 +665,7 @@ function Reboot({ d, ver }) {
             </div>
             {pending ? (
               <div className="confirm-bar">
-                <span className="mono">{pending === "reboot" ? `Reboot now in ${mode} mode?` : "Power off the device?"}</span>
+                <span className="mono">{`Reboot now in ${mode} mode?`}</span>
                 <div className="ab-btns">
                   <button className="btn ghost" onClick={() => setPending(null)}>Cancel</button>
                   <button className="btn primary" onClick={() => start(pending)}>Confirm</button>
@@ -674,7 +674,6 @@ function Reboot({ d, ver }) {
             ) : (
               <div className="ab-btns">
                 <button className="btn primary" onClick={() => setPending("reboot")}><Icon name="refresh" size={16} />Reboot now</button>
-                <button className="btn ghost iq-rec" onClick={() => setPending("shutdown")}><Icon name="power" size={16} />Power off</button>
               </div>
             )}
           </Card>
