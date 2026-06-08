@@ -15,7 +15,7 @@ const VER = {
 const NAV = [
   { group: null, items: [["dashboard", "Dashboard", "dashboard"]] },
   { group: "RF", items: [["spectrum", "Spectrum", "spectrum"], ["arch", "Architecture", "chip"]] },
-  { group: "Application", items: [["datv", "DATV Controller", "datv", [["analysis", "Analysis", "analysis"]]], ["transverter", "Transverter", "transverter"], ["iqtape", "IQ Tape", "tape"], ["siggen", "Signal generator", "wave"]] },
+  { group: "Application", items: [["datv", "DATV Controller", "datv", [["analysis", "Analysis", "analysis"]]], ["transverter", "Transverter", "transverter"], ["iqtape", "IQ Tape", "tape", null, true], ["siggen", "Signal generator", "wave"]] },
   { group: "System", items: [["versions", "Versions", "versions"], ["network", "Network", "network"], ["diagnostic", "Diagnostic", "pulse"], ["calibrate", "Calibrate", "target", [["kalibrate", "Kalibrate", "search"]]], ["persistent", "Persistent", "save"], ["reboot", "Reboot", "power"]] },
 ];
 
@@ -39,12 +39,12 @@ function Sidebar({ route, setRoute, collapsed, labels, operator }) {
           <div key={i} className="nav-sec">
             {sec.group && !collapsed && <div className="nav-group">{sec.group}</div>}
             {sec.items.map((item) => {
-              const [key, label, icon, children] = item;
+              const [key, label, icon, children, disabled] = item;
               const childActive = children && children.some(([ck]) => ck === route);
               const open = children && !collapsed && (route === key || childActive);
               return (
                 <React.Fragment key={key}>
-                  <button className={`nav-item ${route === key ? "active" : ""}`} onClick={() => setRoute(key)} title={label}>
+                  <button className={`nav-item ${route === key ? "active" : ""}${disabled ? " nav-disabled" : ""}`} onClick={disabled ? undefined : () => setRoute(key)} title={label}>
                     <Icon name={icon} size={20} />
                     {!collapsed && labels && <span>{label}</span>}
                     {!collapsed && labels && children && <span className={`nav-caret ${open ? "open" : ""}`}><Icon name="chevron" size={14} /></span>}

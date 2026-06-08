@@ -288,14 +288,16 @@ function RFParams() {
 
 }
 
-function CrtField({ pfx, val, sfx, onChange, center }) {
+function CrtField({ pfx, val, sfx, onChange, center, readOnly }) {
   return (
     <span className={`hp-fld ${center ? "ctr" : ""}`}>
       {pfx ? <span className="hp-pfx">{pfx}</span> : null}
-      <input
-        className="hp-inp" value={val} onChange={onChange} spellCheck={false}
-        onFocus={(e) => e.target.select()}
-        style={{ width: `calc(${Math.max(String(val).length, 1)}ch + 2px)` }} />
+      {readOnly
+        ? <span className="hp-val">{val}</span>
+        : <input
+            className="hp-inp" value={val} onChange={onChange} spellCheck={false}
+            onFocus={(e) => e.target.select()}
+            style={{ width: `calc(${Math.max(String(val).length, 1)}ch + 2px)` }} />}
       {sfx ? <span className="hp-sfx">{sfx}</span> : null}
     </span>
   );
@@ -482,6 +484,52 @@ function spDraw(ctx, W, H, bins, refDb, range) {
   ctx.shadowBlur = 0;
 }
 
+function spDrawCursor(ctx, W, H, mp, bins, centerHz, spanHz, refDb, range) {
+  if (!mp || !bins || bins.length === 0) return;
+  const { px } = mp;
+  const x = px * W;
+  const n = bins.length;
+
+  const freq  = centerHz + (px - 0.5) * spanHz;
+  const binI  = Math.max(0, Math.min(n - 1, Math.round(px * (n - 1))));
+  const db    = bins[binI];
+  const top   = refDb, bot = refDb - range;
+  const traceY = H - Math.max(0, Math.min(H, ((db - bot) / (top - bot)) * H));
+
+  ctx.save();
+
+  // Vertical crosshair
+  ctx.strokeStyle = 'rgba(255,215,80,0.55)';
+  ctx.lineWidth   = 1;
+  ctx.setLineDash([4, 4]);
+  ctx.beginPath(); ctx.moveTo(x + 0.5, 0); ctx.lineTo(x + 0.5, H); ctx.stroke();
+  ctx.setLineDash([]);
+
+  // Dot at trace intersection
+  ctx.shadowColor = 'rgba(255,200,40,0.95)';
+  ctx.shadowBlur  = 8;
+  ctx.fillStyle   = '#fff';
+  ctx.beginPath(); ctx.arc(x, traceY, 3.5, 0, Math.PI * 2); ctx.fill();
+  ctx.shadowBlur  = 0;
+
+  // Labels
+  const fStr = freq >= 1e9  ? (freq / 1e9).toFixed(4) + ' GHz'
+             : freq >= 1e6  ? (freq / 1e6).toFixed(3) + ' MHz'
+             :                 (freq / 1e3).toFixed(1) + ' kHz';
+  const dStr = db.toFixed(1) + ' dB';
+
+  ctx.font         = '600 12px "IBM Plex Mono", ui-monospace, monospace';
+  ctx.fillStyle    = '#fff3d6';
+  ctx.textBaseline = 'middle';
+  const right      = px > 0.72;
+  ctx.textAlign    = right ? 'right' : 'left';
+  const lx         = right ? x - 8 : x + 8;
+  ctx.fillText(fStr, lx, 14);
+  ctx.fillText(dStr, lx, Math.max(20, Math.min(H - 14, traceY - 14)));
+
+  ctx.restore();
+}
+
 // Spectrum UI state — persists across route navigation within the session
 if (!window._sp) window._sp = {};
 
@@ -493,10 +541,14 @@ function SpectrumPage({ d }) {
   const binsRef    = useSpR(null);   // normal-mode dB bins (Float32Array)
   const sweepBuf   = useSpR(null);   // sweep stitching buffer (Float32Array, 8× frame length)
   const sweepLenR  = useSpR(0);
-  const dirtyRef   = useSpR(true);
-  const refDbRef   = useSpR(sp.refDb  ?? 130);
-  const rangeRef   = useSpR(sp.range  ?? SP_ROWS * 10);
-  const isSweepR   = useSpR(false);
+  const dirtyRef    = useSpR(true);
+  const refDbRef    = useSpR(sp.refDb  ?? 130);
+  const rangeRef    = useSpR(sp.range  ?? SP_ROWS * 10);
+  const isSweepR    = useSpR(false);
+  const mousePosRef = useSpR(null);   // {px} normalised 0-1 when cursor is over canvas
+  const mouseDragRef = useSpR(null);  // {startY, startRefDb} while left-button dragging
+  const centerHzRef = useSpR(sp.centerHz ?? (d.rxFreq ?? 437e6));
+  const spanHzRef   = useSpR(sp.spanHz   ?? (d.span ?? d.rxSampling ?? 2.4e6));
 
   const [refDb,    setRefDb]    = useSpS(() => sp.refDb    ?? 130);
   const [range,    setRange]    = useSpS(() => sp.range    ?? SP_ROWS * 10);
@@ -506,12 +558,13 @@ function SpectrumPage({ d }) {
   const [rxInput,  setRxInput]  = useSpS(() => sp.rxInput  ?? (d.rxRfinput === 2 ? 'rx2' : 'rx1'));
   const [wsState,  setWsState]  = useSpS('disconnected');
   const [fps,      setFps]      = useSpS(0);
+  const [mkr,      setMkr]      = useSpS(null);   // {freq, db} when cursor is over canvas
 
   // Keep refs current for RAF loop (avoids stale closures) + persist to session store
   useSpE(() => { refDbRef.current = refDb;  dirtyRef.current = true; sp.refDb    = refDb;    }, [refDb]);
   useSpE(() => { rangeRef.current = range;  dirtyRef.current = true; sp.range    = range;    }, [range]);
-  useSpE(() => { sp.centerHz = centerHz; }, [centerHz]);
-  useSpE(() => { sp.spanHz   = spanHz;   }, [spanHz]);
+  useSpE(() => { centerHzRef.current = centerHz; sp.centerHz = centerHz; }, [centerHz]);
+  useSpE(() => { spanHzRef.current = spanHz; sp.spanHz = spanHz; }, [spanHz]);
   useSpE(() => { sp.gain     = gain;     }, [gain]);
   useSpE(() => { sp.rxInput  = rxInput;  }, [rxInput]);
 
@@ -555,6 +608,8 @@ function SpectrumPage({ d }) {
       if (dirtyRef.current && canvas.width > 0 && canvas.height > 0) {
         const bins = isSweepR.current ? sweepBuf.current : binsRef.current;
         spDraw(ctx, canvas.width, canvas.height, bins, refDbRef.current, rangeRef.current);
+        spDrawCursor(ctx, canvas.width, canvas.height, mousePosRef.current, bins,
+                     centerHzRef.current, spanHzRef.current, refDbRef.current, rangeRef.current);
         dirtyRef.current = false;
         fCount++;
         if (ts - fTimer >= 1000) { setFps(fCount); fCount = 0; fTimer = ts; }
@@ -612,13 +667,16 @@ function SpectrumPage({ d }) {
         const len  = f.length - 1;
 
         if (isSweepR.current) {
-          // Sweep mode: stitch 8 sub-frames into a full sweep buffer
+          // Sweep mode: stitch 8 sub-frames; discard 15% of each edge to hide filter rolloff.
+          // Backend spaces bands by SR*0.70, so the inner 70% of each sub-frame tiles seamlessly.
+          const edge   = Math.floor(len * 0.15);
+          const usable = len - 2 * edge;
           if (len !== sweepLenR.current || !sweepBuf.current) {
             sweepLenR.current = len;
-            sweepBuf.current  = new Float32Array(len * 8);
+            sweepBuf.current  = new Float32Array(usable * 8);
           }
-          const off = step * len;
-          for (let i = 0; i < len; i++) sweepBuf.current[off + i] = toDB(f[i + 1]);
+          const off = step * usable;
+          for (let i = 0; i < usable; i++) sweepBuf.current[off + i] = toDB(f[i + 1 + edge]);
           if (step === 7) dirtyRef.current = true;
         } else {
           // Normal mode: f[1..] are the FFT bins; f[0] is discarded
@@ -661,6 +719,50 @@ function SpectrumPage({ d }) {
     return () => window.removeEventListener('keydown', onKey);
   }, []);
 
+  // Release drag if mouse is released anywhere (including outside canvas)
+  useSpE(() => {
+    const onUp = () => { mouseDragRef.current = null; };
+    window.addEventListener('mouseup', onUp);
+    return () => window.removeEventListener('mouseup', onUp);
+  }, []);
+
+  const onCanvasMouseDown = useSpCb((e) => {
+    if (e.button !== 0) return;
+    mouseDragRef.current = { startY: e.clientY, startRefDb: refDbRef.current };
+    e.preventDefault();
+  }, []);
+
+  const onCanvasMouseMove = useSpCb((e) => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+
+    // Vertical drag → shift REF level
+    if (mouseDragRef.current) {
+      const H = canvas.offsetHeight;
+      const deltaDb = -(e.clientY - mouseDragRef.current.startY) / H * rangeRef.current;
+      setRefDb(mouseDragRef.current.startRefDb + deltaDb);
+      dirtyRef.current = true;
+      return;
+    }
+
+    const rect = canvas.getBoundingClientRect();
+    const px = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+    mousePosRef.current = { px };
+    dirtyRef.current = true;
+    // Update header MKR readout
+    const bins = isSweepR.current ? sweepBuf.current : binsRef.current;
+    if (bins && bins.length > 0) {
+      const binI = Math.max(0, Math.min(bins.length - 1, Math.round(px * (bins.length - 1))));
+      setMkr({ freq: centerHzRef.current + (px - 0.5) * spanHzRef.current, db: bins[binI] });
+    }
+  }, []);
+
+  const onCanvasMouseLeave = useSpCb(() => {
+    mousePosRef.current = null;
+    dirtyRef.current = true;
+    setMkr(null);
+  }, []);
+
   const fmtMHz  = (hz) => (hz / 1e6).toFixed(3);
   const rbwKHz  = Math.round(spanHz / 1000);
   const vbwKHz  = Math.max(1, Math.round(rbwKHz / 3));
@@ -681,10 +783,10 @@ function SpectrumPage({ d }) {
               <span className="hp-pfx">REF</span>
               <DbTuner value={Math.round(refDb)} digits={3} unit="dBm" onChange={setRefDb} />
             </span>
-            <CrtField pfx="MKR" val={fmtMHz(centerHz)} sfx="MHz" onChange={() => {}} />
+            <CrtField pfx="MKR" val={fmtMHz(mkr ? mkr.freq : centerHz)} sfx="MHz" readOnly />
           </div>
           <div className="hp-row">
-            <CrtField val={(range / SP_ROWS).toFixed(0)} sfx="dB/DIV" onChange={() => {}} />
+            <CrtField val={(range / SP_ROWS).toFixed(0)} sfx="dB/DIV" readOnly />
             <span className="hp-fld ctr">
               <span className="hp-pfx">RANGE</span>
               <div className="hp-tuner">
@@ -692,13 +794,14 @@ function SpectrumPage({ d }) {
                   onChange={setRange} />
               </div>
             </span>
-            <CrtField val={(refDb - range).toFixed(1)} sfx="dB" onChange={() => {}} />
+            <CrtField val={mkr ? mkr.db.toFixed(1) : (refDb - range).toFixed(1)} sfx="dB" readOnly />
           </div>
         </div>
 
         <div className="hp-screen">
-          <canvas ref={canvasRef} style={{ display: 'block', width: '100%', height: '100%' }}
-            onWheel={onCanvasWheel} />
+          <canvas ref={canvasRef} style={{ display: 'block', width: '100%', height: '100%', cursor: 'crosshair' }}
+            onWheel={onCanvasWheel} onMouseDown={onCanvasMouseDown}
+            onMouseMove={onCanvasMouseMove} onMouseLeave={onCanvasMouseLeave} />
         </div>
 
         <div className="hp-rows">
@@ -712,14 +815,14 @@ function SpectrumPage({ d }) {
             <div className="hp-fld">
               <span className="hp-pfx">SPAN</span>
               <div className="hp-tuner">
-                <FreqTuner value={Math.round(spanHz / 1000)} digits={6} min={200} max={480000} unit="MHz" onChange={onSpanChg} />
+                <FreqTuner value={Math.round(spanHz / 1000)} digits={6} min={200} max={344000} unit="MHz" onChange={onSpanChg} />
               </div>
             </div>
           </div>
           <div className="hp-row sm">
-            <CrtField pfx="RBW" val={rbwKHz.toString()}  sfx="kHz" onChange={() => {}} />
-            <CrtField pfx="VBW" val={vbwKHz.toString()}  sfx="kHz" center onChange={() => {}} />
-            <CrtField pfx="ST"  val={stMs.toString()}    sfx="ms"  onChange={() => {}} />
+            <CrtField pfx="RBW" val={rbwKHz.toString()}  sfx="kHz" readOnly />
+            <CrtField pfx="VBW" val={vbwKHz.toString()}  sfx="kHz" center readOnly />
+            <CrtField pfx="ST"  val={stMs.toString()}    sfx="ms"  readOnly />
           </div>
         </div>
       </div>
