@@ -619,17 +619,28 @@ function Diagnostic({ d }) {
 function Reboot({ d, ver }) {
   const [mode, setMode] = useS2("Normal");
   const [pending, setPending] = useS2(null);   // null | "reboot" | "shutdown"
-  const [phase, setPhase] = useS2("idle");      // idle | busy | done
+  const [phase, setPhase] = useS2("idle");      // idle | busy | waiting | done
   const [action, setAction] = useS2("reboot");
   const [secs, setSecs] = useS2(0);
+
+  // Countdown tick
   useE2(() => {
     if (phase !== "busy") return;
-    if (secs <= 0) { setPhase("done"); return; }
+    if (secs <= 0) {
+      setPhase(action === "shutdown" ? "done" : "waiting");
+      return;
+    }
     const id = setTimeout(() => setSecs((s) => s - 1), 1000);
     return () => clearTimeout(id);
-  }, [phase, secs]);
+  }, [phase, secs, action]);
+
+  // Wait for MQTT to reconnect after reboot
+  useE2(() => {
+    if (phase === "waiting" && d.mqtt) setPhase("done");
+  }, [phase, d.mqtt]);
+
   const start = (kind) => {
-    setPending(null); setAction(kind); setPhase("busy"); setSecs(kind === "shutdown" ? 6 : 18);
+    setPending(null); setAction(kind); setPhase("busy"); setSecs(kind === "shutdown" ? 6 : 30);
     d.publish('system/reboot', kind === "shutdown" ? "poweroff" : "reboot");
   };
 
@@ -675,6 +686,12 @@ function Reboot({ d, ver }) {
                   <span className="spin reboot-spin"><Icon name="refresh" size={30} /></span>
                   <h2>{action === "shutdown" ? "Shutting down…" : "Rebooting…"}</h2>
                   <p className="mono">{action === "shutdown" ? "Powering off subsystems" : `Reconnecting in ${secs}s`}</p>
+                </>
+              ) : phase === "waiting" ? (
+                <>
+                  <span className="spin reboot-spin"><Icon name="refresh" size={30} /></span>
+                  <h2>Waiting for MQTT…</h2>
+                  <p className="mono">Device booted · connecting to broker</p>
                 </>
               ) : (
                 <>
@@ -880,6 +897,9 @@ function Persistent({ d }) {
   const [edits, setEdits] = useS2({});
   const [saved, setSaved] = useS2({});
   const [filter, setFilter] = useS2('');
+  const [newName, setNewName] = useS2('');
+  const [newVal, setNewVal] = useS2('');
+  const [newSaved, setNewSaved] = useS2(false);
   const envVars = d.envVars || {};
   const requestedRef = React.useRef(false);
 
@@ -910,6 +930,15 @@ function Persistent({ d }) {
     d.publish('system/getenv', 'all');
   };
 
+  const saveNew = () => {
+    if (!newName.trim() || !/^[a-zA-Z0-9_]+$/.test(newName)) return;
+    d.publish('system/setenv/' + newName, newVal);
+    setNewSaved(true);
+    setNewName('');
+    setNewVal('');
+    setTimeout(() => setNewSaved(false), 2000);
+  };
+
   const entries = Object.entries(envVars)
     .filter(([k, v]) => !filter ||
       k.toLowerCase().includes(filter.toLowerCase()) ||
@@ -930,6 +959,27 @@ function Persistent({ d }) {
       </div>
 
       <div className="grid-12">
+        <Card title="New variable" sub="Add or overwrite a U-Boot environment entry" className="span-12">
+          <div style={{ display: 'flex', gap: '0.75em', alignItems: 'flex-end', flexWrap: 'wrap' }}>
+            <Field label="Name">
+              <TextInput value={newName} onChange={setNewName} placeholder="variable_name"
+                onKeyDown={(e) => e.key === 'Enter' && saveNew()} />
+            </Field>
+            <Field label="Value" style={{ flex: 1 }}>
+              <TextInput value={newVal} onChange={setNewVal} placeholder="value"
+                onKeyDown={(e) => e.key === 'Enter' && saveNew()} />
+            </Field>
+            <div style={{ paddingBottom: '2px' }}>
+              {newSaved
+                ? <Pill tone="ok" dot>saved</Pill>
+                : <button className="btn primary" onClick={saveNew}
+                    disabled={!/^[a-zA-Z0-9_]+$/.test(newName)}>
+                    <Icon name="save" size={15} /> Save
+                  </button>}
+            </div>
+          </div>
+        </Card>
+
         <Card title="Environment variables" sub={`${entries.length} variable${entries.length !== 1 ? 's' : ''}`} className="span-12" pad={false}
           right={<TextInput value={filter} onChange={setFilter} mono={false} placeholder="Filter…" />}>
           {entries.length === 0 ? (
