@@ -3,6 +3,8 @@ const { useState: useStateD, useEffect: useEffectD, useRef: useRefD, useCallback
 
 // Set to the device IP for local development; leave null to use window.location.hostname (on-device)
 const MQTT_DEV_HOST = '10.0.0.59';
+// Exposed for use in other pages (e.g. spectrum WebSocket)
+window._tezukaDevHost = MQTT_DEV_HOST || window.location.hostname;
 
 const HIST = 60;
 

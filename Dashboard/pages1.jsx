@@ -386,13 +386,314 @@ function SpectrumStub({ freq, bw }) {
 
 }
 
-function SpectrumPage() {
-  const freq = 437.000, bw = 2.400;
+// ---- Spectrum Page — HP CRT style, fresh canvas implementation ---------------
+const { useRef: useSpR, useEffect: useSpE, useState: useSpS, useCallback: useSpCb } = React;
+
+// Phosphor palette — matches CSS --phos variables in .hp-crt
+const SP_PHOS      = '#FFC21A';
+const SP_PHOS_GRID = 'rgba(245,179,1,0.17)';
+const SP_PHOS_DIM  = 'rgba(245,179,1,0.34)';
+const SP_BG        = '#0a0600';
+const SP_COLS = 10, SP_ROWS = 8;
+
+function spDraw(ctx, W, H, bins, refDb, dbDiv) {
+  ctx.fillStyle = SP_BG;
+  ctx.fillRect(0, 0, W, H);
+
+  // Graticule
+  ctx.lineWidth = 1;
+  for (let i = 0; i <= SP_COLS; i++) {
+    const x = (i / SP_COLS) * W;
+    const ctr = i === SP_COLS / 2;
+    ctx.strokeStyle = ctr ? SP_PHOS_DIM : SP_PHOS_GRID;
+    ctx.setLineDash(ctr ? [7, 6] : []);
+    ctx.beginPath(); ctx.moveTo(x + 0.5, 0); ctx.lineTo(x + 0.5, H); ctx.stroke();
+  }
+  for (let i = 0; i <= SP_ROWS; i++) {
+    const y = (i / SP_ROWS) * H;
+    const ctr = i === SP_ROWS / 2;
+    ctx.strokeStyle = ctr ? SP_PHOS_DIM : SP_PHOS_GRID;
+    ctx.setLineDash(ctr ? [7, 6] : []);
+    ctx.beginPath(); ctx.moveTo(0, y + 0.5); ctx.lineTo(W, y + 0.5); ctx.stroke();
+  }
+  ctx.setLineDash([]);
+
+  // Border
+  ctx.strokeStyle = 'rgba(255,205,70,0.45)';
+  ctx.lineWidth = 1.6;
+  ctx.strokeRect(0.5, 0.5, W - 1, H - 1);
+
+  if (!bins || bins.length < 2) return;
+
+  const n   = bins.length;
+  const top = refDb;
+  const bot = refDb - SP_ROWS * dbDiv;
+
+  const toY = (db) => H - Math.max(0, Math.min(H, ((db - bot) / (top - bot)) * H));
+  const toX = (i)  => (i / (n - 1)) * W;
+
+  // Gradient fill under trace
+  const grad = ctx.createLinearGradient(0, 0, 0, H);
+  grad.addColorStop(0,    'rgba(255,190,30,0.16)');
+  grad.addColorStop(0.55, 'rgba(180,120,0,0.07)');
+  grad.addColorStop(1,    'rgba(0,0,0,0)');
+  ctx.beginPath();
+  ctx.moveTo(toX(0), toY(bins[0]));
+  for (let i = 1; i < n; i++) ctx.lineTo(toX(i), toY(bins[i]));
+  ctx.lineTo(toX(n - 1), H);
+  ctx.lineTo(0, H);
+  ctx.closePath();
+  ctx.fillStyle = grad;
+  ctx.fill();
+
+  // Phosphor trace with glow
+  ctx.shadowColor = 'rgba(255,200,40,0.80)';
+  ctx.shadowBlur  = 4;
+  ctx.beginPath();
+  ctx.moveTo(toX(0), toY(bins[0]));
+  for (let i = 1; i < n; i++) ctx.lineTo(toX(i), toY(bins[i]));
+  ctx.strokeStyle = SP_PHOS;
+  ctx.lineWidth   = 2;
+  ctx.lineJoin    = 'round';
+  ctx.lineCap     = 'round';
+  ctx.stroke();
+  ctx.shadowBlur = 0;
+}
+
+function SpectrumPage({ d }) {
+  const canvasRef  = useSpR(null);
+  const wsRef      = useSpR(null);
+  const rafRef     = useSpR(null);
+  const binsRef    = useSpR(null);   // normal-mode dB bins (Float32Array)
+  const sweepBuf   = useSpR(null);   // sweep stitching buffer (Float32Array, 8× frame length)
+  const sweepLenR  = useSpR(0);
+  const dirtyRef   = useSpR(true);
+  const refDbRef   = useSpR(130);
+  const dbDivRef   = useSpR(10);
+  const isSweepR   = useSpR(false);
+
+  const [refDb,    setRefDb]    = useSpS(130);
+  const [dbDiv,    setDbDiv]    = useSpS(10);
+  const [centerHz, setCenterHz] = useSpS(437e6);
+  const [spanHz,   setSpanHz]   = useSpS(2.4e6);
+  const [gain,     setGain]     = useSpS(50);
+  const [rxInput,  setRxInput]  = useSpS('rx1');
+  const [wsState,  setWsState]  = useSpS('disconnected');
+  const [fps,      setFps]      = useSpS(0);
+
+  // Keep refs current for RAF loop (avoids stale closures)
+  useSpE(() => { refDbRef.current = refDb; dirtyRef.current = true; }, [refDb]);
+  useSpE(() => { dbDivRef.current = dbDiv; dirtyRef.current = true; }, [dbDiv]);
+
+  // Sync from MQTT state
+  useSpE(() => { if (d.rxGain    != null) setGain(d.rxGain); },    [d.rxGain]);
+  useSpE(() => { if (d.rxFreq    != null) setCenterHz(d.rxFreq); }, [d.rxFreq]);
+  useSpE(() => {
+    const s = d.span ?? d.rxSampling;
+    if (s != null) setSpanHz(s);
+  }, [d.span, d.rxSampling]);
+  useSpE(() => {
+    if (d.rxRfinput != null) setRxInput(d.rxRfinput === 2 ? 'rx2' : 'rx1');
+  }, [d.rxRfinput]);
+  useSpE(() => {
+    isSweepR.current = !!d.sweepActive;
+    if (!d.sweepActive) { sweepBuf.current = null; sweepLenR.current = 0; }
+  }, [d.sweepActive]);
+
+  // Canvas RAF render loop
+  useSpE(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+
+    const syncSize = () => {
+      const w = canvas.offsetWidth, h = canvas.offsetHeight;
+      if (w > 0 && h > 0 && (canvas.width !== w || canvas.height !== h)) {
+        canvas.width  = w;
+        canvas.height = h;
+        dirtyRef.current = true;
+      }
+    };
+    syncSize();
+    const ro = new ResizeObserver(syncSize);
+    ro.observe(canvas);
+
+    let running = true, fCount = 0, fTimer = 0;
+    const frame = (ts) => {
+      if (!running) return;
+      syncSize();
+      if (dirtyRef.current && canvas.width > 0 && canvas.height > 0) {
+        const bins = isSweepR.current ? sweepBuf.current : binsRef.current;
+        spDraw(ctx, canvas.width, canvas.height, bins, refDbRef.current, dbDivRef.current);
+        dirtyRef.current = false;
+        fCount++;
+        if (ts - fTimer >= 1000) { setFps(fCount); fCount = 0; fTimer = ts; }
+      }
+      rafRef.current = requestAnimationFrame(frame);
+    };
+    rafRef.current = requestAnimationFrame(frame);
+
+    return () => {
+      running = false;
+      cancelAnimationFrame(rafRef.current);
+      ro.disconnect();
+    };
+  }, []);
+
+  // WebSocket connection
+  useSpE(() => {
+    let destroyed = false;
+    const host  = window._tezukaDevHost || window.location.hostname;
+    const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+
+    // Convert raw float amplitude to dBFS
+    const toDB = (v) => 20 * Math.log10(v > 0 ? v : 1e-10);
+
+    function connect() {
+      if (destroyed) return;
+      const ws = new WebSocket(`${proto}//${host}/waterfall`);
+      ws.binaryType = 'arraybuffer';
+      wsRef.current = ws;
+      setWsState('connecting');
+
+      ws.onopen  = () => setWsState('connected');
+      ws.onclose = () => {
+        setWsState('disconnected');
+        if (!destroyed) setTimeout(connect, 2000);
+      };
+      ws.onerror = () => {};
+
+      ws.onmessage = (evt) => {
+        if (!(evt.data instanceof ArrayBuffer)) {
+          try {
+            const msg = JSON.parse(evt.data);
+            if (msg.center != null) setCenterHz(msg.center);
+            if (msg.span   != null) setSpanHz(msg.span);
+            if (msg.gain   != null) setGain(msg.gain);
+          } catch(_) {}
+          return;
+        }
+        const f = new Float32Array(evt.data);
+        if (f.length < 2) return;
+
+        // f[0] is always a step index (structural, even outside sweep mode — firmware bug)
+        // Use d.sweepActive (isSweepR) to decide how to interpret it
+        const step = Math.round(f[0]) & 7;
+        const len  = f.length - 1;
+
+        if (isSweepR.current) {
+          // Sweep mode: stitch 8 sub-frames into a full sweep buffer
+          if (len !== sweepLenR.current || !sweepBuf.current) {
+            sweepLenR.current = len;
+            sweepBuf.current  = new Float32Array(len * 8);
+          }
+          const off = step * len;
+          for (let i = 0; i < len; i++) sweepBuf.current[off + i] = toDB(f[i + 1]);
+        } else {
+          // Normal mode: f[1..] are the FFT bins; f[0] is discarded
+          const db = new Float32Array(len);
+          for (let i = 0; i < len; i++) db[i] = toDB(f[i + 1]);
+          binsRef.current = db;
+        }
+        dirtyRef.current = true;
+      };
+    }
+    connect();
+    return () => { destroyed = true; try { wsRef.current?.close(); } catch(_) {} };
+  }, []);
+
+  // Mouse wheel on canvas: shift REF level (plain) or zoom span (Ctrl)
+  const onCanvasWheel = useSpCb((e) => {
+    e.preventDefault();
+    if (e.ctrlKey || e.metaKey) {
+      const factor = e.deltaY > 0 ? 1.25 : 0.8;
+      setSpanHz(s => {
+        const ns = Math.max(200e3, Math.min(60e6, s * factor));
+        d.publish('rx/span', Math.round(ns));
+        return ns;
+      });
+    } else {
+      setRefDb(r => r + (e.deltaY > 0 ? -1 : 1));
+    }
+  }, [d]);
+
+  // Keyboard shortcuts: +/- shift REF, [/] change dB/DIV
+  useSpE(() => {
+    const onKey = (e) => {
+      if (e.target.tagName === 'INPUT') return;
+      if (e.key === '+' || e.key === '=') setRefDb(r => r + 5);
+      if (e.key === '-' || e.key === '_') setRefDb(r => r - 5);
+      if (e.key === '[') setDbDiv(v => Math.max(1, v - 1));
+      if (e.key === ']') setDbDiv(v => v + 1);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
+
+  const fmtMHz  = (hz) => (hz / 1e6).toFixed(3);
+  const rbwKHz  = Math.round(spanHz / 1000);
+  const vbwKHz  = Math.max(1, Math.round(rbwKHz / 3));
+  const stMs    = fps > 0 ? Math.round(1000 / fps) : 0;
+  const wsTone  = wsState === 'connected' ? 'ok' : wsState === 'connecting' ? 'info' : 'warn';
+
+  const updRefDb    = (e) => { const v = parseFloat(e.target.value); if (!isNaN(v)) setRefDb(v); };
+  const updDbDiv    = (e) => { const v = parseFloat(e.target.value); if (v > 0) setDbDiv(v); };
+  const pubGain     = (v) => { setGain(v);    d.publish('rx/gain',    v); };
+  const pubInput    = (v) => { setRxInput(v); d.publish('rx/rfinput', v === 'rx2' ? 2 : 1); };
+  const onCenterChg = useSpCb((hz) => { setCenterHz(hz); d.publish('rx/frequency', hz); }, [d]);
+
   return (
-    <div className="page">
-      <Card className="span-12" pad={false}>
-        <SpectrumStub freq={freq} bw={bw} />
-      </Card>
+    <div className="sp-page">
+      <div className="hp-crt">
+        <div className="hp-rows">
+          <div className="hp-row">
+            <CrtField pfx="REF"  val={refDb.toFixed(1)} sfx="dBm" onChange={updRefDb} />
+            <CrtField pfx="MKR"  val={fmtMHz(centerHz)} sfx="MHz" onChange={() => {}} />
+          </div>
+          <div className="hp-row">
+            <CrtField val={dbDiv.toFixed(0)} sfx="dB/DIV" onChange={updDbDiv} />
+            <CrtField pfx="RANGE" val={(refDb - 4 * dbDiv).toFixed(1)} sfx="dBm" center onChange={() => {}} />
+            <CrtField val={(refDb - SP_ROWS * dbDiv).toFixed(1)} sfx="dB" onChange={() => {}} />
+          </div>
+        </div>
+
+        <div className="hp-screen">
+          <canvas ref={canvasRef} style={{ display: 'block', width: '100%', height: '100%' }}
+            onWheel={onCanvasWheel} />
+        </div>
+
+        <div className="hp-rows">
+          <div className="hp-row">
+            <div className="hp-fld">
+              <span className="hp-pfx">CENTER</span>
+              <div className="hp-tuner">
+                <FreqTuner value={centerHz} digits={9} min={47e6} max={6e9} unit="Hz" onChange={onCenterChg} />
+              </div>
+            </div>
+            <CrtField pfx="SPAN" val={fmtMHz(spanHz)} sfx="MHz" onChange={() => {}} />
+          </div>
+          <div className="hp-row sm">
+            <CrtField pfx="RBW" val={rbwKHz.toString()}  sfx="kHz" onChange={() => {}} />
+            <CrtField pfx="VBW" val={vbwKHz.toString()}  sfx="kHz" center onChange={() => {}} />
+            <CrtField pfx="ST"  val={stMs.toString()}    sfx="ms"  onChange={() => {}} />
+          </div>
+        </div>
+      </div>
+
+      <div className="sp-toolbar">
+        <Field label="RX input">
+          <Select value={rxInput} onChange={pubInput}
+            options={[{ v: 'rx1', l: 'RX1' }, { v: 'rx2', l: 'RX2' }]} />
+        </Field>
+        <Field label="Gain">
+          <Slider value={gain} min={0} max={71} step={1} onChange={pubGain}
+            unit=" dB" fmt={(v) => v.toFixed(0)} />
+        </Field>
+        <div className="sp-ws-status">
+          <Pill tone={wsTone} dot>{wsState}</Pill>
+          <span className="dim mono">/waterfall</span>
+        </div>
+      </div>
     </div>
   );
 }

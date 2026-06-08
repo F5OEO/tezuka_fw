@@ -1,0 +1,424 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Tezuka Spectrum</title>
+<style>
+*, *::before, *::after { box-sizing: border-box; }
+
+:root {
+  --bg:        #1b1a18;
+  --panel:     #242320;
+  --border:    #38362e;
+  --text:      #e8e4d9;
+  --dim:       #7a7469;
+  --accent:    #F5B301;
+  --ok:        #46D39A;
+  --warn:      #FF9A3C;
+  --bad:       #FF5858;
+  --info:      #5BB1F5;
+  --inset:     #18171598;
+  --r:         8px;
+}
+
+html, body {
+  margin: 0;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: var(--bg);
+  color: var(--text);
+  font-family: system-ui, -apple-system, sans-serif;
+  font-size: 13.5px;
+}
+
+body { display: flex; flex-direction: column; }
+
+/* ---- toolbar ---- */
+.toolbar {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  padding: 8px 14px;
+  background: var(--panel);
+  border-bottom: 1px solid var(--border);
+  z-index: 10;
+  flex-wrap: wrap;
+}
+
+.toolbar a {
+  color: var(--dim);
+  text-decoration: none;
+  font-size: 13px;
+  padding: 5px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--r);
+  transition: color .15s;
+}
+.toolbar a:hover { color: var(--text); }
+
+.field {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.field label {
+  color: var(--dim);
+  font-size: 11.5px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  white-space: nowrap;
+}
+
+select {
+  appearance: none;
+  background: var(--inset);
+  border: 1px solid var(--border);
+  color: var(--text);
+  border-radius: var(--r);
+  padding: 5px 28px 5px 10px;
+  font-size: 13px;
+  cursor: pointer;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath d='M2 4l4 4 4-4' stroke='%237a7469' stroke-width='1.5' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 8px center;
+}
+
+input[type=range] {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 140px;
+  height: 6px;
+  background: linear-gradient(to right, var(--accent) var(--fill,50%), #38362e var(--fill,50%));
+  border-radius: 4px;
+  outline: none;
+  cursor: pointer;
+}
+input[type=range]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 16px; height: 16px;
+  border-radius: 50%;
+  background: #fff;
+  border: 3px solid var(--accent);
+  box-shadow: 0 1px 4px rgba(0,0,0,.5);
+}
+input[type=range]::-moz-range-thumb {
+  width: 12px; height: 12px;
+  border-radius: 50%;
+  background: #fff;
+  border: 3px solid var(--accent);
+}
+
+.val { font-variant-numeric: tabular-nums; font-size: 13px; color: var(--text); min-width: 42px; }
+
+/* ---- status chips ---- */
+.chips { margin-left: auto; display: flex; align-items: center; gap: 8px; flex-wrap: nowrap; }
+
+.chip {
+  display: flex; align-items: center; gap: 5px;
+  padding: 3px 9px 3px 7px;
+  border-radius: 20px;
+  font-size: 11.5px; font-weight: 600;
+  background: color-mix(in oklab, var(--dim) 14%, transparent);
+  color: var(--dim);
+  border: 1px solid transparent;
+}
+.chip i {
+  width: 6px; height: 6px;
+  border-radius: 50%;
+  background: var(--dim);
+}
+.chip.ok   { background: color-mix(in oklab, var(--ok)   12%, transparent); color: var(--ok);   border-color: color-mix(in oklab, var(--ok)   25%, transparent); }
+.chip.ok   i { background: var(--ok); }
+.chip.warn { background: color-mix(in oklab, var(--warn)  12%, transparent); color: var(--warn); border-color: color-mix(in oklab, var(--warn) 25%, transparent); }
+.chip.warn i { background: var(--warn); }
+.chip.info { background: color-mix(in oklab, var(--info)  12%, transparent); color: var(--info); border-color: color-mix(in oklab, var(--info) 25%, transparent); }
+.chip.info i { background: var(--info); }
+
+/* ---- canvas ---- */
+.wf-wrap { flex: 1 1 0; min-height: 0; position: relative; }
+#waterfall { display: block; width: 100%; height: 100%; cursor: crosshair; }
+
+/* ---- log bar ---- */
+#log {
+  position: absolute;
+  bottom: 0; left: 0; right: 0;
+  padding: 4px 10px;
+  font-family: ui-monospace, monospace;
+  font-size: 11px;
+  color: rgba(255,255,255,.38);
+  pointer-events: none;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+</style>
+</head>
+<body>
+
+<div class="toolbar">
+  <a id="back-link" href="/">&#x2190; Back</a>
+
+  <div class="field">
+    <label>Input</label>
+    <select id="rfinput">
+      <option value="rx1">RX1</option>
+      <option value="rx2">RX2</option>
+    </select>
+  </div>
+
+  <div class="field">
+    <label>Gain</label>
+    <input type="range" id="rfgain" min="0" max="71" step="0.25" value="50" />
+    <span class="val" id="rfgain_val">50.0 dB</span>
+  </div>
+
+  <div class="field">
+    <label>Floor</label>
+    <input type="range" id="floor" min="0" max="2400" step="50" value="600" />
+    <span class="val" id="floor_val">600</span>
+  </div>
+
+  <div class="field">
+    <label>Ceiling</label>
+    <input type="range" id="ceiling" min="700" max="6000" step="50" value="2500" />
+    <span class="val" id="ceiling_val">2500</span>
+  </div>
+
+  <div class="chips">
+    <div class="chip" id="chip-ws"><i></i>WS</div>
+    <div class="chip" id="chip-mqtt"><i></i>MQTT</div>
+  </div>
+</div>
+
+<div class="wf-wrap">
+  <canvas id="waterfall"></canvas>
+  <div id="log"></div>
+</div>
+
+<script src="vendor/colormap.js"></script>
+<script src="vendor/spectrum.js"></script>
+<script src="paho-mqtt-min.js"></script>
+<script>
+'use strict';
+
+// ---- configuration ---------------------------------------------------------
+// Override HOST to point at your device when running from a dev machine.
+// On-device, window.location.hostname resolves correctly.
+var HOST = window.location.hostname;  // e.g. '10.0.0.59' for dev
+
+// ---- helpers ---------------------------------------------------------------
+function setChip(id, state) {   // state: 'ok' | 'warn' | 'info'
+  var el = document.getElementById(id);
+  el.className = 'chip ' + (state || '');
+}
+
+function setRange(input, val) {
+  var pct = ((val - input.min) / (input.max - input.min) * 100).toFixed(1) + '%';
+  input.style.setProperty('--fill', pct);
+}
+
+// ---- Spectrum instance -----------------------------------------------------
+// Stub Maia REST API calls — Tezuka uses MQTT, not Maia HTTP
+window.ad9361_rfbanwidth = function() {};
+window.ad9361_gainmode   = function() {};
+window.ad9361_frequency  = function() {};
+window.ad9361_samplerate = function() {};
+window.spectro_fps       = function() {};
+
+var spectrum = new Spectrum('waterfall', { spectrumPercent: 45, logger: 'log' });
+
+// ---- MQTT ------------------------------------------------------------------
+var mqttClient = new Paho.MQTT.Client(
+  HOST, 9001, '/mqtt', 'tezuka_spectrum_' + Math.random().toString(16).slice(2, 8));
+
+// Let Spectrum.Sendmqtt use this client (send cmd/* topics from pan/zoom)
+window.mqtt_client = mqttClient;
+
+function mqttPublish(path, value) {
+  if (!mqttClient.isConnected()) return;
+  var msg = new Paho.MQTT.Message(String(value));
+  msg.destinationName = 'cmd/' + path;
+  mqttClient.send(msg);
+}
+
+// Override Sendmqtt on the instance so cmd/rx/… pan/zoom commands go through
+spectrum.Sendmqtt = function(topic, val) {
+  var path = topic.startsWith('cmd/') ? topic.slice(4) : topic;
+  mqttPublish(path, val);
+};
+
+mqttClient.onConnectionLost = function() {
+  setChip('chip-mqtt', 'warn');
+  setTimeout(connectMqtt, 3000);
+};
+
+mqttClient.onMessageArrived = function(message) {
+  var dest = message.destinationName;
+  var val  = message.payloadString;
+  if (!dest.startsWith('state/')) return;
+  var path = dest.slice(6);   // strip 'state/'
+
+  switch (path) {
+    case 'rx/frequency':
+      var f = Number(val);
+      if (!isNaN(f)) { spectrum.setCenterHz(f); spectrum.orginalfreq = f; }
+      break;
+    case 'rx/sampling':
+      var s = Number(val);
+      if (!isNaN(s)) { spectrum.setSpanHz(s); spectrum.NativeSpan = s; }
+      break;
+    case 'rx/span':
+      var sp = Number(val);
+      if (!isNaN(sp)) { spectrum.setSpanHz(sp); spectrum.NativeSpan = sp; }
+      break;
+    case 'rx/sweep/activate':
+      spectrum.onsweep = val === '1' ? 1 : 0;
+      break;
+    case 'rx/gain':
+      var g = parseFloat(val);
+      if (!isNaN(g)) {
+        var gainEl = document.getElementById('rfgain');
+        gainEl.value = g;
+        setRange(gainEl, g);
+        document.getElementById('rfgain_val').textContent = g.toFixed(1) + ' dB';
+      }
+      break;
+    case 'rx/rfinput':
+      var ri = parseInt(val);
+      if (!isNaN(ri)) document.getElementById('rfinput').value = ri === 2 ? 'rx2' : 'rx1';
+      break;
+    case 'rx/overload':
+      document.getElementById('rfgain_val').style.color = val === '1' ? 'var(--bad)' : 'var(--text)';
+      break;
+  }
+};
+
+function connectMqtt() {
+  setChip('chip-mqtt', 'info');
+  mqttClient.connect({
+    onSuccess: function() {
+      setChip('chip-mqtt', 'ok');
+      mqttClient.subscribe('state/#');
+    },
+    onFailure: function() {
+      setChip('chip-mqtt', 'warn');
+      setTimeout(connectMqtt, 3000);
+    },
+    reconnect: false,
+    keepAliveInterval: 30,
+    useSSL: window.location.protocol === 'https:',
+  });
+}
+
+// ---- WebSocket -------------------------------------------------------------
+function connectWs() {
+  setChip('chip-ws', 'info');
+  var proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+  var ws = new WebSocket(proto + '//' + HOST + '/waterfall');
+  ws.binaryType = 'arraybuffer';
+  spectrum.setWebSocket(ws);
+
+  ws.onopen = function() {
+    ws.binaryType = 'arraybuffer';
+    setChip('chip-ws', 'ok');
+  };
+  ws.onclose = function() {
+    setChip('chip-ws', 'warn');
+    setTimeout(connectWs, 2000);
+  };
+  ws.onerror = function() {};
+  ws.onmessage = function(evt) {
+    if (evt.data instanceof ArrayBuffer) {
+      spectrum.addData(evt.data);
+    } else {
+      try {
+        var data = JSON.parse(evt.data);
+        if (data.center    != null) { spectrum.setCenterHz(data.center); spectrum.orginalfreq = data.center; }
+        if (data.span      != null)   spectrum.setSpanHz(data.span);
+        if (data.gain      != null)   spectrum.setGain(data.gain);
+        if (data.framerate != null)   spectrum.setFps(data.framerate);
+        spectrum.log(
+          (data.center/1e6).toFixed(3) + ' MHz' +
+          '  span ' + (data.span/1e6).toFixed(1) + ' MHz' +
+          '  gain ' + data.gain + ' dB' +
+          '  ' + data.framerate + ' fps'
+        );
+      } catch (_) {}
+    }
+  };
+}
+
+// ---- Controls --------------------------------------------------------------
+var gainEl    = document.getElementById('rfgain');
+var gainValEl = document.getElementById('rfgain_val');
+var rfinputEl = document.getElementById('rfinput');
+var floorEl   = document.getElementById('floor');
+var ceilEl    = document.getElementById('ceiling');
+
+gainEl.addEventListener('input', function() {
+  var v = parseFloat(gainEl.value);
+  setRange(gainEl, v);
+  gainValEl.textContent = v.toFixed(1) + ' dB';
+  mqttPublish('rx/gain', v);
+});
+
+rfinputEl.addEventListener('change', function() {
+  mqttPublish('rx/rfinput', rfinputEl.value);
+});
+
+floorEl.addEventListener('input', function() {
+  var v = parseInt(floorEl.value);
+  setRange(floorEl, v);
+  document.getElementById('floor_val').textContent = v;
+  spectrum.setRange(v, parseInt(ceilEl.value));
+});
+
+ceilEl.addEventListener('input', function() {
+  var v = parseInt(ceilEl.value);
+  setRange(ceilEl, v);
+  document.getElementById('ceiling_val').textContent = v;
+  spectrum.setRange(parseInt(floorEl.value), v);
+});
+
+window.addEventListener('keydown', function(e) { spectrum.onKeypress(e); });
+
+window.addEventListener('wheel', function(e) {
+  spectrum.handleMouseWheel(e);
+}, { passive: true });
+
+document.getElementById('waterfall').addEventListener('mousedown', function(e) {
+  spectrum.handleMouseDown(e);
+});
+window.addEventListener('mouseup', function(e) {
+  spectrum.handleMouseUp(e);
+});
+document.getElementById('waterfall').addEventListener('mousemove', function(e) {
+  spectrum.handleMouseMove(e);
+});
+
+window.addEventListener('resize', function() { spectrum.resize(); });
+
+// ---- Back link: restore https:// if launched from the secure landing -------
+var backLink = document.getElementById('back-link');
+if (backLink && new URLSearchParams(window.location.search).get('from') === 'https') {
+  backLink.href = 'https://' + window.location.hostname + '/';
+}
+
+// ---- Init range visuals ----------------------------------------------------
+setRange(gainEl, parseFloat(gainEl.value));
+setRange(floorEl, parseInt(floorEl.value));
+setRange(ceilEl, parseInt(ceilEl.value));
+spectrum.setRange(parseInt(floorEl.value), parseInt(ceilEl.value));
+
+// ---- Start -----------------------------------------------------------------
+connectMqtt();
+connectWs();
+</script>
+
+</body>
+</html>

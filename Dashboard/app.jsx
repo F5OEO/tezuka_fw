@@ -132,7 +132,7 @@ function App() {
   const page = () => {
     switch (route) {
       case "dashboard": return <Dashboard d={d} ver={ver} />;
-      case "spectrum": return <SpectrumPage />;
+      case "spectrum": return <SpectrumPage d={d} />;
       case "datv": return <DATV d={d} callsign={op.callsign} />;
       case "transverter": return <Transverter d={d} />;
       case "iqtape": return <IQTape d={d} />;
