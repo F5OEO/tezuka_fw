@@ -691,19 +691,35 @@ function SpectrumPage({ d }) {
     return () => { destroyed = true; try { wsRef.current?.close(); } catch(_) {} };
   }, []);
 
-  // Mouse wheel on canvas: shift REF level (plain) or zoom span (Ctrl)
+  // Mouse wheel on canvas: zoom span centred on cursor (plain) or adjust RANGE (Ctrl)
   const onCanvasWheel = useSpCb((e) => {
     e.preventDefault();
-    if (e.ctrlKey || e.metaKey) {
-      const factor = e.deltaY > 0 ? 1.25 : 0.8;
-      setSpanHz(s => {
-        const ns = Math.max(200e3, Math.min(60e6, s * factor));
-        d.publish('rx/span', Math.round(ns));
-        return ns;
-      });
-    } else {
-      setRefDb(r => r + (e.deltaY > 0 ? -1 : 1));
+
+    if (e.shiftKey) {
+      // Ctrl+wheel → RANGE (dB per division)
+      setRange(r => Math.max(SP_ROWS, r + (e.deltaY > 0 ? SP_ROWS : -SP_ROWS)));
+      return;
     }
+
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+
+    const rect   = canvas.getBoundingClientRect();
+    const px     = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+    const factor = e.deltaY > 0 ? 1.25 : 0.8;
+
+    const s  = spanHzRef.current;
+    const ns = Math.max(200e3, Math.min(344e6, s * factor));
+
+    // Keep the frequency under the cursor fixed (pivot zoom)
+    const pivotFreq = centerHzRef.current + (px - 0.5) * s;
+    const nc = Math.max(47e6 + ns / 2, Math.min(6e9 - ns / 2,
+                 pivotFreq - (px - 0.5) * ns));
+
+    setCenterHz(nc);
+    setSpanHz(ns);
+    d.publish(d.sweepActive ? 'rx/sweep/frequency' : 'rx/frequency', Math.round(nc));
+    d.publish('rx/span', Math.round(ns));
   }, [d]);
 
   // Keyboard shortcuts: +/- shift REF, [/] change RANGE (1 step = SP_ROWS dB)
@@ -728,7 +744,10 @@ function SpectrumPage({ d }) {
 
   const onCanvasMouseDown = useSpCb((e) => {
     if (e.button !== 0) return;
-    mouseDragRef.current = { startY: e.clientY, startRefDb: refDbRef.current };
+    mouseDragRef.current = {
+      startX: e.clientX, startY: e.clientY,
+      startRefDb: refDbRef.current, startCenterHz: centerHzRef.current,
+    };
     e.preventDefault();
   }, []);
 
@@ -736,10 +755,17 @@ function SpectrumPage({ d }) {
     const canvas = canvasRef.current;
     if (!canvas) return;
 
-    // Vertical drag → shift REF level
+    // 2-D drag: horizontal → center frequency, vertical → REF level
     if (mouseDragRef.current) {
-      const H = canvas.offsetHeight;
-      const deltaDb = -(e.clientY - mouseDragRef.current.startY) / H * rangeRef.current;
+      const W = canvas.offsetWidth, H = canvas.offsetHeight;
+      const dx = e.clientX - mouseDragRef.current.startX;
+      const dy = e.clientY - mouseDragRef.current.startY;
+      // Horizontal: drag right pulls spectrum right → center decreases
+      const nc = mouseDragRef.current.startCenterHz - (dx / W) * spanHzRef.current;
+      setCenterHz(nc);
+      d.publish(d.sweepActive ? 'rx/sweep/frequency' : 'rx/frequency', Math.round(nc));
+      // Vertical: drag down raises REF
+      const deltaDb = (dy / H) * rangeRef.current;
       setRefDb(mouseDragRef.current.startRefDb + deltaDb);
       dirtyRef.current = true;
       return;

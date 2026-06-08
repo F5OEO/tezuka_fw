@@ -73,6 +73,7 @@ body {
   margin-bottom: 2px; transition: background .15s, color .15s;
 }
 .nav-item:hover { background: var(--panel); color: var(--text); }
+.nav-item.nav-disabled { opacity: 0.35; cursor: not-allowed; pointer-events: none; }
 .nav-item.active { background: color-mix(in oklab, var(--accent) 14%, transparent); color: var(--accent); }
 .nav-item.active svg { color: var(--accent); }
 .nav-bar { position: absolute; left: -12px; top: 8px; bottom: 8px; width: 3px; border-radius: 0 3px 3px 0; background: var(--accent); }
@@ -417,13 +418,37 @@ body {
     0 14px 40px -10px rgba(0,0,0,0.7);
   overflow: hidden;
 }
-.hp-crt svg {
+.hp-crt svg, .hp-screen canvas {
   display: block;
   width: 100%;
   height: 100%;
+}
+.hp-crt svg {
   filter: drop-shadow(0 0 2px rgba(255,200,40,0.9)) drop-shadow(0 0 5px rgba(245,170,10,0.45));
 }
 .hp-screen { flex: 1; min-height: 0; position: relative; }
+
+/* FreqTuner inside HP CRT — strips the box, recolors to phosphor */
+.hp-tuner .ftuner-wrap { width: auto; }
+.hp-tuner .ftuner {
+  background: transparent; border: none; padding: 0; outline: none;
+  font-family: "IBM Plex Mono", ui-monospace, monospace;
+  font-size: inherit; font-weight: 500; letter-spacing: 0.04em;
+  text-shadow: 0 0 4px rgba(255,190,40,0.55);
+  align-items: baseline;
+}
+.hp-tuner .ftuner:focus-within { border: none; box-shadow: none; }
+.hp-tuner .fdig  { font-size: inherit; font-weight: 500; color: #fff3d6; padding: 0 0.5px; }
+.hp-tuner .fdot  { font-size: inherit; font-weight: 500; color: #fff3d6; padding: 0 0.5px; }
+.hp-tuner .fd.dim .fdig, .hp-tuner .fdot.dim { color: var(--phos-dim); }
+.hp-tuner .funit { font-size: 0.72em; color: var(--phos); margin-left: 0.35ch; padding-bottom: 0; align-self: baseline; font-family: "IBM Plex Mono", monospace; text-shadow: inherit; }
+.hp-tuner .fcaret { color: var(--phos); font-size: 0.28em; top: -0.55em; bottom: -0.55em; }
+.hp-tuner .fd.hot .fdig  { color: var(--phos); }
+.hp-tuner .fd.hot .fcaret.up { opacity: 1; }
+.hp-tuner .fd.hot .fcaret.dn { opacity: 1; color: var(--phos); }
+.hp-tuner .fd.hot .fcaret.dn { opacity: .45; }
+.hp-tuner .fund  { background: var(--phos); bottom: -0.18em; height: 1.5px; }
+.hp-tuner .ftuner-sub { display: none; }
 
 /* editable phosphor readout fields */
 .hp-rows { display: flex; flex-direction: column; gap: 0.9cqh; }
@@ -446,6 +471,7 @@ body {
 .hp-inp:hover { border-bottom-color: rgba(255,205,90,0.45); }
 .hp-inp:focus { border-bottom-color: var(--phos); background: rgba(255,190,40,0.10); }
 .hp-inp::selection { background: rgba(255,190,40,0.30); color: #fff; }
+.hp-val { color: rgba(255,243,214,0.55); min-width: 1ch; user-select: none; }
 .hp-grat { stroke: var(--phos-grid); stroke-width: 1; fill: none; }
 .hp-grat-c { stroke: var(--phos-dim); stroke-width: 1; stroke-dasharray: 7 6; fill: none; }
 .hp-frame { stroke: rgba(255,205,70,0.45); stroke-width: 1.6; fill: none; }
@@ -469,7 +495,7 @@ body {
   z-index: 3;
 }
 @media (prefers-reduced-motion: no-preference) {
-  .hp-crt svg { animation: hp-flicker 4.2s steps(60) infinite; }
+  .hp-crt svg, .hp-screen canvas { animation: hp-flicker 4.2s steps(60) infinite; }
   @keyframes hp-flicker { 0%,100% { opacity: 1; } 47% { opacity: 0.97; } 49% { opacity: 0.92; } 51% { opacity: 0.98; } }
 }
 
@@ -572,3 +598,13 @@ body {
 .reboot-status .btn { margin-top: 10px; }
 .reboot-spin { display: inline-flex; color: var(--accent); }
 .reboot-check { width: 54px; height: 54px; border-radius: 50%; display: grid; place-items: center; color: var(--ok); background: color-mix(in oklab, var(--ok) 16%, transparent); }
+
+/* ---- Spectrum WebSocket page ---- */
+.sp-page { display: flex; flex-direction: column; gap: var(--gap); }
+.sp-toolbar { display: flex; align-items: flex-end; gap: 20px; flex-wrap: wrap; padding: 14px 18px; background: var(--panel); border: 1px solid var(--border-soft); border-radius: var(--r); }
+.sp-toolbar .field { margin: 0; min-width: 160px; flex: 1; }
+.sp-toolbar .slider { min-width: 80px; }
+.sp-ws-status { display: flex; align-items: center; gap: 8px; white-space: nowrap; padding-bottom: 4px; }
+.sp-canvas-wrap { border-radius: var(--r); overflow: hidden; background: #000; }
+.sp-canvas { display: block; width: 100%; height: calc(100vh - 64px - var(--gap) * 4 - 72px - 32px); min-height: 300px; cursor: crosshair; }
+.sp-log { font-size: 11px; color: var(--dim-2); min-height: 20px; padding: 4px 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }

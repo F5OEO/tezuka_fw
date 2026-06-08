@@ -21,9 +21,11 @@ IIO_VERSION=$(iio_info --version 2>/dev/null | awk 'NR==1{print $3; exit}')
 XO_BASE=$(<"${folder}xo_correction" 2>/dev/null)
 XO_BASE=${XO_BASE:-40000000}
 
-echo 280000000 > /tmp/sweep_frequency
-echo 480000000 > /tmp/sweep_span
-echo 1 > /tmp/sweep_on
+_init_freq=$(<"${folder}out_altvoltage0_RX_LO_frequency" 2>/dev/null)
+_init_sr=$(<"${folder}in_voltage_sampling_frequency" 2>/dev/null)
+echo "${_init_freq:-280000000}" > /tmp/sweep_frequency
+echo "${_init_sr:-2400000}"    > /tmp/sweep_span
+echo 0                          > /tmp/sweep_on
 
 # List of current values for different settings
 declare -A VMAP=(
@@ -219,7 +221,7 @@ dump_data () {
   local s_freq; s_freq=$(cat /tmp/sweep_frequency 2>/dev/null)
   local s_span; s_span=$(cat /tmp/sweep_span 2>/dev/null)
 
-  if [ "$sweep_hw" == "1" ] || [ "$sweep_sw" == "1" ] || [ "${s_span:-0}" -gt "61000000" ]; then
+  if [ "$sweep_hw" == "1" ] || [ "$sweep_sw" == "1" ] || [ "${s_span:-0}" -gt "43000000" ]; then
     publish "rx/sweep/engaged" "1"
     publish "rx/sweep/activate" "1"
     echo "1" > /tmp/sweep_on
@@ -230,7 +232,6 @@ dump_data () {
   fi
 
   publish "rx/sweep/frequency" "${s_freq:-0}"
-  publish "rx/frequency"       "${s_freq:-0}"
   publish "rx/span"            "${s_span:-0}"
   publish "rx/sweep/span"      "${s_span:-0}"
   publish "main/fir_config"    "$(head -1 "${folder}filter_fir_config" 2>/dev/null || echo 'n/a')"
@@ -353,22 +354,28 @@ do_sweep_stop () {
 do_sweep_start () {
   local FREQ_CENTRAL="$1" SPAN="$2"
   local FREQ_MINI=47000000 SR_MINI=2100000
-  local SR=$(( SPAN / 8 ))
+  # SR wider than SPAN/8: only the inner 70% of each band is used, so step = SR*0.7
+  # 8 * SR * 0.7 = SPAN  →  SR = SPAN * 5 / 28
+  local SR=$(( SPAN * 5 / 28 ))
   [ "$SR" -lt "$SR_MINI" ] && SR=$SR_MINI
+  # Centre-to-centre spacing between adjacent sub-bands
+  local FREQ_STEP=$(( SR * 7 / 10 ))
 
+  echo "manual" > "${folder}in_voltage0_gain_control_mode"
+  publish_force "rx/gain_mode" "manual"
   echo 0 > "${folder}in_out_voltage_filter_fir_en"
   echo "$SR" > "${folder}in_voltage_sampling_frequency"
   echo $(( SR * 3 / 2 )) > "${folder}in_voltage_rf_bandwidth"
 
-  local FREQ1=$(( FREQ_CENTRAL - SR * 3 - SR / 2 ))
+  local FREQ1=$(( FREQ_CENTRAL - 7 * FREQ_STEP / 2 ))
   if [ "$FREQ1" -lt "$FREQ_MINI" ]; then
     FREQ1=$FREQ_MINI
-    FREQ_CENTRAL=$(( FREQ1 + SR * 3 + SR / 2 ))
+    FREQ_CENTRAL=$(( FREQ1 + 7 * FREQ_STEP / 2 ))
   fi
 
   local i FREQ
   for i in 0 1 2 3 4 5 6 7; do
-    FREQ=$(( FREQ1 + i * SR ))
+    FREQ=$(( FREQ1 + i * FREQ_STEP ))
     echo "$FREQ" > "${folder}out_altvoltage0_RX_LO_frequency"
     echo "$i" > "${folder}out_altvoltage0_RX_LO_fastlock_store"
   done
@@ -388,15 +395,31 @@ gpioset gpiochip0 65=0
 # ============================================================
 
 spectro_fps () {
-  curl -s -X PATCH http://localhost/api/spectrometer \
-    -H "Content-Type: application/json" \
-    -d "{\"output_sampling_frequency\": $1}" > /dev/null 2>&1 &
+  (
+    local http_code
+    http_code=$(curl -s -o /dev/null -w "%{http_code}" -X PATCH http://localhost/api/spectrometer \
+      -H "Content-Type: application/json" \
+      -d "{\"output_sampling_frequency\": $1}" 2>/dev/null)
+    if [ "${http_code:-0}" -ge 200 ] && [ "${http_code:-0}" -lt 300 ]; then
+      publish_force "spectro/fps" "$1"
+    else
+      publish_force "spectro/fps" "error:${http_code:-unreachable}"
+    fi
+  ) &
 }
 
 spectro_mode () {
-  curl -s -X PATCH http://localhost/api/spectrometer \
-    -H "Content-Type: application/json" \
-    -d "{\"mode\": \"$1\"}" > /dev/null 2>&1 &
+  (
+    local http_code
+    http_code=$(curl -s -o /dev/null -w "%{http_code}" -X PATCH http://localhost/api/spectrometer \
+      -H "Content-Type: application/json" \
+      -d "{\"mode\": \"$1\"}" 2>/dev/null)
+    if [ "${http_code:-0}" -ge 200 ] && [ "${http_code:-0}" -lt 300 ]; then
+      publish_force "spectro/mode" "$1"
+    else
+      publish_force "spectro/mode" "error:${http_code:-unreachable}"
+    fi
+  ) &
 }
 
 # ============================================================
@@ -422,7 +445,13 @@ parse_cmd () {
       local current_frequency; current_frequency=$(cat /tmp/sweep_frequency 2>/dev/null)
       current_frequency=${current_frequency:-280000000}
 
-      if [ "$SPAN" -gt "61000000" ]; then
+      # Clamp to max sweep span (SR = SPAN*5/28 must not exceed AD9361 max ~61 MHz)
+      local SPAN_MAX=344000000
+      [ "$SPAN" -gt "$SPAN_MAX" ] && SPAN=$SPAN_MAX
+      echo "$SPAN" > /tmp/sweep_span
+
+      # Threshold: 43 MHz = 61 MHz × 0.70 — max usable single-band span with 15% edge trim
+      if [ "$SPAN" -gt "43000000" ]; then
         echo "1" > /tmp/sweep_on
         publish_force "rx/sweep/activate"  "1"
         publish_force "rx/sweep/engaged"   "1"
@@ -439,7 +468,11 @@ parse_cmd () {
       fi
       publish_force "rx/span"       "$SPAN"
       publish_force "rx/sweep/span" "$SPAN"
-      spectro_fps 10
+      if [ "$SPAN" -gt "43000000" ]; then
+        spectro_fps 80
+      else
+        spectro_fps 10
+      fi
     ;;
 
     rx/frequency | rx/sweep/frequency)
@@ -447,11 +480,11 @@ parse_cmd () {
       echo "$FREQ" > /tmp/sweep_frequency
       
       local current_span; current_span=$(cat /tmp/sweep_span 2>/dev/null)
-      current_span=${current_span:-480000000}
+      current_span=${current_span:-2400000}
       local sweep_on; sweep_on=$(cat /tmp/sweep_on 2>/dev/null)
       sweep_on=${sweep_on:-0}
 
-      if [ "$sweep_on" == "1" ] || [ "$current_span" -gt "61000000" ]; then
+      if [ "$sweep_on" == "1" ] || [ "$current_span" -gt "43000000" ]; then
         echo "1" > /tmp/sweep_on
         publish_force "rx/sweep/engaged" "1"
         do_sweep_start "$FREQ" "$current_span"
@@ -468,8 +501,8 @@ parse_cmd () {
       local current_frequency; current_frequency=$(cat /tmp/sweep_frequency 2>/dev/null)
       current_frequency=${current_frequency:-280000000}
       local current_span; current_span=$(cat /tmp/sweep_span 2>/dev/null)
-      current_span=${current_span:-480000000}
-      
+      current_span=${current_span:-2400000}
+
       if [ "$val" == "1" ]; then
         echo "1" > /tmp/sweep_on
         publish_force "rx/sweep/engaged" "1"
