@@ -23,6 +23,7 @@ XO_BASE=${XO_BASE:-40000000}
 
 echo 280000000 > /tmp/sweep_frequency
 echo 480000000 > /tmp/sweep_span
+echo 1 > /tmp/sweep_on
 
 # List of current values for different settings
 declare -A VMAP=(
@@ -212,24 +213,30 @@ dump_data () {
     [ -n "$_mac" ] && publish "net/$_iface/mac" "$_mac"
   done
 
-  sweep=$(iio_attr -D ad9361-phy adi,rx-fastlock-pincontrol-enable 2>/dev/null)
-  if [ "$sweep" == "1" ]; then
-    publish "rx/sweep/activate" "1"
-  else
-    publish "rx/sweep/activate" "0"
-  fi
-  echo "$sweep" > /tmp/sweep_on
+  # Handle Sweep Status Verification Safely
+  local sweep_hw; sweep_hw=$(cat "${debug_folder}adi,rx-fastlock-pincontrol-enable" 2>/dev/null)
+  local sweep_sw; sweep_sw=$(cat /tmp/sweep_on 2>/dev/null)
+  local s_freq; s_freq=$(cat /tmp/sweep_frequency 2>/dev/null)
+  local s_span; s_span=$(cat /tmp/sweep_span 2>/dev/null)
 
-  sweep_frequency=$(cat /tmp/sweep_frequency 2>/dev/null)
-  sweep_span=$(cat /tmp/sweep_span 2>/dev/null)
-  publish "rx/sweep/frequency" "${sweep_frequency:-0}"
-  publish "rx/span" "${sweep_span:-0}"
-  publish "main/fir_config" "$(head -1 "${folder}filter_fir_config" 2>/dev/null || echo 'n/a')"
+  if [ "$sweep_hw" == "1" ] || [ "$sweep_sw" == "1" ] || [ "${s_span:-0}" -gt "61000000" ]; then
+    publish "rx/sweep/engaged" "1"
+    publish "rx/sweep/activate" "1"
+    echo "1" > /tmp/sweep_on
+  else
+    publish "rx/sweep/engaged" "0"
+    publish "rx/sweep/activate" "0"
+    echo "0" > /tmp/sweep_on
+  fi
+
+  publish "rx/sweep/frequency" "${s_freq:-0}"
+  publish "rx/frequency"       "${s_freq:-0}"
+  publish "rx/span"            "${s_span:-0}"
+  publish "rx/sweep/span"      "${s_span:-0}"
+  publish "main/fir_config"    "$(head -1 "${folder}filter_fir_config" 2>/dev/null || echo 'n/a')"
 
   publish "rx/buffer_size" "$(read_file "${adc_folder}buffer/length")"
   publish "tx/buffer_size" "$(read_file "${dds_folder}buffer/length")"
-
-  
 
   rx_overload=$(iio_attr -D ad9361-phy direct_reg_access 0x5E 2>/dev/null)
   rx_overload=$((rx_overload & 1))
@@ -336,8 +343,44 @@ dump_data () {
   fi
 }
 
-update_sweep () {
-  /root/sweep.sh "$1" "$2" "$3"
+do_sweep_stop () {
+  echo 0 > "${debug_folder}adi,rx-fastlock-pincontrol-enable"
+  cat "${folder}out_altvoltage0_RX_LO_frequency" > /dev/null
+  echo 0 > "${folder}out_altvoltage0_RX_LO_fastlock_store"
+  echo 0 > "${folder}out_altvoltage0_RX_LO_fastlock_recall"
+}
+
+do_sweep_start () {
+  local FREQ_CENTRAL="$1" SPAN="$2"
+  local FREQ_MINI=47000000 SR_MINI=2100000
+  local SR=$(( SPAN / 8 ))
+  [ "$SR" -lt "$SR_MINI" ] && SR=$SR_MINI
+
+  echo 0 > "${folder}in_out_voltage_filter_fir_en"
+  echo "$SR" > "${folder}in_voltage_sampling_frequency"
+  echo $(( SR * 3 / 2 )) > "${folder}in_voltage_rf_bandwidth"
+
+  local FREQ1=$(( FREQ_CENTRAL - SR * 3 - SR / 2 ))
+  if [ "$FREQ1" -lt "$FREQ_MINI" ]; then
+    FREQ1=$FREQ_MINI
+    FREQ_CENTRAL=$(( FREQ1 + SR * 3 + SR / 2 ))
+  fi
+
+  local i FREQ
+  for i in 0 1 2 3 4 5 6 7; do
+    FREQ=$(( FREQ1 + i * SR ))
+    echo "$FREQ" > "${folder}out_altvoltage0_RX_LO_frequency"
+    echo "$i" > "${folder}out_altvoltage0_RX_LO_fastlock_store"
+  done
+
+  echo "$FREQ_CENTRAL" > "${folder}out_altvoltage0_RX_LO_frequency"
+  echo 1 > "${debug_folder}adi,rx-fastlock-pincontrol-enable"
+  echo 0 > "${folder}out_altvoltage0_RX_LO_fastlock_recall"
+
+gpioset gpiochip0 63=0
+gpioset gpiochip0 64=0
+gpioset gpiochip0 65=0
+  
 }
 
 # ============================================================
@@ -355,50 +398,73 @@ parse_cmd () {
     case $cmd in
     rx/rfinput)          /root/switch_rfinput.sh "rx${val}" & ;;
     tx/rfinput)          /root/switch_rfoutput.sh "tx${val}" & ;;
-    rx/span)
-      SPAN=$(printf "%0.f" "$val")
+    
+    rx/span | rx/sweep/span)
+      local SPAN; SPAN=$(printf "%0.f" "$val")
       echo "$SPAN" > /tmp/sweep_span
-      if [ "$SPAN" -gt "60000000" ]; then
-        current_frequency=$(< "${folder}out_altvoltage0_RX_LO_frequency")
-        update_sweep "$current_frequency" "$SPAN" 1
+
+      local current_frequency; current_frequency=$(cat /tmp/sweep_frequency 2>/dev/null)
+      current_frequency=${current_frequency:-280000000}
+
+      if [ "$SPAN" -gt "61000000" ]; then
+        echo "1" > /tmp/sweep_on
+        publish_force "rx/sweep/activate"  "1"
+        publish_force "rx/sweep/engaged"   "1"
+        do_sweep_start "$current_frequency" "$SPAN"
       else
-        /root/sweep_stop.sh
-        echo 60000000 > "${folder}in_voltage_sampling_frequency"
+        echo "0" > /tmp/sweep_on
+        publish_force "rx/sweep/activate"  "0"
+        publish_force "rx/sweep/engaged"   "0"
+        do_sweep_stop
+        echo "$SPAN" > "${folder}in_voltage_sampling_frequency" 2>/dev/null
+        echo "$SPAN" > "${folder}in_voltage_rf_bandwidth" 2>/dev/null
+        publish_force "rx/sampling"   "$(read_file "${folder}in_voltage_sampling_frequency")"
+        publish_force "rx/bandwidth"  "$(read_file "${folder}in_voltage_rf_bandwidth")"
       fi
+      publish_force "rx/span"       "$SPAN"
+      publish_force "rx/sweep/span" "$SPAN"
     ;;
-    rx/frequency)
-      SPAN=$(cat /tmp/sweep_span 2>/dev/null)
-      sweep_on=$(cat /tmp/sweep_on 2>/dev/null)
-      echo "$val" > /tmp/sweep_frequency
-      if [ "$sweep_on" == "1" ]; then
-        update_sweep "$val" "${SPAN:-0}" 1
+
+    rx/frequency | rx/sweep/frequency)
+      local FREQ; FREQ=$(printf "%0.f" "$val")
+      echo "$FREQ" > /tmp/sweep_frequency
+      
+      local current_span; current_span=$(cat /tmp/sweep_span 2>/dev/null)
+      current_span=${current_span:-480000000}
+      local sweep_on; sweep_on=$(cat /tmp/sweep_on 2>/dev/null)
+      sweep_on=${sweep_on:-0}
+
+      if [ "$sweep_on" == "1" ] || [ "$current_span" -gt "61000000" ]; then
+        echo "1" > /tmp/sweep_on
+        publish_force "rx/sweep/engaged" "1"
+        do_sweep_start "$FREQ" "$current_span"
       else
-        echo "$val" > "${folder}out_altvoltage0_RX_LO_frequency"
+        echo "0" > /tmp/sweep_on
+        publish_force "rx/sweep/engaged" "0"
+        echo "$FREQ" > "${folder}out_altvoltage0_RX_LO_frequency"
       fi
+      publish_force "rx/frequency" "$FREQ"
+      publish_force "rx/sweep/frequency" "$FREQ"
     ;;
-    rx/sweep/frequency)
-      if [ "$sweep_frequency" != "$val" ]; then
-        sweep_frequency=$val
-        echo "$sweep_frequency" > /tmp/sweep_frequency
-        update_sweep "$sweep_frequency" "$sweep_span" "$sweep_on"
-      fi
-    ;;
-    rx/sweep/span)
-      if [ "$sweep_span" != "$val" ]; then
-        sweep_span=$val
-        echo "$sweep_span" > /tmp/sweep_span
-        update_sweep "$sweep_frequency" "$sweep_span" "$sweep_on"
-      fi
-    ;;
+
     rx/sweep/activate)
-      sweep_on=$(cat /tmp/sweep_on 2>/dev/null)
+      local current_frequency; current_frequency=$(cat /tmp/sweep_frequency 2>/dev/null)
+      current_frequency=${current_frequency:-280000000}
+      local current_span; current_span=$(cat /tmp/sweep_span 2>/dev/null)
+      current_span=${current_span:-480000000}
+      
       if [ "$val" == "1" ]; then
-        sweep_on=$val
-        update_sweep "$sweep_frequency" "$sweep_span" "$sweep_on"
+        echo "1" > /tmp/sweep_on
+        publish_force "rx/sweep/engaged" "1"
+        do_sweep_start "$current_frequency" "$current_span"
       else
-        /root/sweep_stop.sh
+        echo "0" > /tmp/sweep_on
+        publish_force "rx/sweep/engaged" "0"
+        do_sweep_stop
       fi
+      publish_force "rx/sweep/activate" "$val"
     ;;
+
     rx/loopback)
       echo "$val" > "${debug_folder}loopback" 2>/dev/null
       if [ "$val" = "2" ]; then

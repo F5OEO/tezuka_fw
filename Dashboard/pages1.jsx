@@ -611,13 +611,14 @@ function SpectrumPage({ d }) {
           }
           const off = step * len;
           for (let i = 0; i < len; i++) sweepBuf.current[off + i] = toDB(f[i + 1]);
+          if (step === 7) dirtyRef.current = true;
         } else {
           // Normal mode: f[1..] are the FFT bins; f[0] is discarded
           const db = new Float32Array(len);
           for (let i = 0; i < len; i++) db[i] = toDB(f[i + 1]);
           binsRef.current = db;
+          dirtyRef.current = true;
         }
-        dirtyRef.current = true;
       };
     }
     connect();
@@ -660,7 +661,8 @@ function SpectrumPage({ d }) {
 
   const pubGain     = (v) => { setGain(v);    d.publish('rx/gain',    v); };
   const pubInput    = (v) => { setRxInput(v); d.publish('rx/rfinput', v === 'rx2' ? 2 : 1); };
-  const onCenterChg = useSpCb((hz) => { setCenterHz(hz); d.publish('rx/frequency', hz); }, [d]);
+  const onCenterChg = useSpCb((hz)  => { setCenterHz(hz); d.publish(d.sweepActive ? 'rx/sweep/frequency' : 'rx/frequency', hz); }, [d]);
+  const onSpanChg   = useSpCb((kHz) => { const hz = kHz * 1000; setSpanHz(hz); d.publish('rx/span', hz); }, [d]);
 
   return (
     <div className="sp-page">
@@ -699,7 +701,12 @@ function SpectrumPage({ d }) {
                 <FreqTuner value={centerHz} digits={9} min={47e6} max={6e9} unit="Hz" onChange={onCenterChg} />
               </div>
             </div>
-            <CrtField pfx="SPAN" val={fmtMHz(spanHz)} sfx="MHz" onChange={() => {}} />
+            <div className="hp-fld">
+              <span className="hp-pfx">SPAN</span>
+              <div className="hp-tuner">
+                <FreqTuner value={Math.round(spanHz / 1000)} digits={6} min={200} max={480000} unit="MHz" onChange={onSpanChg} />
+              </div>
+            </div>
           </div>
           <div className="hp-row sm">
             <CrtField pfx="RBW" val={rbwKHz.toString()}  sfx="kHz" onChange={() => {}} />
