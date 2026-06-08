@@ -546,7 +546,8 @@ function SpectrumPage({ d }) {
   const rangeRef    = useSpR(sp.range  ?? SP_ROWS * 10);
   const isSweepR    = useSpR(false);
   const mousePosRef = useSpR(null);   // {px} normalised 0-1 when cursor is over canvas
-  const mouseDragRef = useSpR(null);  // {startY, startRefDb} while left-button dragging
+  const mouseDragRef    = useSpR(null);  // {startX, startY, startRefDb, startCenterHz} while dragging
+  const dragPubTimerRef = useSpR(0);    // last MQTT publish timestamp during drag
   const centerHzRef = useSpR(sp.centerHz ?? (d.rxFreq ?? 437e6));
   const spanHzRef   = useSpR(sp.spanHz   ?? (d.span ?? d.rxSampling ?? 2.4e6));
 
@@ -735,12 +736,19 @@ function SpectrumPage({ d }) {
     return () => window.removeEventListener('keydown', onKey);
   }, []);
 
-  // Release drag if mouse is released anywhere (including outside canvas)
+  // Release drag — flush a final MQTT publish so device lands on exact position
   useSpE(() => {
-    const onUp = () => { mouseDragRef.current = null; };
+    const onUp = () => {
+      if (mouseDragRef.current) {
+        d.publish(d.sweepActive ? 'rx/sweep/frequency' : 'rx/frequency',
+                  Math.round(centerHzRef.current));
+        mouseDragRef.current = null;
+        dragPubTimerRef.current = 0;
+      }
+    };
     window.addEventListener('mouseup', onUp);
     return () => window.removeEventListener('mouseup', onUp);
-  }, []);
+  }, [d]);
 
   const onCanvasMouseDown = useSpCb((e) => {
     if (e.button !== 0) return;
@@ -763,7 +771,11 @@ function SpectrumPage({ d }) {
       // Horizontal: drag right pulls spectrum right → center decreases
       const nc = mouseDragRef.current.startCenterHz - (dx / W) * spanHzRef.current;
       setCenterHz(nc);
-      d.publish(d.sweepActive ? 'rx/sweep/frequency' : 'rx/frequency', Math.round(nc));
+      const now = performance.now();
+      if (now - dragPubTimerRef.current >= 200) {
+        dragPubTimerRef.current = now;
+        d.publish(d.sweepActive ? 'rx/sweep/frequency' : 'rx/frequency', Math.round(nc));
+      }
       // Vertical: drag down raises REF
       const deltaDb = (dy / H) * rangeRef.current;
       setRefDb(mouseDragRef.current.startRefDb + deltaDb);
