@@ -661,7 +661,7 @@ function SpectrumPage({ d }) {
 
   const pubGain     = (v) => { setGain(v);    d.publish('rx/gain',    v); };
   const pubInput    = (v) => { setRxInput(v); d.publish('rx/rfinput', v === 'rx2' ? 2 : 1); };
-  const onCenterChg = useSpCb((hz)  => { setCenterHz(hz); d.publish(d.sweepActive ? 'rx/sweep/frequency' : 'rx/frequency', hz); }, [d]);
+  const onCenterChg = useSpCb((kHz) => { const hz = kHz * 1000; setCenterHz(hz); d.publish(d.sweepActive ? 'rx/sweep/frequency' : 'rx/frequency', hz); }, [d]);
   const onSpanChg   = useSpCb((kHz) => { const hz = kHz * 1000; setSpanHz(hz); d.publish('rx/span', hz); }, [d]);
 
   return (
@@ -698,7 +698,7 @@ function SpectrumPage({ d }) {
             <div className="hp-fld">
               <span className="hp-pfx">CENTER</span>
               <div className="hp-tuner">
-                <FreqTuner value={centerHz} digits={9} min={47e6} max={6e9} unit="Hz" onChange={onCenterChg} />
+                <FreqTuner value={Math.round(centerHz / 1000)} digits={7} min={47000} max={6000000} unit="MHz" onChange={onCenterChg} />
               </div>
             </div>
             <div className="hp-fld">

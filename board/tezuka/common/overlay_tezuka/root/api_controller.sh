@@ -384,6 +384,22 @@ gpioset gpiochip0 65=0
 }
 
 # ============================================================
+#  MAIA-HTTPD REST HELPERS
+# ============================================================
+
+spectro_fps () {
+  curl -s -X PATCH http://localhost/api/spectrometer \
+    -H "Content-Type: application/json" \
+    -d "{\"output_sampling_frequency\": $1}" > /dev/null 2>&1 &
+}
+
+spectro_mode () {
+  curl -s -X PATCH http://localhost/api/spectrometer \
+    -H "Content-Type: application/json" \
+    -d "{\"mode\": \"$1\"}" > /dev/null 2>&1 &
+}
+
+# ============================================================
 #  COMMAND PARSER
 # ============================================================
 
@@ -423,6 +439,7 @@ parse_cmd () {
       fi
       publish_force "rx/span"       "$SPAN"
       publish_force "rx/sweep/span" "$SPAN"
+      spectro_fps 10
     ;;
 
     rx/frequency | rx/sweep/frequency)
@@ -463,6 +480,16 @@ parse_cmd () {
         do_sweep_stop
       fi
       publish_force "rx/sweep/activate" "$val"
+    ;;
+
+    spectro/fps)
+      spectro_fps "$val"
+      publish_force "spectro/fps" "$val"
+    ;;
+
+    spectro/mode)
+      spectro_mode "$val"
+      publish_force "spectro/mode" "$val"
     ;;
 
     rx/loopback)
@@ -602,10 +629,16 @@ USB_INIT=0
 #  MAIN LOOP
 # ============================================================
 
-# Subscribe to commands cleanly parsing topic and payloads with spaces
-/usr/bin/mosquitto_sub -v -i "tezuka_sub" -t "cmd/#" | while read -r incoming_topic incoming_payload; do 
-  parse_cmd "$incoming_topic" "$incoming_payload"
-done &
+# Subscribe to commands — reconnects automatically on broker disconnect
+(
+  while true; do
+    /usr/bin/mosquitto_sub -v -i "tezuka_sub" -t "cmd/#" 2>/dev/null \
+      | while read -r incoming_topic incoming_payload; do
+          parse_cmd "$incoming_topic" "$incoming_payload"
+        done
+    sleep 2
+  done
+) &
 
 # Poll dynamic data every 2 seconds
 while true; do
