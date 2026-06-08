@@ -482,7 +482,11 @@ function spDraw(ctx, W, H, bins, refDb, range) {
   ctx.shadowBlur = 0;
 }
 
+// Spectrum UI state — persists across route navigation within the session
+if (!window._sp) window._sp = {};
+
 function SpectrumPage({ d }) {
+  const sp = window._sp;
   const canvasRef  = useSpR(null);
   const wsRef      = useSpR(null);
   const rafRef     = useSpR(null);
@@ -490,22 +494,26 @@ function SpectrumPage({ d }) {
   const sweepBuf   = useSpR(null);   // sweep stitching buffer (Float32Array, 8× frame length)
   const sweepLenR  = useSpR(0);
   const dirtyRef   = useSpR(true);
-  const refDbRef   = useSpR(130);
-  const rangeRef   = useSpR(SP_ROWS * 10);   // total dB span, default 80
+  const refDbRef   = useSpR(sp.refDb  ?? 130);
+  const rangeRef   = useSpR(sp.range  ?? SP_ROWS * 10);
   const isSweepR   = useSpR(false);
 
-  const [refDb,    setRefDb]    = useSpS(130);
-  const [range,    setRange]    = useSpS(SP_ROWS * 10);
-  const [centerHz, setCenterHz] = useSpS(437e6);
-  const [spanHz,   setSpanHz]   = useSpS(2.4e6);
-  const [gain,     setGain]     = useSpS(50);
-  const [rxInput,  setRxInput]  = useSpS('rx1');
+  const [refDb,    setRefDb]    = useSpS(() => sp.refDb    ?? 130);
+  const [range,    setRange]    = useSpS(() => sp.range    ?? SP_ROWS * 10);
+  const [centerHz, setCenterHz] = useSpS(() => sp.centerHz ?? (d.rxFreq    ?? 437e6));
+  const [spanHz,   setSpanHz]   = useSpS(() => sp.spanHz   ?? (d.span ?? d.rxSampling ?? 2.4e6));
+  const [gain,     setGain]     = useSpS(() => sp.gain     ?? (d.rxGain    ?? 50));
+  const [rxInput,  setRxInput]  = useSpS(() => sp.rxInput  ?? (d.rxRfinput === 2 ? 'rx2' : 'rx1'));
   const [wsState,  setWsState]  = useSpS('disconnected');
   const [fps,      setFps]      = useSpS(0);
 
-  // Keep refs current for RAF loop (avoids stale closures)
-  useSpE(() => { refDbRef.current = refDb;  dirtyRef.current = true; }, [refDb]);
-  useSpE(() => { rangeRef.current = range;  dirtyRef.current = true; }, [range]);
+  // Keep refs current for RAF loop (avoids stale closures) + persist to session store
+  useSpE(() => { refDbRef.current = refDb;  dirtyRef.current = true; sp.refDb    = refDb;    }, [refDb]);
+  useSpE(() => { rangeRef.current = range;  dirtyRef.current = true; sp.range    = range;    }, [range]);
+  useSpE(() => { sp.centerHz = centerHz; }, [centerHz]);
+  useSpE(() => { sp.spanHz   = spanHz;   }, [spanHz]);
+  useSpE(() => { sp.gain     = gain;     }, [gain]);
+  useSpE(() => { sp.rxInput  = rxInput;  }, [rxInput]);
 
   // Sync from MQTT state
   useSpE(() => { if (d.rxGain    != null) setGain(d.rxGain); },    [d.rxGain]);
