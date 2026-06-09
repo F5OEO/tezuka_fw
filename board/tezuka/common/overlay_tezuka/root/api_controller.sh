@@ -471,7 +471,7 @@ parse_cmd () {
       if [ "$SPAN" -gt "43000000" ]; then
         spectro_fps 80
       else
-        spectro_fps 10
+        spectro_fps 25
       fi
     ;;
 
