@@ -1,0 +1,48 @@
+maia-kmod: reset vm_start on close and guard IOCTL against stale mapping
+
+Two related fixes for a use-after-unmap (or before-mmap) path in the
+rxbuffer driver that can pass invalid user-virtual addresses to the
+cached-invalidation routines v7_dma_inv_range() / arm_cache_outer_inv_range().
+
+1. maia_sdr_rxbuffer_vm_close: clear vm_start = 0
+   After munmap, vm_start retains the stale old value.  A subsequent
+   IOCTL_ CACHEINV without an intervening mmap would compute a start
+   address from the stale vm_start and pass it to v7_dma_inv_range().
+   On ARMv7, cache maintenance by MVA on an unmapped address is
+   UNPREDICTABLE per ARM ARM.  Reset to 0 so the VA is always invalid.
+
+2. maia_sdr_rxbuffer_ioctl + cacheinv: check mmap_done
+   Return -EINVAL from IOCTL_CACHEINV when the buffer has not been
+   mmap'd (or has been munmap'd).  Also add a defensive check inside
+   maia_sdr_rxbuffer_cacheinv itself.
+
+--- a/maia-kmod/maia-sdr.c
++++ b/maia-kmod/maia-sdr.c
+@@ -109,6 +109,7 @@
+ {
+ 	struct maia_sdr_rxbuffer_drvdata *drvdata = vma->vm_private_data;
+ 	drvdata->mmap_done = 0;
++	drvdata->vm_start = 0;
+ }
+ 
+ static struct vm_operations_struct maia_sdr_rxbuffer_vm_ops = {
+@@ -163,6 +164,9 @@
+ 	if (num_buffer >= drvdata->num_buffers) {
+ 		return -1;
+ 	}
++	if (!drvdata->mmap_done) {
++		return -1;
++	}
+ 	offset = drvdata->buffer_size * num_buffer;
+ 	start = drvdata->vm_start + offset;
+ 	// See maia_sdr_recording_mmap for how the cache invalidation works.
+@@ -179,6 +183,9 @@
+ 
+ 	switch (cmd) {
+ 	case IOCTL_CACHEINV:
++		if (!drvdata->mmap_done) {
++			return -EINVAL;
++		}
+ 		return maia_sdr_rxbuffer_cacheinv(drvdata, arg);
+ 	default:
+ 		return -ENOTTY;
