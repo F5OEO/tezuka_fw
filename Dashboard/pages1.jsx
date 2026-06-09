@@ -547,7 +547,11 @@ function SpectrumPage({ d }) {
   const isSweepR    = useSpR(false);
   const mousePosRef = useSpR(null);   // {px} normalised 0-1 when cursor is over canvas
   const mouseDragRef    = useSpR(null);  // {startX, startY, startRefDb, startCenterHz} while dragging
-  const dragPubTimerRef = useSpR(0);    // last MQTT publish timestamp during drag
+  const dragPubTimerRef  = useSpR(0);   // last MQTT publish timestamp during drag
+  const wheelPubTimerRef  = useSpR(0);  // last MQTT publish timestamp during wheel zoom
+  const wheelDebounceRef  = useSpR(0);  // setTimeout id for post-wheel flush
+  const spanPubTimerRef   = useSpR(0);  // last MQTT publish timestamp for span tuner
+  const spanDebounceRef   = useSpR(0);  // setTimeout id for post-span-change flush
   const centerHzRef = useSpR(sp.centerHz ?? (d.rxFreq ?? 437e6));
   const spanHzRef   = useSpR(sp.spanHz   ?? (d.span ?? d.rxSampling ?? 2.4e6));
 
@@ -719,8 +723,19 @@ function SpectrumPage({ d }) {
 
     setCenterHz(nc);
     setSpanHz(ns);
-    d.publish(d.sweepActive ? 'rx/sweep/frequency' : 'rx/frequency', Math.round(nc));
-    d.publish('rx/span', Math.round(ns));
+    // Throttle mid-spin publishes to 200 ms
+    const now = performance.now();
+    if (now - wheelPubTimerRef.current >= 200) {
+      wheelPubTimerRef.current = now;
+      d.publish(d.sweepActive ? 'rx/sweep/frequency' : 'rx/frequency', Math.round(nc));
+      d.publish('rx/span', Math.round(ns));
+    }
+    // Debounce: flush final values 220 ms after last wheel event
+    clearTimeout(wheelDebounceRef.current);
+    wheelDebounceRef.current = setTimeout(() => {
+      d.publish(d.sweepActive ? 'rx/sweep/frequency' : 'rx/frequency', Math.round(centerHzRef.current));
+      d.publish('rx/span', Math.round(spanHzRef.current));
+    }, 220);
   }, [d]);
 
   // Keyboard shortcuts: +/- shift REF, [/] change RANGE (1 step = SP_ROWS dB)
@@ -810,7 +825,17 @@ function SpectrumPage({ d }) {
   const pubGain     = (v) => { setGain(v);    d.publish('rx/gain',    v); };
   const pubInput    = (v) => { setRxInput(v); d.publish('rx/rfinput', v === 'rx2' ? 2 : 1); };
   const onCenterChg = useSpCb((kHz) => { const hz = kHz * 1000; setCenterHz(hz); d.publish(d.sweepActive ? 'rx/sweep/frequency' : 'rx/frequency', hz); }, [d]);
-  const onSpanChg   = useSpCb((kHz) => { const hz = kHz * 1000; setSpanHz(hz); d.publish('rx/span', hz); }, [d]);
+  const onSpanChg   = useSpCb((kHz) => {
+    const hz = kHz * 1000;
+    setSpanHz(hz);
+    const now = performance.now();
+    if (now - spanPubTimerRef.current >= 200) {
+      spanPubTimerRef.current = now;
+      d.publish('rx/span', hz);
+    }
+    clearTimeout(spanDebounceRef.current);
+    spanDebounceRef.current = setTimeout(() => d.publish('rx/span', Math.round(spanHzRef.current)), 220);
+  }, [d]);
 
   return (
     <div className="sp-page">
