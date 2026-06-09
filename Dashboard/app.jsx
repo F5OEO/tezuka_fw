@@ -85,7 +85,7 @@ function Topbar({ onMenu, route, mqtt }) {
     <header className="topbar">
       <button className="icon-btn" onClick={onMenu}><Icon name="menu" size={20} /></button>
       <div className="crumb"><span className="dim">Tezuka</span><span className="sep">/</span><b>{TITLES[route]}</b></div>
-      <div className="search"><Icon name="search" size={16} /><input placeholder="Search settings, topics…" /></div>
+      <div className="topbar-title">Tezuka Dashboard</div>
       <div className="top-actions">
         <span className={`mqtt-chip ${mqtt ? "up" : ""}`}><i />MQTT</span>
         <button className="icon-btn"><Icon name="bell" size={18} /></button>
