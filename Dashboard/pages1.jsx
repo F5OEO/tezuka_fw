@@ -817,8 +817,6 @@ function SpectrumPage({ d }) {
   }, []);
 
   const fmtMHz  = (hz) => (hz / 1e6).toFixed(3);
-  const rbwKHz  = Math.round(spanHz / 1000);
-  const vbwKHz  = Math.max(1, Math.round(rbwKHz / 3));
   const stMs    = fps > 0 ? Math.round(1000 / fps) : 0;
   const wsTone  = wsState === 'connected' ? 'ok' : wsState === 'connecting' ? 'info' : 'warn';
 
@@ -883,9 +881,7 @@ function SpectrumPage({ d }) {
             </div>
           </div>
           <div className="hp-row sm">
-            <CrtField pfx="RBW" val={rbwKHz.toString()}  sfx="kHz" readOnly />
-            <CrtField pfx="VBW" val={vbwKHz.toString()}  sfx="kHz" center readOnly />
-            <CrtField pfx="ST"  val={stMs.toString()}    sfx="ms"  readOnly />
+            <CrtField pfx="ST" val={stMs.toString()} sfx="ms" readOnly />
           </div>
         </div>
       </div>
