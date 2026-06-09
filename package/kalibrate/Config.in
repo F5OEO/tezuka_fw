@@ -1,7 +1,9 @@
 config BR2_PACKAGE_KALIBRATE
         bool "kalibrate"
         
-        select BR2_PACKAGE_FFTW
+        select BR2_PACKAGE_FFTW 
+        select BR2_PACKAGE_FFTW_DOUBLE
+        select BR2_PACKAGE_FFTW_FAST
              help
           kalibrate calibration tool
 
