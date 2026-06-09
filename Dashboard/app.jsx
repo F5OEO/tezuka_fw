@@ -30,10 +30,10 @@ const TWEAK_DEFAULTS = /*EDITMODE-BEGIN*/{
 function Sidebar({ route, setRoute, collapsed, labels, operator }) {
   return (
     <aside className={`sidebar ${collapsed ? "collapsed" : ""}`}>
-      <div className="brand">
+      <a className="brand" href="https://github.com/F5OEO/tezuka_fw" target="_blank" rel="noopener noreferrer">
         <div className="brand-mark"><Icon name="wave" size={20} /></div>
         {!collapsed && <div className="brand-text">Tezuka<span>SDR control · by F5OEO</span></div>}
-      </div>
+      </a>
       <nav className="nav">
         {NAV.map((sec, i) => (
           <div key={i} className="nav-sec">

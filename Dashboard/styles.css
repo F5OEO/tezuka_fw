@@ -55,7 +55,7 @@ body {
   display: flex; flex-direction: column; transition: width .22s cubic-bezier(.4,0,.2,1);
 }
 .sidebar.collapsed { width: 68px; }
-.brand { display: flex; align-items: center; gap: 12px; padding: 20px 18px; height: 64px; }
+.brand { display: flex; align-items: center; gap: 12px; padding: 20px 18px; height: 64px; text-decoration: none; color: inherit; }
 .brand-mark {
   width: 34px; height: 34px; flex-shrink: 0; border-radius: 9px;
   background: var(--accent); color: #1a1500; display: grid; place-items: center;
@@ -120,6 +120,7 @@ body {
 .search { flex: 1; max-width: 420px; margin: 0 auto; display: flex; align-items: center; gap: 10px; background: var(--inset); border: 1px solid var(--border-soft); border-radius: 10px; padding: 0 14px; height: 40px; color: var(--dim-2); }
 .search input { flex: 1; background: none; border: none; outline: none; color: var(--text); font-family: inherit; font-size: 13.5px; }
 .search input::placeholder { color: var(--dim-2); }
+.topbar-title { flex: 1; text-align: center; font-size: 15px; font-weight: 600; letter-spacing: 0.02em; color: var(--text); }
 .top-actions { display: flex; align-items: center; gap: 4px; }
 .mqtt-chip { display: flex; align-items: center; gap: 7px; font-size: 11.5px; font-weight: 600; letter-spacing: 0.04em; color: var(--dim-2); padding: 6px 11px; border-radius: 20px; border: 1px solid var(--border-soft); margin-right: 6px; }
 .mqtt-chip i { width: 7px; height: 7px; border-radius: 50%; background: var(--dim-2); }
