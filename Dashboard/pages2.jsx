@@ -476,7 +476,7 @@ const TCXO_HZ = 40000000;
 const ppmToFreqCorr = (ppm) => Math.round(TCXO_HZ + ppm * TCXO_HZ / 1e6);
 const freqCorrToPpm = (hz) => (hz - TCXO_HZ) / (TCXO_HZ / 1e6);
 
-function Calibrate({ d }) {
+function Calibrate({ d, navigate }) {
   const [freqCalOn, setFreqCalOn] = useS2(true);
   const [ppm, setPpm] = useS2(0);
   const [ppmStr, setPpmStr] = useS2('0.00');
@@ -489,7 +489,6 @@ function Calibrate({ d }) {
       setGainDirty(false);
     }
   }, [d.gainTableConfig]);
-  const [calRun, setCalRun] = useS2(false);
   useE2(() => {
     if (d.ppbCorrection != null) {
       const v = parseFloat((d.ppbCorrection / 1000).toFixed(2));
@@ -517,17 +516,6 @@ function Calibrate({ d }) {
     d.publish('main/gain_table_config', curve.map(p => `${Math.round(p.x)}:${Math.round(p.y)}`).join(','));
     setGainDirty(false);
   };
-  const launchCal = () => {
-    if (calRun) return;
-    setCalRun(true);
-    setFreqCalOn(true);
-    setTimeout(() => {
-      const v = Math.round((Math.random() * 1.2 - 0.6) * 10) / 10;
-      setPpm(v); setPpmStr(String(v));
-      setCalRun(false);
-    }, 2600);
-  };
-
   return (
     <div className="page">
       <div className="datv-head">
@@ -535,9 +523,9 @@ function Calibrate({ d }) {
           <h1>Calibrate</h1>
           <span className="datv-sub mono">Frequency &amp; gain calibration · TCXO {ppm >= 0 ? "+" : ""}{ppm.toFixed(2)} ppm</span>
         </div>
-        <button className="btn primary" onClick={launchCal} disabled={calRun}>
-          <span className={calRun ? "spin" : ""} style={{ display: "inline-flex" }}><Icon name={calRun ? "refresh" : "target"} size={16} /></span>
-          {calRun ? "Calibrating…" : "Launch frequency calibration"}
+        <button className="btn ghost" onClick={() => navigate('kalibrate')}>
+          <Icon name="search" size={16} />
+          Kalibrate from RF
         </button>
       </div>
 

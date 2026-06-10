@@ -137,7 +137,7 @@ function App() {
       case "transverter": return <Transverter d={d} />;
       case "iqtape": return <IQTape d={d} />;
       case "siggen": return <SigGen d={d} />;
-      case "calibrate": return <Calibrate d={d} />;
+      case "calibrate": return <Calibrate d={d} navigate={setRoute} />;
       case "analysis": return <Analysis d={d} />;
       case "arch": return <Architecture d={d} />;
       case "versions": return <Versions ver={ver} d={d} />;
