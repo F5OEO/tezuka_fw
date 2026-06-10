@@ -2,7 +2,7 @@
 const { useState: useStateD, useEffect: useEffectD, useRef: useRefD, useCallback: useCBD } = React;
 
 // Set to the device IP for local development; leave null to use window.location.hostname (on-device)
-const MQTT_DEV_HOST = '10.0.0.59';
+const MQTT_DEV_HOST = '10.0.0.61';
 // Exposed for use in other pages (e.g. spectrum WebSocket)
 window._tezukaDevHost = MQTT_DEV_HOST || window.location.hostname;
 
@@ -16,12 +16,21 @@ function applyMqtt(prev, path, raw) {
   if (path.startsWith('net/')) {
     return { ...prev, net: { ...prev.net, [path.slice(4)]: raw } };
   }
+  if (path.startsWith('gpio/')) {
+    const pin = path.slice(5);
+    return { ...prev, gpio: { ...prev.gpio, [pin]: raw === '1' } };
+  }
   if (path === 'system/env_count') {
     return { ...prev, envCount: parseInt(raw) };
   }
   if (path.startsWith('system/env/')) {
     const key = path.slice('system/env/'.length);
     if (key) return { ...prev, envVars: { ...prev.envVars, [key]: raw } };
+    return prev;
+  }
+  if (path.startsWith('system/debugiio/')) {
+    const key = path.slice('system/debugiio/'.length);
+    if (key) return { ...prev, debugIio: { ...prev.debugIio, [key]: raw } };
     return prev;
   }
   switch (path) {
@@ -55,6 +64,7 @@ function applyMqtt(prev, path, raw) {
     case 'main/hw_model':       return { ...prev, hwModel: raw };
     case 'main/fw_version':     return { ...prev, fwVersion: raw };
     case 'main/freq_correction':   { const v = parseFloat(raw); return { ...prev, freqCorrection: isNaN(v) ? null : v }; }
+    case 'system/ppb_correction':  { const v = parseFloat(raw); return { ...prev, ppbCorrection: isNaN(v) ? null : v }; }
     case 'main/ensm_mode':         return { ...prev, ensmMode: raw };
     case 'main/rx_path_rates':     return { ...prev, rxPathRates: raw };
     case 'main/tx_path_rates':     return { ...prev, txPathRates: raw };
@@ -119,8 +129,8 @@ function useLiveData(running = true) {
     rxActive: null, txActive: null,
     rxRfinput: null, rxFirEnable: null, loopback: null, rxOverload: false, txOverload: false, rxUnderflow: false, txUnderflow: false, rxBufferSize: null, txBufferSize: null,
     sweepActive: false, sweepFreq: null, span: null,
-    serial: null, hwModel: null, fwVersion: null, freqCorrection: null,
-    caps: {}, net: {}, envVars: {}, envCount: null, systemLog: [],
+    serial: null, hwModel: null, fwVersion: null, freqCorrection: null, ppbCorrection: null,
+    caps: {}, net: {}, gpio: {}, envVars: {}, envCount: null, systemLog: [], debugIio: {},
     gainTableConfig: null,
     kalibrateStatus: '', kalibrateChannels: [], kalibrateResultPpm: null, kalibrateResultPpb: null, kalibrateLog: [],
   }));
@@ -180,7 +190,15 @@ function useLiveData(running = true) {
     }
   }, []);
 
-  return { ...d, publish };
+  const clearEnvVars = useCBD(() => {
+    setD(p => ({ ...p, envVars: {}, envCount: null }));
+  }, []);
+
+  const clearDebugIio = useCBD(() => {
+    setD(p => ({ ...p, debugIio: {} }));
+  }, []);
+
+  return { ...d, publish, clearEnvVars, clearDebugIio };
 }
 
 function fmtUptime(s) {

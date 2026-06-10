@@ -543,6 +543,16 @@ parse_cmd () {
           /usr/bin/mosquitto_pub -i "tezuka_log" -t "state/system/log" -m "$line"
         done ) &
     ;;
+    system/getdebugiio)
+      (
+        while IFS= read -r filepath; do
+          fname=$(basename "$filepath")
+          fval=$(timeout 1 cat "$filepath" 2>/dev/null)
+          /usr/bin/mosquitto_pub -i "tezuka_dbg" \
+            -t "state/system/debugiio/$fname" -m "$fval"
+        done < <(find "${debug_folder}" -maxdepth 1 -type f 2>/dev/null | sort)
+      ) &
+    ;;
     system/getenv)
       if [[ "$val" == "all" ]]; then
         (

@@ -479,6 +479,7 @@ const freqCorrToPpm = (hz) => (hz - TCXO_HZ) / (TCXO_HZ / 1e6);
 function Calibrate({ d }) {
   const [freqCalOn, setFreqCalOn] = useS2(true);
   const [ppm, setPpm] = useS2(0);
+  const [ppmStr, setPpmStr] = useS2('0.00');
   const [curve, setCurve] = useS2(GAIN_CURVE);
   const [gainDirty, setGainDirty] = useS2(false);
   const [dac, setDac] = useS2(DAC_CURVE);
@@ -490,9 +491,25 @@ function Calibrate({ d }) {
   }, [d.gainTableConfig]);
   const [calRun, setCalRun] = useS2(false);
   useE2(() => {
-    if (d.freqCorrection != null)
-      setPpm(parseFloat(freqCorrToPpm(d.freqCorrection).toFixed(2)));
-  }, [d.freqCorrection]);
+    if (d.ppbCorrection != null) {
+      const v = parseFloat((d.ppbCorrection / 1000).toFixed(2));
+      setPpm(v); setPpmStr(String(v));
+    } else if (d.freqCorrection != null) {
+      const v = parseFloat(freqCorrToPpm(d.freqCorrection).toFixed(2));
+      setPpm(v); setPpmStr(String(v));
+    }
+  }, [d.ppbCorrection, d.freqCorrection]);
+
+  const applyPpm = (v) => {
+    const clamped = Math.max(-200, Math.min(200, v));
+    setPpm(clamped); setPpmStr(String(clamped));
+    d.publish('main/freq_correction', ppmToFreqCorr(clamped));
+  };
+  const commitPpmStr = (s) => {
+    const v = parseFloat(s);
+    if (!isNaN(v)) applyPpm(v);
+    else setPpmStr(String(ppm));
+  };
   const fmtMHz = (v) => (v >= 1000 ? (v / 1000).toFixed(2) + "G" : Math.round(v) + "M");
   const setPoint = (i, y) => { setCurve((c) => c.map((p, j) => (j === i ? { ...p, y } : p))); setGainDirty(true); };
   const setDacPoint = (i, y) => setDac((c) => c.map((p, j) => (j === i ? { ...p, y } : p)));
@@ -505,7 +522,8 @@ function Calibrate({ d }) {
     setCalRun(true);
     setFreqCalOn(true);
     setTimeout(() => {
-      setPpm(Math.round((Math.random() * 1.2 - 0.6) * 100) / 100);
+      const v = Math.round((Math.random() * 1.2 - 0.6) * 10) / 10;
+      setPpm(v); setPpmStr(String(v));
       setCalRun(false);
     }, 2600);
   };
@@ -526,10 +544,18 @@ function Calibrate({ d }) {
       <div className="grid-12">
         <Card title="Frequency calibration" sub="Reference oscillator trim" className="span-12"
           right={<Toggle on={freqCalOn} onChange={setFreqCalOn} labels={["OFF", "ON"]} />}>
-          <Field label="Oscillator PPM" hint="−20 to +20 ppm · TCXO offset against reference">
-            <Slider value={ppm} min={-20} max={20} step={0.05}
-              onChange={(v) => { setPpm(v); d.publish('main/freq_correction', ppmToFreqCorr(v)); }}
-              unit=" ppm" fmt={(v) => (v >= 0 ? "+" : "") + v.toFixed(2)} />
+          <Field label="Oscillator PPM" hint="−200 to +200 ppm · TCXO offset against reference">
+            <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+              <div style={{ flex: 1 }}>
+                <Slider value={ppm} min={-200} max={200} step={0.1}
+                  onChange={(v) => { setPpm(v); setPpmStr(v.toFixed(1)); d.publish('main/freq_correction', ppmToFreqCorr(v)); }}
+                  unit=" ppm" fmt={(v) => (v >= 0 ? "+" : "") + v.toFixed(1)} />
+              </div>
+              <TextInput value={ppmStr} suffix="ppm" style={{ width: 90 }}
+                onChange={setPpmStr}
+                onKeyDown={(e) => { if (e.key === 'Enter') commitPpmStr(ppmStr); }}
+                onBlur={() => commitPpmStr(ppmStr)} />
+            </div>
           </Field>
           <div className={`cal-status ${freqCalOn ? "on" : ""}`}>
             <span className="cal-dot" />
@@ -563,6 +589,7 @@ const clockStr = () => new Date().toTimeString().slice(0, 8);
 function Diagnostic({ d }) {
   const [logs, setLogs] = useS2([]);
   const [waiting, setWaiting] = useS2(false);
+  const [debugWaiting, setDebugWaiting] = useS2(false);
   const winRef = React.useRef(null);
   const seenRef = React.useRef(0);
 
@@ -578,6 +605,11 @@ function Diagnostic({ d }) {
     }
   }, [(d.systemLog || []).length]);
 
+  const debugCount = Object.keys(d.debugIio || {}).length;
+  useE2(() => {
+    if (debugCount > 0) setDebugWaiting(false);
+  }, [debugCount]);
+
   const requestLog = () => {
     setWaiting(true);
     d.publish('system/logrequest', '1');
@@ -588,6 +620,15 @@ function Diagnostic({ d }) {
     seenRef.current = (d.systemLog || []).length;
   };
 
+  const requestDebugIio = () => {
+    d.clearDebugIio();
+    setDebugWaiting(true);
+    d.publish('system/getdebugiio', '1');
+  };
+
+  const debugEntries = Object.entries(d.debugIio || {}).sort(([a], [b]) => a.localeCompare(b));
+  const showDebug = debugWaiting || debugEntries.length > 0;
+
   return (
     <div className="page">
       <div className="datv-head">
@@ -595,13 +636,35 @@ function Diagnostic({ d }) {
           <h1>Diagnostic</h1>
           <span className="datv-sub mono">System log · dmesg from device</span>
         </div>
-        <button className="btn primary" onClick={requestLog} disabled={waiting}>
-          <span className={waiting ? "spin" : ""} style={{ display: "inline-flex" }}><Icon name={waiting ? "refresh" : "pulse"} size={16} /></span>
-          {waiting ? "Waiting…" : "Provide log"}
-        </button>
+        <div style={{ display: 'flex', gap: '0.5em' }}>
+          <button className="btn ghost" onClick={requestDebugIio} disabled={debugWaiting}>
+            <span className={debugWaiting ? "spin" : ""} style={{ display: "inline-flex" }}><Icon name={debugWaiting ? "refresh" : "chip"} size={16} /></span>
+            {debugWaiting ? "Loading…" : "Show iio debug"}
+          </button>
+          <button className="btn primary" onClick={requestLog} disabled={waiting}>
+            <span className={waiting ? "spin" : ""} style={{ display: "inline-flex" }}><Icon name={waiting ? "refresh" : "pulse"} size={16} /></span>
+            {waiting ? "Waiting…" : "Provide log"}
+          </button>
+        </div>
       </div>
 
       <div className="grid-12">
+        {showDebug && (
+          <Card title="IIO debug" sub="/sys/kernel/debug/iio" className="span-12" pad={false}
+            right={<button className="btn ghost btn-sm" onClick={() => { d.clearDebugIio(); setDebugWaiting(false); }}>Clear</button>}>
+            <div className="logwin">
+              {debugWaiting && debugEntries.length === 0
+                ? <div className="logline log-empty mono">— fetching iio debug values… —</div>
+                : debugEntries.map(([k, v]) => (
+                    <div key={k} className="logline">
+                      <span className="log-time mono">{k}</span>
+                      <span className="log-msg mono">{v}</span>
+                    </div>
+                  ))
+              }
+            </div>
+          </Card>
+        )}
         <Card title="System log" sub="dmesg output" className="span-12" pad={false}
           right={<button className="btn ghost btn-sm" onClick={clearLogs}>Clear</button>}>
           <div className="logwin" ref={winRef}>
@@ -825,7 +888,7 @@ function Kalibrate({ d }) {
         <Card title="XO correction" className="span-12">
           <div style={{ display: "flex", alignItems: "center", gap: "1.5em" }}>
             <Field label="Current correction">
-              <span className="mono">{d.freqCorrection != null ? freqCorrToPpm(d.freqCorrection).toFixed(2) + ' ppm' : '—'}</span>
+              <span className="mono">{d.ppbCorrection != null ? (d.ppbCorrection / 1000).toFixed(2) + ' ppm' : d.freqCorrection != null ? freqCorrToPpm(d.freqCorrection).toFixed(2) + ' ppm' : '—'}</span>
             </Field>
             {d.kalibrateResultPpb != null && (
               <Field label="Kalibrate result">
@@ -909,6 +972,7 @@ function Persistent({ d }) {
   useE2(() => {
     if (!d.mqtt || requestedRef.current) return;
     requestedRef.current = true;
+    d.clearEnvVars();
     setLoading(true);
     d.publish('system/getenv', 'all');
   }, [d.mqtt]);
@@ -927,6 +991,7 @@ function Persistent({ d }) {
   };
 
   const refresh = () => {
+    d.clearEnvVars();
     setLoading(true);
     setEdits({});
     requestedRef.current = false;
@@ -1031,4 +1096,61 @@ function Persistent({ d }) {
   );
 }
 
-Object.assign(window, { DATV, Versions, Analysis, Network, Transverter, IQTape, SigGen, Calibrate, Diagnostic, Reboot, Operator, Kalibrate, Persistent });
+// ---- GPIO -----------------------------------------------------------------
+function GPIO({ d }) {
+  const gpio = d.gpio || {};
+  const pins = Object.keys(gpio).sort((a, b) => parseInt(a) - parseInt(b));
+
+  const toggle = (pin) => d.publish('gpio/' + pin, gpio[pin] ? '0' : '1');
+
+  return (
+    <div className="page">
+      <div className="grid-12">
+        <Card title="GPIO pins" sub={`gpiochip0 · ${pins.length} pin${pins.length !== 1 ? 's' : ''} reported`} className="span-12">
+          {pins.length === 0 ? (
+            <div className="dim" style={{ padding: '12px 0', fontSize: 13 }}>No GPIO state received yet — waiting for <code>state/gpio/&lt;n&gt;</code> messages.</div>
+          ) : (
+            <div className="gpio-grid">
+              {pins.map((pin) => (
+                <div key={pin} className={`gpio-pin ${gpio[pin] ? "gpio-on" : "gpio-off"}`} onClick={() => toggle(pin)}>
+                  <span className="gpio-num">GPIO {pin}</span>
+                  <span className={`gpio-dot ${gpio[pin] ? "on" : ""}`} />
+                  <span className="gpio-state">{gpio[pin] ? "ON" : "OFF"}</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </Card>
+      </div>
+    </div>
+  );
+}
+
+// ---- Performance ----------------------------------------------------------
+const CPU_SPEEDS = [
+  { v: "667000",  l: "Default — 667 MHz" },
+  { v: "800000",  l: "800 MHz" },
+  { v: "866000",  l: "866 MHz" },
+  { v: "1000000", l: "1000 MHz (1 GHz)" },
+];
+
+function Performance({ d }) {
+  const [speed, setSpeed] = useS2("667000");
+  useE2(() => { if (d.cpuFreq != null) setSpeed(String(d.cpuFreq)); }, [d.cpuFreq]);
+
+  const apply = (v) => { setSpeed(v); d.publish('system/cpu_freq', v); };
+
+  return (
+    <div className="page">
+      <div className="grid-12">
+        <Card title="CPU" sub="ARM Cortex-A9 · Zynq-7020 processing system" className="span-6">
+          <Field label="Overclock" hint="Sets the PS clock — takes effect on next boot">
+            <Select value={speed} onChange={apply} options={CPU_SPEEDS} />
+          </Field>
+        </Card>
+      </div>
+    </div>
+  );
+}
+
+Object.assign(window, { DATV, Versions, Analysis, Network, Transverter, IQTape, SigGen, Calibrate, Diagnostic, Reboot, Operator, Kalibrate, Persistent, Performance, GPIO });

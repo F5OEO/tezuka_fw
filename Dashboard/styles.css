@@ -600,6 +600,24 @@ body {
 .reboot-spin { display: inline-flex; color: var(--accent); }
 .reboot-check { width: 54px; height: 54px; border-radius: 50%; display: grid; place-items: center; color: var(--ok); background: color-mix(in oklab, var(--ok) 16%, transparent); }
 
+/* ---- Horizontal bar gauge ---- */
+.hgauge { display: flex; align-items: center; gap: 6px; min-width: 0; flex: 1; }
+.hgauge-lbl { font-size: 11px; color: var(--dim-2); font-weight: 600; letter-spacing: 0.04em; flex-shrink: 0; }
+.hgauge-track { flex: 1; height: 6px; background: var(--track); border-radius: 3px; overflow: hidden; min-width: 40px; }
+.hgauge-fill { height: 100%; border-radius: 3px; transition: width .5s cubic-bezier(.4,0,.2,1); }
+.hgauge-val { font-size: 11px; color: var(--dim); flex-shrink: 0; }
+
+/* ---- GPIO ---- */
+.gpio-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 10px; padding: 4px 0; }
+.gpio-pin { display: flex; align-items: center; gap: 10px; padding: 10px 14px; border-radius: var(--r-sm); border: 1px solid var(--border-soft); background: var(--inset); cursor: pointer; transition: border-color 0.15s, background 0.15s; user-select: none; }
+.gpio-pin:hover { border-color: var(--accent); }
+.gpio-pin.gpio-on { border-color: color-mix(in oklab, var(--ok) 50%, var(--border-soft)); background: color-mix(in oklab, var(--ok) 8%, var(--inset)); }
+.gpio-num { flex: 1; font-size: 12px; font-weight: 600; color: var(--dim); font-family: "IBM Plex Mono", monospace; }
+.gpio-dot { width: 9px; height: 9px; border-radius: 50%; background: var(--dim-2); flex-shrink: 0; }
+.gpio-dot.on { background: var(--ok); box-shadow: 0 0 6px var(--ok); }
+.gpio-state { font-size: 11px; font-weight: 700; letter-spacing: 0.06em; color: var(--dim-2); flex-shrink: 0; }
+.gpio-pin.gpio-on .gpio-state { color: var(--ok); }
+
 /* ---- Spectrum WebSocket page ---- */
 .sp-page { display: flex; flex-direction: column; gap: var(--gap); }
 .sp-toolbar { display: flex; align-items: flex-end; gap: 20px; flex-wrap: wrap; padding: 14px 18px; background: var(--panel); border: 1px solid var(--border-soft); border-radius: var(--r); }

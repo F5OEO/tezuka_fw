@@ -153,6 +153,7 @@ function Dashboard({ d, ver }) {
                 <Led label="Clipping" alarm={d.rxOverload} />
                 <Led label="Underflow" alarm={d.rxUnderflow} />
                 {d.rxBufferSize != null && <span className="mono" style={{fontSize:'0.75em',opacity:0.7}}>{fmtBytes(d.rxBufferSize)}</span>}
+                {d.rxDmaTransfer != null && d.rxBufferSize != null && <HBarGauge value={d.rxDmaTransfer} max={500} color="var(--accent)" label="DMA" fmt={fmtBytes} />}
               </div>
               <div className="bigstat-grid">
                 <BigStat label="Input" value={RX[input]} options color={d.rxDmaTransfer > 0 ? "var(--accent)" : undefined} onCycle={() => { const next = (input + 1) % 2; setInput(next); d.publish("rx/rfinput", next + 1); }} />
@@ -170,6 +171,7 @@ function Dashboard({ d, ver }) {
                 <Led label="Clipping" alarm={d.txOverload} />
                 <Led label="Underflow" alarm={d.txUnderflow} />
                 {d.txBufferSize != null && <span className="mono" style={{fontSize:'0.75em',opacity:0.7}}>{fmtBytes(d.txBufferSize)}</span>}
+                {d.txDmaTransfer != null && d.txBufferSize != null && <HBarGauge value={d.txDmaTransfer} max={500} color="var(--c-pink)" label="DMA" fmt={fmtBytes} />}
               </div>
               <div className="bigstat-grid">
                 <BigStat label="Output" value={TX[output]} options color={d.txDmaTransfer > 0 ? "var(--c-pink)" : undefined} onCycle={() => { const next = (output + 1) % 2; setOutput(next); d.publish("tx/rfinput", next + 1); }} />

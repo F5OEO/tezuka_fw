@@ -291,4 +291,20 @@ function XYChart({ points, height = 280, color = "var(--accent)", xTicks = 6, yT
   );
 }
 
-Object.assign(window, { Donut, BarGauge, RadialGauge, DialGauge, StreamChart, Sparkline, XYChart });
+// ---- Horizontal bar gauge -------------------------------------------------
+function HBarGauge({ value, max, label, color, fmt }) {
+  const pct = (max > 0 ? Math.max(0, Math.min(1, value / max)) : 0) * 100;
+  const accent = color || "var(--accent)";
+  const display = fmt ? fmt(value) : String(value);
+  return (
+    <div className="hgauge">
+      {label && <span className="hgauge-lbl">{label}</span>}
+      <div className="hgauge-track">
+        <div className="hgauge-fill" style={{ width: `${pct}%`, background: accent }} />
+      </div>
+      <span className="hgauge-val mono">{display}</span>
+    </div>
+  );
+}
+
+Object.assign(window, { Donut, BarGauge, RadialGauge, DialGauge, StreamChart, Sparkline, XYChart, HBarGauge });
