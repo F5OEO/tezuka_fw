@@ -543,6 +543,7 @@ function SpectrumPage({ d }) {
   const binsRef    = useSpR(null);   // normal-mode dB bins (Float32Array)
   const sweepBuf   = useSpR(null);   // sweep stitching buffer (Float32Array, 8× frame length)
   const sweepLenR  = useSpR(0);
+  const sweepMaskR = useSpR(0);     // bitmask of steps received since last buffer init
   const dirtyRef    = useSpR(true);
   const refDbRef    = useSpR(sp.refDb  ?? 130);
   const rangeRef    = useSpR(sp.range  ?? SP_ROWS * 10);
@@ -565,6 +566,7 @@ function SpectrumPage({ d }) {
   const [rxInput,  setRxInput]  = useSpS(() => sp.rxInput  ?? (d.rxRfinput === 2 ? 'rx2' : 'rx1'));
   const [wsState,  setWsState]  = useSpS('disconnected');
   const [fps,      setFps]      = useSpS(0);
+  const [vfw,      setVfw]      = useSpS(40);
   const [mkr,      setMkr]      = useSpS(null);   // {freq, db} when cursor is over canvas
 
   // Keep refs current for RAF loop (avoids stale closures) + persist to session store
@@ -669,7 +671,6 @@ function SpectrumPage({ d }) {
         if (f.length < 2) return;
 
         // f[0] is always a step index (structural, even outside sweep mode — firmware bug)
-        // Use d.sweepActive (isSweepR) to decide how to interpret it
         const step = Math.round(f[0]) & 7;
         const len  = f.length - 1;
 
@@ -681,10 +682,12 @@ function SpectrumPage({ d }) {
           if (len !== sweepLenR.current || !sweepBuf.current) {
             sweepLenR.current = len;
             sweepBuf.current  = new Float32Array(usable * 8);
+            sweepMaskR.current = 0;
           }
           const off = step * usable;
           for (let i = 0; i < usable; i++) sweepBuf.current[off + i] = toDB(f[i + 1 + edge]);
-          if (step === 7) dirtyRef.current = true;
+          sweepMaskR.current |= (1 << step);
+          if (step === 7 && sweepMaskR.current === 0xFF) dirtyRef.current = true;
         } else {
           // Normal mode: f[1..] are the FFT bins; f[0] is discarded
           const db = new Float32Array(len);
@@ -716,7 +719,7 @@ function SpectrumPage({ d }) {
     const factor = e.deltaY > 0 ? 1.25 : 0.8;
 
     const s  = spanHzRef.current;
-    const ns = Math.max(200e3, Math.min(344e6, s * factor));
+    const ns = Math.max(80e3, Math.min(344e6, s * factor));
 
     // Keep the frequency under the cursor fixed (pivot zoom)
     const pivotFreq = centerHzRef.current + (px - 0.5) * s;
@@ -825,6 +828,7 @@ function SpectrumPage({ d }) {
   const pubGain     = (v) => { setGain(v);    d.publish('rx/gain',    v); };
   const pubInput    = (v) => { setRxInput(v); d.publish('rx/rfinput', v === 'rx2' ? 2 : 1); };
   const onCenterChg = useSpCb((kHz) => { const hz = kHz * 1000; setCenterHz(hz); d.publish(d.sweepActive ? 'rx/sweep/frequency' : 'rx/frequency', hz); }, [d]);
+  const onVfwChg    = useSpCb((v) => { setVfw(v); d.publish('spectro/fps', Math.round(1000 / v)); }, [d]);
   const onSpanChg   = useSpCb((kHz) => {
     const hz = kHz * 1000;
     setSpanHz(hz);
@@ -876,9 +880,15 @@ function SpectrumPage({ d }) {
               </div>
             </div>
             <div className="hp-fld">
+              <span className="hp-pfx">VFW</span>
+              <div className="hp-tuner">
+                <FreqTuner value={vfw} digits={4} min={20} max={1000} unit="ms" onChange={onVfwChg} />
+              </div>
+            </div>
+            <div className="hp-fld">
               <span className="hp-pfx">SPAN</span>
               <div className="hp-tuner">
-                <FreqTuner value={Math.round(spanHz / 1000)} digits={6} min={200} max={344000} unit="MHz" onChange={onSpanChg} />
+                <FreqTuner value={Math.round(spanHz / 1000)} digits={6} min={80} max={344000} unit="MHz" onChange={onSpanChg} />
               </div>
             </div>
           </div>

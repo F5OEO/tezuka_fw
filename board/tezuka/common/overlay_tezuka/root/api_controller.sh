@@ -494,14 +494,18 @@ parse_cmd () {
         publish_force "rx/sweep/engaged"   "0"
         do_sweep_stop
         if [ "$SPAN" -lt 2400000 ]; then
-          local DEC=$(( (2400000 + SPAN - 1) / SPAN ))
+          local DEC=$(( (2400000 ) / SPAN ))
           [ "$DEC" -lt 4 ] && DEC=4
           local SR=$(( DEC * SPAN ))
           echo "$SR" > "${folder}in_voltage_sampling_frequency" 2>/dev/null
           echo "$SPAN" > "${folder}in_voltage_rf_bandwidth" 2>/dev/null
           publish_force "rx/sampling"   "$(read_file "${folder}in_voltage_sampling_frequency")"
           publish_force "rx/bandwidth"  "$(read_file "${folder}in_voltage_rf_bandwidth")"
-          ddc_design "$DEC" 50
+          if [ "$DEC" -lt 20 ]; then
+            ddc_design "$DEC" 65
+          else
+            ddc_design "$DEC" 45
+          fi
           spectro_input "DDC"
         else
           spectro_input "AD9361"  
@@ -513,10 +517,13 @@ parse_cmd () {
       fi
       publish_force "rx/span"       "$SPAN"
       publish_force "rx/sweep/span" "$SPAN"
-      if [ "$SPAN" -gt "43000000" ]; then
-        spectro_fps 80
-      else
-        spectro_fps 25
+      local cur_fps; cur_fps=$(cat /tmp/spectro_fps 2>/dev/null)
+      if [ -n "$cur_fps" ]; then
+        if [ "$(cat /tmp/sweep_on 2>/dev/null)" = "1" ]; then
+          spectro_fps $(( cur_fps * 8 ))
+        else
+          spectro_fps "$cur_fps"
+        fi
       fi
     ;;
 
@@ -561,6 +568,7 @@ parse_cmd () {
     ;;
 
     spectro/fps)
+      echo "$val" > /tmp/spectro_fps
       spectro_fps "$val"
       publish_force "spectro/fps" "$val"
     ;;
