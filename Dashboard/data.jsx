@@ -96,6 +96,8 @@ function applyMqtt(prev, path, raw) {
     case 'rx/dma_transfer':  return { ...prev, rxDmaTransfer: parseInt(raw) };
     case 'usb/rx_rate':      return { ...prev, usbRxRate: parseInt(raw) };
     case 'usb/tx_rate':      return { ...prev, usbTxRate: parseInt(raw) };
+    case 'system/overclock':     return { ...prev, overclock: raw };
+    case 'system/overclock_cap': try { return { ...prev, overclockCap: JSON.parse(raw) }; } catch { return prev; }
     case 'system/log':                  return { ...prev, systemLog: [...prev.systemLog, raw] };
     case 'system/kalibrate/status':     return { ...prev, kalibrateStatus: raw };
     case 'main/gain_table_config':      try { return { ...prev, gainTableConfig: JSON.parse(raw) }; } catch { return prev; }
@@ -131,6 +133,7 @@ function useLiveData(running = true) {
     sweepActive: false, sweepFreq: null, span: null,
     serial: null, hwModel: null, fwVersion: null, freqCorrection: null, ppbCorrection: null,
     caps: {}, net: {}, gpio: {}, envVars: {}, envCount: null, systemLog: [], debugIio: {},
+    overclock: null, overclockCap: [],
     gainTableConfig: null,
     kalibrateStatus: '', kalibrateChannels: [], kalibrateResultPpm: null, kalibrateResultPpb: null, kalibrateLog: [],
   }));

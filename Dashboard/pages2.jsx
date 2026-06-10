@@ -1115,25 +1115,29 @@ function GPIO({ d }) {
 }
 
 // ---- Performance ----------------------------------------------------------
-const CPU_SPEEDS = [
-  { v: "667000",  l: "Default — 667 MHz" },
-  { v: "800000",  l: "800 MHz" },
-  { v: "866000",  l: "866 MHz" },
-  { v: "1000000", l: "1000 MHz (1 GHz)" },
-];
-
 function Performance({ d }) {
-  const [speed, setSpeed] = useS2("667000");
-  useE2(() => { if (d.cpuFreq != null) setSpeed(String(d.cpuFreq)); }, [d.cpuFreq]);
+  const requestedRef = React.useRef(false);
 
-  const apply = (v) => { setSpeed(v); d.publish('system/cpu_freq', v); };
+  useE2(() => {
+    if (!d.mqtt || requestedRef.current) return;
+    requestedRef.current = true;
+    d.publish('system/overclock_cap', '1');
+  }, [d.mqtt]);
+
+  const caps = d.overclockCap || [];
+  const options = caps.length
+    ? caps.map(f => ({ v: f, l: f }))
+    : [{ v: '', l: d.mqtt ? 'No profiles found' : 'Loading…' }];
 
   return (
     <div className="page">
       <div className="grid-12">
         <Card title="CPU" sub="ARM Cortex-A9 · Zynq-7020 processing system" className="span-6">
-          <Field label="Overclock" hint="Sets the PS clock — takes effect on next boot">
-            <Select value={speed} onChange={apply} options={CPU_SPEEDS} />
+          <Field label="Overclock profile" hint="/boot/overclock · takes effect on next boot">
+            <Select
+              value={d.overclock || ''}
+              onChange={(v) => { if (v) d.publish('system/overclock', v); }}
+              options={options} />
           </Field>
         </Card>
       </div>

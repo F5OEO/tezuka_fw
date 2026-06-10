@@ -184,6 +184,9 @@ dump_data () {
   for K in "${!VMAP[@]}"; do publish "${VMAP[$K]}" "$(read_file "$K")"; done
   for K in "${!cVMAP[@]}"; do publish "${cVMAP[$K]}" "$(read_file "$K")"; done
 
+  local _oc; _oc=$(fw_printenv overclock_profile 2>/dev/null | sed 's/overclock_profile=//')
+  [ -n "$_oc" ] && publish "system/overclock" "$_oc"
+
   publish "main/serial"            "$(read_file /etc/serial)"
   publish "main/hw_model"          "$(grep 'hw_model='          /etc/libiio.ini | sed 's,hw_model=,,')"
   publish "main/fw_version"        "$(grep 'fw_version='        /etc/libiio.ini | sed 's,fw_version=,,')"
@@ -542,6 +545,21 @@ parse_cmd () {
       ( dmesg 2>/dev/null | while IFS= read -r line; do
           /usr/bin/mosquitto_pub -i "tezuka_log" -t "state/system/log" -m "$line"
         done ) &
+    ;;
+    system/overclock_cap)
+      (
+        profiles=()
+        while IFS= read -r f; do
+          profiles+=("\"$(basename "$f")\"")
+        done < <(find /boot/overclock -maxdepth 1 -type f 2>/dev/null | sort)
+        json="[$(IFS=,; echo "${profiles[*]}")]"
+        /usr/bin/mosquitto_pub -r -i "tezuka_oc" -t "state/system/overclock_cap" -m "$json"
+      ) &
+    ;;
+    system/overclock)
+      [[ "$val" =~ ^[a-zA-Z0-9_.+-]+$ ]] || return
+      ( fw_setenv overclock_profile "$val" 2>/dev/null
+        /usr/bin/mosquitto_pub -r -i "tezuka_oc" -t "state/system/overclock" -m "$val" ) &
     ;;
     system/getdebugiio)
       (
