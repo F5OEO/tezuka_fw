@@ -898,7 +898,7 @@ function Kalibrate({ d }) {
             {d.kalibrateResultPpb != null && status === 'done' && (
               <button className="btn primary btn-sm" style={{ marginLeft: "auto" }}
                 onClick={() => {
-                  const hz = ppmToFreqCorr(d.kalibrateResultPpb / 1000);
+                  const hz = ppmToFreqCorr(-d.kalibrateResultPpb / 1000);
                   d.publish('main/freq_correction', String(hz));
                 }}>
                 Apply to XO
