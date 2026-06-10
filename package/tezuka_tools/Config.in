@@ -26,6 +26,7 @@ select BR2_PACKAGE_BASH
 #select  BR2_PACKAGE_GPSD
 #select BR2_PACKAGE_GPSD_UBX
 select BR2_PACKAGE_IPTABLES
+select BR2_PACKAGE_KALIBRATE
 	help
 	  "Tezuka common tools"
 
