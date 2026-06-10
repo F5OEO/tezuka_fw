@@ -425,6 +425,34 @@ spectro_mode () {
   ) &
 }
 
+ddc_design () {
+  (
+    local http_code
+    http_code=$(curl -s -o /dev/null -w "%{http_code}" -X PUT http://localhost/api/ddc/design \
+      -H "Content-Type: application/json" \
+      -d "{\"passband_ripple\": 0.01, \"stopband_attenuation_db\": $2, \"decimation\": $1, \"stopband_one_over_f\": true, \"transition_bandwidth\": 0.05, \"frequency\": 0}" 2>/dev/null)
+    if [ "${http_code:-0}" -ge 200 ] && [ "${http_code:-0}" -lt 300 ]; then
+      publish_force "ddc/design" "$1/$2"
+    else
+      publish_force "ddc/design" "error:${http_code:-unreachable}"
+    fi
+  ) &
+}
+
+spectro_input () {
+  (
+    local http_code
+    http_code=$(curl -s -o /dev/null -w "%{http_code}" -X PATCH http://localhost/api/spectrometer \
+      -H "Content-Type: application/json" \
+      -d "{\"input\": \"$1\"}" 2>/dev/null)
+    if [ "${http_code:-0}" -ge 200 ] && [ "${http_code:-0}" -lt 300 ]; then
+      publish_force "spectro/input" "$1"
+    else
+      publish_force "spectro/input" "error:${http_code:-unreachable}"
+    fi
+  ) &
+}
+
 # ============================================================
 #  COMMAND PARSER
 # ============================================================
@@ -455,6 +483,7 @@ parse_cmd () {
 
       # Threshold: 43 MHz = 61 MHz × 0.70 — max usable single-band span with 15% edge trim
       if [ "$SPAN" -gt "43000000" ]; then
+        spectro_input "AD9361"
         echo "1" > /tmp/sweep_on
         publish_force "rx/sweep/activate"  "1"
         publish_force "rx/sweep/engaged"   "1"
@@ -464,10 +493,23 @@ parse_cmd () {
         publish_force "rx/sweep/activate"  "0"
         publish_force "rx/sweep/engaged"   "0"
         do_sweep_stop
-        echo "$SPAN" > "${folder}in_voltage_sampling_frequency" 2>/dev/null
-        echo "$SPAN" > "${folder}in_voltage_rf_bandwidth" 2>/dev/null
-        publish_force "rx/sampling"   "$(read_file "${folder}in_voltage_sampling_frequency")"
-        publish_force "rx/bandwidth"  "$(read_file "${folder}in_voltage_rf_bandwidth")"
+        if [ "$SPAN" -lt 2400000 ]; then
+          local DEC=$(( (2400000 + SPAN - 1) / SPAN ))
+          [ "$DEC" -lt 4 ] && DEC=4
+          local SR=$(( DEC * SPAN ))
+          echo "$SR" > "${folder}in_voltage_sampling_frequency" 2>/dev/null
+          echo "$SPAN" > "${folder}in_voltage_rf_bandwidth" 2>/dev/null
+          publish_force "rx/sampling"   "$(read_file "${folder}in_voltage_sampling_frequency")"
+          publish_force "rx/bandwidth"  "$(read_file "${folder}in_voltage_rf_bandwidth")"
+          ddc_design "$DEC" 50
+          spectro_input "DDC"
+        else
+          spectro_input "AD9361"  
+          echo "$SPAN" > "${folder}in_voltage_sampling_frequency" 2>/dev/null
+          echo "$SPAN" > "${folder}in_voltage_rf_bandwidth" 2>/dev/null
+          publish_force "rx/sampling"   "$(read_file "${folder}in_voltage_sampling_frequency")"
+          publish_force "rx/bandwidth"  "$(read_file "${folder}in_voltage_rf_bandwidth")"
+        fi
       fi
       publish_force "rx/span"       "$SPAN"
       publish_force "rx/sweep/span" "$SPAN"
@@ -526,6 +568,14 @@ parse_cmd () {
     spectro/mode)
       spectro_mode "$val"
       publish_force "spectro/mode" "$val"
+    ;;
+
+    spectro/input)
+      spectro_input "$val"
+    ;;
+
+    ddc/design)
+      ddc_design $(echo "$val" | cut -d'/' -f1) $(echo "$val" | cut -d'/' -f2)
     ;;
 
     rx/loopback)
