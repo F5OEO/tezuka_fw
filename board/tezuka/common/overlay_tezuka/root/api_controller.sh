@@ -184,6 +184,8 @@ dump_data () {
   for K in "${!VMAP[@]}"; do publish "${VMAP[$K]}" "$(read_file "$K")"; done
   for K in "${!cVMAP[@]}"; do publish "${cVMAP[$K]}" "$(read_file "$K")"; done
 
+  publish "system/xo_correction" "$(read_file "${folder}xo_correction")"
+
   local _oc; _oc=$(fw_printenv overclock_profile 2>/dev/null | sed 's/overclock_profile=//')
   [ -n "$_oc" ] && publish "system/overclock" "$_oc"
 
@@ -464,6 +466,7 @@ parse_cmd () {
   if [ "${rVMAP[$cmd]}" ]; then
     echo "${val}" > "${rVMAP[$cmd]}"
     publish_force "$cmd" "$(read_file "${rVMAP[$cmd]}")"
+    [ "$cmd" = "main/freq_correction" ] && publish_force "system/xo_correction" "$(read_file "${folder}xo_correction")"
   else
     case $cmd in
     rx/rfinput)          /root/switch_rfinput.sh "rx${val}" & ;;
@@ -715,6 +718,7 @@ parse_cmd () {
           echo "$new_xo" > "${folder}xo_correction" 2>/dev/null
           actual_xo=$(<"${folder}xo_correction" 2>/dev/null)
           /usr/bin/mosquitto_pub -r -i "$KID" -t "state/main/freq_correction" -m "${actual_xo:-$new_xo}"
+          /usr/bin/mosquitto_pub -r -i "$KID" -t "state/system/xo_correction" -m "${actual_xo:-$new_xo}"
           kpub_r "result_ppm" "$ppm"
           kpub_r "result_ppb" "$ppb"
           kpub_r "status" "done"

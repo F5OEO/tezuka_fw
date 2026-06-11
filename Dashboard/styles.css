@@ -620,6 +620,7 @@ body {
 
 /* ---- Spectrum WebSocket page ---- */
 .sp-page { display: flex; flex-direction: column; gap: var(--gap); }
+.sp-page:fullscreen { background: #0a0a0a; padding: var(--gap); justify-content: center; }
 .sp-toolbar { display: flex; align-items: flex-end; gap: 20px; flex-wrap: wrap; padding: 14px 18px; background: var(--panel); border: 1px solid var(--border-soft); border-radius: var(--r); }
 .sp-toolbar .field { margin: 0; min-width: 160px; flex: 1; }
 .sp-toolbar .slider { min-width: 80px; }

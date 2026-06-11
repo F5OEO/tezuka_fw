@@ -535,6 +535,12 @@ function spDrawCursor(ctx, W, H, mp, bins, centerHz, spanHz, refDb, range) {
 // Spectrum UI state — persists across route navigation within the session
 if (!window._sp) window._sp = {};
 
+const NICE_SPANS = [50e3,100e3,250e3,500e3,1e6,2.5e6,5e6,10e6,20e6,40e6,100e6,150e6,300e6];
+const snapSpan  = (hz) => NICE_SPANS.reduce((b, v) => Math.abs(v - hz) < Math.abs(b - hz) ? v : b);
+const stepSpan  = (s, out) => out
+  ? (NICE_SPANS.find(v => v > s)    ?? NICE_SPANS[NICE_SPANS.length - 1])
+  : ([...NICE_SPANS].reverse().find(v => v < s) ?? NICE_SPANS[0]);
+
 function SpectrumPage({ d }) {
   const sp = window._sp;
   const canvasRef  = useSpR(null);
@@ -554,9 +560,11 @@ function SpectrumPage({ d }) {
   const wheelPubTimerRef  = useSpR(0);  // last MQTT publish timestamp during wheel zoom
   const wheelDebounceRef  = useSpR(0);  // setTimeout id for post-wheel flush
   const spanPubTimerRef   = useSpR(0);  // last MQTT publish timestamp for span tuner
+  const spanThrottleRef   = useSpR(0);  // 500 ms gate for rx/span publishes
   const spanDebounceRef   = useSpR(0);  // setTimeout id for post-span-change flush
   const centerHzRef = useSpR(sp.centerHz ?? (d.rxFreq ?? 437e6));
-  const spanHzRef   = useSpR(sp.spanHz   ?? (d.span ?? d.rxSampling ?? 2.4e6));
+  const spanHzRef      = useSpR(sp.spanHz   ?? (d.span ?? d.rxSampling ?? 2.4e6));
+  const spanDefaultSet = useSpR(false);
 
   const [refDb,    setRefDb]    = useSpS(() => sp.refDb    ?? 130);
   const [range,    setRange]    = useSpS(() => sp.range    ?? SP_ROWS * 10);
@@ -568,6 +576,9 @@ function SpectrumPage({ d }) {
   const [fps,      setFps]      = useSpS(0);
   const [vfw,      setVfw]      = useSpS(40);
   const [mkr,      setMkr]      = useSpS(null);   // {freq, db} when cursor is over canvas
+  const [clipBlink,   setClipBlink]   = useSpS(false);
+  const [isFullscreen, setIsFullscreen] = useSpS(false);
+  const spPageRef = useSpR(null);
 
   // Keep refs current for RAF loop (avoids stale closures) + persist to session store
   useSpE(() => { refDbRef.current = refDb;  dirtyRef.current = true; sp.refDb    = refDb;    }, [refDb]);
@@ -582,7 +593,16 @@ function SpectrumPage({ d }) {
   useSpE(() => { if (d.rxFreq    != null) setCenterHz(d.rxFreq); }, [d.rxFreq]);
   useSpE(() => {
     const s = d.span ?? d.rxSampling;
-    if (s != null) setSpanHz(s);
+    if (s != null) { spanDefaultSet.current = true; setSpanHz(s); return; }
+    if (spanDefaultSet.current) return;
+    const t = setTimeout(() => {
+      if (!spanDefaultSet.current) {
+        spanDefaultSet.current = true;
+        setSpanHz(10e6);
+        d.publish('rx/span', 10000000);
+      }
+    }, 500);
+    return () => clearTimeout(t);
   }, [d.span, d.rxSampling]);
   useSpE(() => {
     if (d.rxRfinput != null) setRxInput(d.rxRfinput === 2 ? 'rx2' : 'rx1');
@@ -591,6 +611,17 @@ function SpectrumPage({ d }) {
     isSweepR.current = !!d.sweepActive;
     if (!d.sweepActive) { sweepBuf.current = null; sweepLenR.current = 0; }
   }, [d.sweepActive]);
+  useSpE(() => { d.publish('rx/gain_mode', 'manual'); }, []);
+  useSpE(() => {
+    const handler = () => setIsFullscreen(!!document.fullscreenElement);
+    document.addEventListener('fullscreenchange', handler);
+    return () => document.removeEventListener('fullscreenchange', handler);
+  }, []);
+  useSpE(() => {
+    if (!d.rxOverload) { setClipBlink(false); return; }
+    const t = setInterval(() => setClipBlink(v => !v), 500);
+    return () => clearInterval(t);
+  }, [d.rxOverload]);
 
   // Canvas RAF render loop
   useSpE(() => {
@@ -619,6 +650,12 @@ function SpectrumPage({ d }) {
         spDraw(ctx, canvas.width, canvas.height, bins, refDbRef.current, rangeRef.current);
         spDrawCursor(ctx, canvas.width, canvas.height, mousePosRef.current, bins,
                      centerHzRef.current, spanHzRef.current, refDbRef.current, rangeRef.current);
+        // Keep header MKR in sync with every new frame
+        const mp = mousePosRef.current;
+        if (mp && bins && bins.length > 0) {
+          const binI = Math.max(0, Math.min(bins.length - 1, Math.round(mp.px * (bins.length - 1))));
+          setMkr({ freq: centerHzRef.current + (mp.px - 0.5) * spanHzRef.current, db: bins[binI] });
+        }
         dirtyRef.current = false;
         fCount++;
         if (ts - fTimer >= 1000) { setFps(fCount); fCount = 0; fTimer = ts; }
@@ -716,10 +753,9 @@ function SpectrumPage({ d }) {
 
     const rect   = canvas.getBoundingClientRect();
     const px     = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
-    const factor = e.deltaY > 0 ? 1.25 : 0.8;
 
     const s  = spanHzRef.current;
-    const ns = Math.max(80e3, Math.min(344e6, s * factor));
+    const ns = stepSpan(s, e.deltaY > 0);
 
     // Keep the frequency under the cursor fixed (pivot zoom)
     const pivotFreq = centerHzRef.current + (px - 0.5) * s;
@@ -728,11 +764,14 @@ function SpectrumPage({ d }) {
 
     setCenterHz(nc);
     setSpanHz(ns);
-    // Throttle mid-spin publishes to 200 ms
+    // Throttle mid-spin publishes: freq 200 ms, span 500 ms
     const now = performance.now();
     if (now - wheelPubTimerRef.current >= 200) {
       wheelPubTimerRef.current = now;
       d.publish(d.sweepActive ? 'rx/sweep/frequency' : 'rx/frequency', Math.round(nc));
+    }
+    if (now - spanThrottleRef.current >= 500) {
+      spanThrottleRef.current = now;
       d.publish('rx/span', Math.round(ns));
     }
     // Debounce: flush final values 220 ms after last wheel event
@@ -770,6 +809,110 @@ function SpectrumPage({ d }) {
     return () => window.removeEventListener('mouseup', onUp);
   }, [d]);
 
+  // Touch support: single-finger pan + two-finger pinch zoom
+  useSpE(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+
+    let lastDist = null;
+
+    const pdist = (t) => Math.hypot(t[0].clientX - t[1].clientX, t[0].clientY - t[1].clientY);
+
+    const onTouchStart = (e) => {
+      e.preventDefault();
+      if (e.touches.length === 1) {
+        const t = e.touches[0];
+        mouseDragRef.current = {
+          startX: t.clientX, startY: t.clientY,
+          startRefDb: refDbRef.current, startCenterHz: centerHzRef.current,
+        };
+      } else if (e.touches.length === 2) {
+        mouseDragRef.current = null;
+        lastDist = pdist(e.touches);
+      }
+    };
+
+    const onTouchMove = (e) => {
+      e.preventDefault();
+      if (e.touches.length === 2) {
+        const d2 = pdist(e.touches);
+        if (lastDist) {
+          const factor = lastDist / d2;
+          const s  = spanHzRef.current;
+          const ns = snapSpan(Math.max(80e3, Math.min(300e6, s * factor)));
+          const mx   = (e.touches[0].clientX + e.touches[1].clientX) / 2;
+          const rect = canvas.getBoundingClientRect();
+          const px   = Math.max(0, Math.min(1, (mx - rect.left) / rect.width));
+          const pivotFreq = centerHzRef.current + (px - 0.5) * s;
+          const nc = Math.max(47e6 + ns / 2, Math.min(6e9 - ns / 2, pivotFreq - (px - 0.5) * ns));
+          setCenterHz(nc);
+          setSpanHz(ns);
+          const now = performance.now();
+          if (now - wheelPubTimerRef.current >= 200) {
+            wheelPubTimerRef.current = now;
+            d.publish(d.sweepActive ? 'rx/sweep/frequency' : 'rx/frequency', Math.round(nc));
+          }
+          if (now - spanThrottleRef.current >= 500) {
+            spanThrottleRef.current = now;
+            d.publish('rx/span', Math.round(ns));
+          }
+          clearTimeout(wheelDebounceRef.current);
+          wheelDebounceRef.current = setTimeout(() => {
+            d.publish('rx/span', Math.round(spanHzRef.current));
+            d.publish(d.sweepActive ? 'rx/sweep/frequency' : 'rx/frequency', Math.round(centerHzRef.current));
+          }, 220);
+        }
+        lastDist = d2;
+      } else if (e.touches.length === 1 && mouseDragRef.current) {
+        const t = e.touches[0];
+        const W = canvas.offsetWidth, H = canvas.offsetHeight;
+        const rect = canvas.getBoundingClientRect();
+        mousePosRef.current = { px: Math.max(0, Math.min(1, (t.clientX - rect.left) / rect.width)) };
+        dirtyRef.current = true;
+        const dx = t.clientX - mouseDragRef.current.startX;
+        const dy = t.clientY - mouseDragRef.current.startY;
+        const steps = Math.round((dx / W) * 10);
+        const step = spanHzRef.current / 10;
+        const nc = Math.abs(dx) >= W * 0.05
+          ? mouseDragRef.current.startCenterHz + steps * step
+          : mouseDragRef.current.startCenterHz;
+        setCenterHz(nc);
+        setRefDb(mouseDragRef.current.startRefDb + (dy / H) * rangeRef.current);
+        const now = performance.now();
+        if (now - wheelPubTimerRef.current >= 200) {
+          wheelPubTimerRef.current = now;
+          d.publish(d.sweepActive ? 'rx/sweep/frequency' : 'rx/frequency', Math.round(nc));
+        }
+        clearTimeout(wheelDebounceRef.current);
+        wheelDebounceRef.current = setTimeout(() => {
+          d.publish(d.sweepActive ? 'rx/sweep/frequency' : 'rx/frequency', Math.round(centerHzRef.current));
+        }, 220);
+      }
+    };
+
+    const onTouchEnd = (e) => {
+      if (e.touches.length < 2) lastDist = null;
+      if (e.touches.length === 0 && mouseDragRef.current) {
+        d.publish(d.sweepActive ? 'rx/sweep/frequency' : 'rx/frequency',
+                  Math.round(centerHzRef.current));
+        mouseDragRef.current = null;
+        dragPubTimerRef.current = 0;
+        mousePosRef.current = null;
+        setMkr(null);
+        dirtyRef.current = true;
+      }
+    };
+
+    canvas.addEventListener('touchstart', onTouchStart, { passive: false });
+    canvas.addEventListener('touchmove',  onTouchMove,  { passive: false });
+    canvas.addEventListener('touchend',   onTouchEnd,   { passive: false });
+    return () => {
+      canvas.removeEventListener('touchstart', onTouchStart);
+      canvas.removeEventListener('touchmove',  onTouchMove);
+      canvas.removeEventListener('touchend',   onTouchEnd);
+    };
+  }, [d]);
+
   const onCanvasMouseDown = useSpCb((e) => {
     if (e.button !== 0) return;
     mouseDragRef.current = {
@@ -788,8 +931,11 @@ function SpectrumPage({ d }) {
       const W = canvas.offsetWidth, H = canvas.offsetHeight;
       const dx = e.clientX - mouseDragRef.current.startX;
       const dy = e.clientY - mouseDragRef.current.startY;
-      // Horizontal: drag right pulls spectrum right → center decreases
-      const nc = mouseDragRef.current.startCenterHz - (dx / W) * spanHzRef.current;
+      const steps = Math.round((dx / W) * 10);
+      const step = spanHzRef.current / 10;
+      const nc = Math.abs(dx) >= W * 0.05
+        ? mouseDragRef.current.startCenterHz - steps * step
+        : mouseDragRef.current.startCenterHz;
       setCenterHz(nc);
       const now = performance.now();
       if (now - dragPubTimerRef.current >= 200) {
@@ -826,15 +972,24 @@ function SpectrumPage({ d }) {
   const wsTone  = wsState === 'connected' ? 'ok' : wsState === 'connecting' ? 'info' : 'warn';
 
   const pubGain     = (v) => { setGain(v);    d.publish('rx/gain',    v); };
-  const pubInput    = (v) => { setRxInput(v); d.publish('rx/rfinput', v === 'rx2' ? 2 : 1); };
+  const pubInput    = (v) => {
+    setRxInput(v);
+    d.publish('rx/rfinput', v === 'rx2' ? 2 : 1);
+    const savedGain = gain;
+    d.publish('rx/gain_mode', 'fast_attack');
+    setTimeout(() => {
+      d.publish('rx/gain_mode', 'manual');
+      d.publish('rx/gain', savedGain);
+    }, 100);
+  };
   const onCenterChg = useSpCb((kHz) => { const hz = kHz * 1000; setCenterHz(hz); d.publish(d.sweepActive ? 'rx/sweep/frequency' : 'rx/frequency', hz); }, [d]);
   const onVfwChg    = useSpCb((v) => { setVfw(v); d.publish('spectro/fps', Math.round(1000 / v)); }, [d]);
   const onSpanChg   = useSpCb((kHz) => {
     const hz = kHz * 1000;
     setSpanHz(hz);
     const now = performance.now();
-    if (now - spanPubTimerRef.current >= 200) {
-      spanPubTimerRef.current = now;
+    if (now - spanThrottleRef.current >= 500) {
+      spanThrottleRef.current = now;
       d.publish('rx/span', hz);
     }
     clearTimeout(spanDebounceRef.current);
@@ -842,7 +997,7 @@ function SpectrumPage({ d }) {
   }, [d]);
 
   return (
-    <div className="sp-page">
+    <div className="sp-page" ref={spPageRef}>
       <div className="hp-crt">
         <div className="hp-rows">
           <div className="hp-row">
@@ -850,18 +1005,36 @@ function SpectrumPage({ d }) {
               <span className="hp-pfx">REF</span>
               <DbTuner value={Math.round(refDb)} digits={3} unit="dBm" onChange={setRefDb} />
             </span>
-            <CrtField pfx="MKR" val={fmtMHz(mkr ? mkr.freq : centerHz)} sfx="MHz" readOnly />
+            <span style={{ display: 'inline-flex', alignItems: 'baseline', gap: '1ch' }}>
+              <CrtField pfx="MKR" val={fmtMHz(mkr ? mkr.freq : centerHz)} sfx="MHz" readOnly />
+              <CrtField val={mkr ? mkr.db.toFixed(1) : (refDb - range).toFixed(1)} sfx="dB" readOnly />
+            </span>
+            <span className="hp-fld" style={{ cursor: 'pointer', userSelect: 'none' }}
+              onClick={() => { if (!document.fullscreenElement) spPageRef.current?.requestFullscreen(); else document.exitFullscreen(); }}>
+              <span className="hp-pfx">FULL</span>
+              <span style={{ color: '#fff3d6' }}>{isFullscreen ? 'ON' : 'OFF'}</span>
+            </span>
+            <span className="hp-fld" style={{ cursor: 'pointer', userSelect: 'none' }}
+              onClick={() => pubInput(rxInput === 'rx1' ? 'rx2' : 'rx1')}>
+              <span className="hp-pfx">ANT</span>
+              <span style={{ color: '#fff3d6' }}>{rxInput === 'rx1' ? 'RX1' : 'RX2'}</span>
+            </span>
           </div>
           <div className="hp-row">
-            <CrtField val={(range / SP_ROWS).toFixed(0)} sfx="dB/DIV" readOnly />
-            <span className="hp-fld ctr">
-              <span className="hp-pfx">RANGE</span>
-              <div className="hp-tuner">
-                <FreqTuner value={range} digits={3} min={SP_ROWS} max={800} unit="dB"
-                  onChange={setRange} />
-              </div>
+            <span style={{ display: 'inline-flex', alignItems: 'baseline', gap: '1ch' }}>
+              <span className="hp-fld">
+                <span className="hp-pfx">RANGE</span>
+                <div className="hp-tuner">
+                  <FreqTuner value={range} digits={3} min={SP_ROWS} max={800} unit="dB"
+                    onChange={setRange} />
+                </div>
+              </span>
+              <CrtField val={(range / SP_ROWS).toFixed(0)} sfx="dB/DIV" readOnly />
             </span>
-            <CrtField val={mkr ? mkr.db.toFixed(1) : (refDb - range).toFixed(1)} sfx="dB" readOnly />
+            <span className="hp-fld" style={clipBlink ? { background: 'var(--phos)', color: '#000', borderRadius: 2, padding: '0 3px', textShadow: 'none' } : {}}>
+              <span className="hp-pfx">GAIN</span>
+              <DbTuner value={gain} digits={2} unit="dB" onChange={pubGain} />
+            </span>
           </div>
         </div>
 
@@ -888,7 +1061,7 @@ function SpectrumPage({ d }) {
             <div className="hp-fld">
               <span className="hp-pfx">SPAN</span>
               <div className="hp-tuner">
-                <FreqTuner value={Math.round(spanHz / 1000)} digits={6} min={80} max={344000} unit="MHz" onChange={onSpanChg} />
+                <FreqTuner value={Math.round(spanHz / 1000)} digits={6} min={80} max={300000} unit="MHz" onChange={onSpanChg} />
               </div>
             </div>
           </div>
@@ -898,20 +1071,6 @@ function SpectrumPage({ d }) {
         </div>
       </div>
 
-      <div className="sp-toolbar">
-        <Field label="RX input">
-          <Select value={rxInput} onChange={pubInput}
-            options={[{ v: 'rx1', l: 'RX1' }, { v: 'rx2', l: 'RX2' }]} />
-        </Field>
-        <Field label="Gain">
-          <Slider value={gain} min={0} max={71} step={1} onChange={pubGain}
-            unit=" dB" fmt={(v) => v.toFixed(0)} />
-        </Field>
-        <div className="sp-ws-status">
-          <Pill tone={wsTone} dot>{wsState}</Pill>
-          <span className="dim mono">/waterfall</span>
-        </div>
-      </div>
     </div>
   );
 }

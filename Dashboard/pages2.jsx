@@ -493,11 +493,14 @@ function Calibrate({ d, navigate }) {
     if (d.ppbCorrection != null) {
       const v = parseFloat((d.ppbCorrection / 1000).toFixed(2));
       setPpm(v); setPpmStr(String(v));
+    } else if (d.systemXoCorrection != null) {
+      const v = parseFloat(freqCorrToPpm(d.systemXoCorrection).toFixed(2));
+      setPpm(v); setPpmStr(String(v));
     } else if (d.freqCorrection != null) {
       const v = parseFloat(freqCorrToPpm(d.freqCorrection).toFixed(2));
       setPpm(v); setPpmStr(String(v));
     }
-  }, [d.ppbCorrection, d.freqCorrection]);
+  }, [d.ppbCorrection, d.systemXoCorrection, d.freqCorrection]);
 
   const applyPpm = (v) => {
     const clamped = Math.max(-200, Math.min(200, v));
@@ -543,9 +546,12 @@ function Calibrate({ d, navigate }) {
                 onChange={setPpmStr}
                 onKeyDown={(e) => { if (e.key === 'Enter') commitPpmStr(ppmStr); }}
                 onBlur={() => commitPpmStr(ppmStr)} />
+              <button className="btn primary" onClick={() => d.publish('system/setenv/xo_correction', String(ppmToFreqCorr(ppm)))}>
+                Save
+              </button>
             </div>
           </Field>
-          <div className={`cal-status ${freqCalOn ? "on" : ""}`}>
+          <div className={`cal-status ${freqCalOn ? "on" : ""}`} style={{ opacity: 0.35, pointerEvents: 'none' }}>
             <span className="cal-dot" />
             <span className="mono">{freqCalOn ? "Auto-discipline active · locked to 10 MHz ref" : "Manual trim · calibration paused"}</span>
           </div>

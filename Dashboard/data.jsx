@@ -63,7 +63,8 @@ function applyMqtt(prev, path, raw) {
     case 'main/serial':         return { ...prev, serial: raw };
     case 'main/hw_model':       return { ...prev, hwModel: raw };
     case 'main/fw_version':     return { ...prev, fwVersion: raw };
-    case 'main/freq_correction':   { const v = parseFloat(raw); return { ...prev, freqCorrection: isNaN(v) ? null : v }; }
+    case 'main/freq_correction':    { const v = parseFloat(raw); return { ...prev, freqCorrection: isNaN(v) ? null : v }; }
+    case 'system/xo_correction':   { const v = parseFloat(raw); return { ...prev, systemXoCorrection: isNaN(v) ? null : v }; }
     case 'system/ppb_correction':  { const v = parseFloat(raw); return { ...prev, ppbCorrection: isNaN(v) ? null : v }; }
     case 'main/ensm_mode':         return { ...prev, ensmMode: raw };
     case 'main/rx_path_rates':     return { ...prev, rxPathRates: raw };
