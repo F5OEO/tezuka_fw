@@ -791,9 +791,9 @@ function SpectrumPage({ d }) {
       const px    = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
       const s     = spanHzRef.current;
       const ns    = stepSpan(s, e.deltaY > 0);
-      const pivotFreq = centerHzRef.current + (px - 0.5) * s;
-      const nc = Math.max(47e6 + ns / 2, Math.min(6e9 - ns / 2,
-                   pivotFreq - (px - 0.5) * ns));
+      const markerFreq = centerHzRef.current +
+        (viewCenterR.current + (px - 0.5) / viewZoomR.current - 0.5) * s;
+      const nc = Math.max(47e6 + ns / 2, Math.min(6e9 - ns / 2, markerFreq));
       setCenterHz(nc);
       setSpanHz(ns);
       const now = performance.now();
@@ -828,7 +828,7 @@ function SpectrumPage({ d }) {
       if (zNew === zOld && zoomIn) {
         // At max graphical zoom — step hardware span down, keep effective visible range
         const ns = stepSpan(spanHzRef.current, false);
-        const nz = nearestZoom(ns * zOld / spanHzRef.current);
+        const nz = Math.min(8, nearestZoom(ns * zOld / spanHzRef.current) * 2);
         const nc = Math.max(47e6 + ns / 2, Math.min(6e9 - ns / 2, markerFreq - (px - 0.5) / nz * ns));
         setCenterHz(nc); setSpanHz(ns);
         spanThrottleRef.current = performance.now();
@@ -842,7 +842,7 @@ function SpectrumPage({ d }) {
       if (zNew === zOld && !zoomIn) {
         // At min graphical zoom — step hardware span up, keep effective visible range
         const ns = stepSpan(spanHzRef.current, true);
-        const nz = nearestZoom(ns * zOld / spanHzRef.current);
+        const nz = Math.max(1, nearestZoom(ns * zOld / spanHzRef.current) / 2);
         const nc = Math.max(47e6 + ns / 2, Math.min(6e9 - ns / 2, markerFreq - (px - 0.5) / nz * ns));
         setCenterHz(nc); setSpanHz(ns);
         spanThrottleRef.current = performance.now();
@@ -947,7 +947,7 @@ function SpectrumPage({ d }) {
           if (rawZoom > 8 && !spanStepped) {
             spanStepped = true;
             const ns = stepSpan(spanHzRef.current, false);
-            const nz = nearestZoom(ns * viewZoomR.current / spanHzRef.current);
+            const nz = Math.min(8, nearestZoom(ns * viewZoomR.current / spanHzRef.current) * 2);
             const nc = Math.max(47e6 + ns / 2, Math.min(6e9 - ns / 2, markerFreq - (px - 0.5) / nz * ns));
             setCenterHz(nc); setSpanHz(ns);
             spanThrottleRef.current = performance.now();
@@ -961,7 +961,7 @@ function SpectrumPage({ d }) {
           if (rawZoom < 1 && !spanStepped) {
             spanStepped = true;
             const ns = stepSpan(spanHzRef.current, true);
-            const nz = nearestZoom(ns * viewZoomR.current / spanHzRef.current);
+            const nz = Math.max(1, nearestZoom(ns * viewZoomR.current / spanHzRef.current) / 2);
             const nc = Math.max(47e6 + ns / 2, Math.min(6e9 - ns / 2, markerFreq - (px - 0.5) / nz * ns));
             setCenterHz(nc); setSpanHz(ns);
             spanThrottleRef.current = performance.now();
