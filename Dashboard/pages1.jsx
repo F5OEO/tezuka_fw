@@ -422,11 +422,7 @@ const SP_BG        = '#0a0600';
 const SP_COLS = 10, SP_ROWS = 8;
 
 // range = total dB span visible (bottom = refDb - range)
-function spDraw(ctx, W, H, bins, refDb, range) {
-  ctx.fillStyle = SP_BG;
-  ctx.fillRect(0, 0, W, H);
-
-  // Graticule
+function spDrawGraticule(ctx, W, H) {
   ctx.lineWidth = 1;
   for (let i = 0; i <= SP_COLS; i++) {
     const x = (i / SP_COLS) * W;
@@ -443,57 +439,81 @@ function spDraw(ctx, W, H, bins, refDb, range) {
     ctx.beginPath(); ctx.moveTo(0, y + 0.5); ctx.lineTo(W, y + 0.5); ctx.stroke();
   }
   ctx.setLineDash([]);
-
-  // Border
   ctx.strokeStyle = 'rgba(255,205,70,0.45)';
   ctx.lineWidth = 1.6;
   ctx.strokeRect(0.5, 0.5, W - 1, H - 1);
+}
 
-  if (!bins || bins.length < 2) return;
+const FOSFOR_DECAY = { off: 0, light: 0.04, medium: 0.015, high: 0.005 };
+
+function spDraw(ctx, W, H, bins, refDb, range, vs = 0, ve = 1, fosfor = 'off') {
+  const decay = FOSFOR_DECAY[fosfor] ?? 0;
+  if (decay > 0) {
+    // Fade previous frame instead of clearing — trace accumulates with decay
+    ctx.fillStyle = `rgba(0,0,0,${decay})`;
+    ctx.fillRect(0, 0, W, H);
+  } else {
+    ctx.fillStyle = SP_BG;
+    ctx.fillRect(0, 0, W, H);
+    spDrawGraticule(ctx, W, H);
+  }
+
+  if (!bins || bins.length < 2) {
+    if (decay > 0) spDrawGraticule(ctx, W, H);
+    return;
+  }
 
   const n   = bins.length;
   const top = refDb;
   const bot = refDb - range;
 
+  const i0  = Math.max(0,     Math.floor(vs * (n - 1)));
+  const i1  = Math.min(n - 1, Math.ceil (ve * (n - 1)));
   const toY = (db) => H - Math.max(0, Math.min(H, ((db - bot) / (top - bot)) * H));
-  const toX = (i)  => (i / (n - 1)) * W;
+  const toX = (i)  => ((i / (n - 1) - vs) / (ve - vs)) * W;
 
-  // Gradient fill under trace
-  const grad = ctx.createLinearGradient(0, 0, 0, H);
-  grad.addColorStop(0,    'rgba(255,190,30,0.16)');
-  grad.addColorStop(0.55, 'rgba(180,120,0,0.07)');
-  grad.addColorStop(1,    'rgba(0,0,0,0)');
-  ctx.beginPath();
-  ctx.moveTo(toX(0), toY(bins[0]));
-  for (let i = 1; i < n; i++) ctx.lineTo(toX(i), toY(bins[i]));
-  ctx.lineTo(toX(n - 1), H);
-  ctx.lineTo(0, H);
-  ctx.closePath();
-  ctx.fillStyle = grad;
-  ctx.fill();
+  if (decay === 0) {
+    // Gradient fill under trace (skip in fosfor mode — fill would obscure the decay)
+    const grad = ctx.createLinearGradient(0, 0, 0, H);
+    grad.addColorStop(0,    'rgba(255,190,30,0.16)');
+    grad.addColorStop(0.55, 'rgba(180,120,0,0.07)');
+    grad.addColorStop(1,    'rgba(0,0,0,0)');
+    ctx.beginPath();
+    ctx.moveTo(toX(i0), toY(bins[i0]));
+    for (let i = i0 + 1; i <= i1; i++) ctx.lineTo(toX(i), toY(bins[i]));
+    ctx.lineTo(toX(i1), H);
+    ctx.lineTo(toX(i0), H);
+    ctx.closePath();
+    ctx.fillStyle = grad;
+    ctx.fill();
+  }
 
   // Phosphor trace with glow
   ctx.shadowColor = 'rgba(255,200,40,0.80)';
   ctx.shadowBlur  = 4;
   ctx.beginPath();
-  ctx.moveTo(toX(0), toY(bins[0]));
-  for (let i = 1; i < n; i++) ctx.lineTo(toX(i), toY(bins[i]));
+  ctx.moveTo(toX(i0), toY(bins[i0]));
+  for (let i = i0 + 1; i <= i1; i++) ctx.lineTo(toX(i), toY(bins[i]));
   ctx.strokeStyle = SP_PHOS;
   ctx.lineWidth   = 2;
   ctx.lineJoin    = 'round';
   ctx.lineCap     = 'round';
   ctx.stroke();
   ctx.shadowBlur = 0;
+
+  // In fosfor mode redraw graticule on top so it stays crisp
+  if (decay > 0) spDrawGraticule(ctx, W, H);
 }
 
-function spDrawCursor(ctx, W, H, mp, bins, centerHz, spanHz, refDb, range) {
+function spDrawCursor(ctx, W, H, mp, bins, centerHz, spanHz, refDb, range, vs = 0, ve = 1) {
   if (!mp || !bins || bins.length === 0) return;
   const { px } = mp;
   const x = px * W;
   const n = bins.length;
 
-  const freq  = centerHz + (px - 0.5) * spanHz;
-  const binI  = Math.max(0, Math.min(n - 1, Math.round(px * (n - 1))));
+  const binFrac = vs + px * (ve - vs);
+  const freq  = centerHz + (binFrac - 0.5) * spanHz;
+  const binI  = Math.max(0, Math.min(n - 1, Math.round(binFrac * (n - 1))));
   const db    = bins[binI];
   const top   = refDb, bot = refDb - range;
   const traceY = H - Math.max(0, Math.min(H, ((db - bot) / (top - bot)) * H));
@@ -536,6 +556,7 @@ function spDrawCursor(ctx, W, H, mp, bins, centerHz, spanHz, refDb, range) {
 if (!window._sp) window._sp = {};
 
 const NICE_SPANS = [50e3,100e3,250e3,500e3,1e6,2.5e6,5e6,10e6,20e6,40e6,100e6,150e6,300e6];
+const nearestZoom = (v) => Math.max(1, Math.min(8, Math.pow(2, Math.round(Math.log2(v)))));
 const snapSpan  = (hz) => NICE_SPANS.reduce((b, v) => Math.abs(v - hz) < Math.abs(b - hz) ? v : b);
 const stepSpan  = (s, out) => out
   ? (NICE_SPANS.find(v => v > s)    ?? NICE_SPANS[NICE_SPANS.length - 1])
@@ -566,6 +587,10 @@ function SpectrumPage({ d }) {
   const spanHzRef      = useSpR(sp.spanHz   ?? (d.span ?? d.rxSampling ?? 2.4e6));
   const spanDefaultSet = useSpR(false);
   const dRef           = useSpR(d);
+  const viewZoomR      = useSpR(1);    // graphical zoom factor (1 = full view)
+  const viewCenterR    = useSpR(0.5);  // center of view window as bin fraction 0-1
+  const dispZoomRef    = useSpR(1);    // last rendered zoom, guards against redundant setDispZoom
+  const fosforRef      = useSpR('off');
 
   const [refDb,    setRefDb]    = useSpS(() => sp.refDb    ?? 130);
   const [range,    setRange]    = useSpS(() => sp.range    ?? SP_ROWS * 10);
@@ -578,10 +603,13 @@ function SpectrumPage({ d }) {
   const [vfw,      setVfw]      = useSpS(40);
   const [mkr,      setMkr]      = useSpS(null);   // {freq, db} when cursor is over canvas
   const [clipBlink,   setClipBlink]   = useSpS(false);
+  const [dispZoom,    setDispZoom]    = useSpS(1);
+  const [fosfor,      setFosfor]      = useSpS('off'); // 'off'|'light'|'medium'|'high'
   const [isFullscreen, setIsFullscreen] = useSpS(false);
   const spPageRef = useSpR(null);
 
   dRef.current = d;
+  if (fosforRef.current !== fosfor) { fosforRef.current = fosfor; dirtyRef.current = true; }
 
   // Keep refs current for RAF loop (avoids stale closures) + persist to session store
   useSpE(() => { refDbRef.current = refDb;  dirtyRef.current = true; sp.refDb    = refDb;    }, [refDb]);
@@ -648,17 +676,21 @@ function SpectrumPage({ d }) {
     const frame = (ts) => {
       if (!running) return;
       syncSize();
-      if (dirtyRef.current && canvas.width > 0 && canvas.height > 0) {
+      if ((dirtyRef.current || fosforRef.current !== 'off') && canvas.width > 0 && canvas.height > 0) {
         const bins = isSweepR.current ? sweepBuf.current : binsRef.current;
-        spDraw(ctx, canvas.width, canvas.height, bins, refDbRef.current, rangeRef.current);
+        const vz = viewZoomR.current, vc = viewCenterR.current;
+        const vs = vc - 0.5 / vz, ve = vc + 0.5 / vz;
+        spDraw(ctx, canvas.width, canvas.height, bins, refDbRef.current, rangeRef.current, vs, ve, fosforRef.current);
         spDrawCursor(ctx, canvas.width, canvas.height, mousePosRef.current, bins,
-                     centerHzRef.current, spanHzRef.current, refDbRef.current, rangeRef.current);
+                     centerHzRef.current, spanHzRef.current, refDbRef.current, rangeRef.current, vs, ve);
         // Keep header MKR in sync with every new frame
         const mp = mousePosRef.current;
         if (mp && bins && bins.length > 0) {
-          const binI = Math.max(0, Math.min(bins.length - 1, Math.round(mp.px * (bins.length - 1))));
-          setMkr({ freq: centerHzRef.current + (mp.px - 0.5) * spanHzRef.current, db: bins[binI] });
+          const binFrac = vs + mp.px * (ve - vs);
+          const binI = Math.max(0, Math.min(bins.length - 1, Math.round(binFrac * (bins.length - 1))));
+          setMkr({ freq: centerHzRef.current + (binFrac - 0.5) * spanHzRef.current, db: bins[binI] });
         }
+        if (vz !== dispZoomRef.current) { dispZoomRef.current = vz; setDispZoom(vz); }
         dirtyRef.current = false;
         fCount++;
         if (ts - fTimer >= 1000) { setFps(fCount); fCount = 0; fTimer = ts; }
@@ -746,43 +778,88 @@ function SpectrumPage({ d }) {
     e.preventDefault();
 
     if (e.shiftKey) {
-      // Ctrl+wheel → RANGE (dB per division)
+      // Shift+wheel → RANGE (dB per division)
       setRange(r => Math.max(SP_ROWS, r + (e.deltaY > 0 ? SP_ROWS : -SP_ROWS)));
       return;
     }
 
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-
-    const rect   = canvas.getBoundingClientRect();
-    const px     = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
-
-    const s  = spanHzRef.current;
-    const ns = stepSpan(s, e.deltaY > 0);
-
-    // Keep the frequency under the cursor fixed (pivot zoom)
-    const pivotFreq = centerHzRef.current + (px - 0.5) * s;
-    const nc = Math.max(47e6 + ns / 2, Math.min(6e9 - ns / 2,
-                 pivotFreq - (px - 0.5) * ns));
-
-    setCenterHz(nc);
-    setSpanHz(ns);
-    // Throttle mid-spin publishes: freq 200 ms, span 500 ms
-    const now = performance.now();
-    if (now - wheelPubTimerRef.current >= 200) {
-      wheelPubTimerRef.current = now;
-      d.publish(d.sweepActive ? 'rx/sweep/frequency' : 'rx/frequency', Math.round(nc));
+    if (e.ctrlKey) {
+      // Ctrl+wheel → SPAN
+      const canvas = canvasRef.current;
+      if (!canvas) return;
+      const rect  = canvas.getBoundingClientRect();
+      const px    = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+      const s     = spanHzRef.current;
+      const ns    = stepSpan(s, e.deltaY > 0);
+      const pivotFreq = centerHzRef.current + (px - 0.5) * s;
+      const nc = Math.max(47e6 + ns / 2, Math.min(6e9 - ns / 2,
+                   pivotFreq - (px - 0.5) * ns));
+      setCenterHz(nc);
+      setSpanHz(ns);
+      const now = performance.now();
+      if (now - wheelPubTimerRef.current >= 200) {
+        wheelPubTimerRef.current = now;
+        d.publish(d.sweepActive ? 'rx/sweep/frequency' : 'rx/frequency', Math.round(nc));
+      }
+      if (now - spanThrottleRef.current >= 500) {
+        spanThrottleRef.current = now;
+        d.publish('rx/span', Math.round(ns));
+      }
+      clearTimeout(wheelDebounceRef.current);
+      wheelDebounceRef.current = setTimeout(() => {
+        d.publish(d.sweepActive ? 'rx/sweep/frequency' : 'rx/frequency', Math.round(centerHzRef.current));
+        d.publish('rx/span', Math.round(spanHzRef.current));
+      }, 220);
+      return;
     }
-    if (now - spanThrottleRef.current >= 500) {
-      spanThrottleRef.current = now;
-      d.publish('rx/span', Math.round(ns));
+
+    // Plain wheel → graphical zoom (no MQTT, pivot under cursor)
+    {
+      const canvas = canvasRef.current;
+      if (!canvas) return;
+      const rect = canvas.getBoundingClientRect();
+      const px   = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+      const zOld = viewZoomR.current;
+      const zoomIn = e.deltaY < 0;
+      const zNew = zoomIn ? Math.min(8, zOld * 2) : Math.max(1, zOld / 2);
+      // Frequency under cursor (accounting for current graphical zoom)
+      const markerFreq = centerHzRef.current +
+        (viewCenterR.current + (px - 0.5) / zOld - 0.5) * spanHzRef.current;
+      if (zNew === zOld && zoomIn) {
+        // At max graphical zoom — step hardware span down, keep effective visible range
+        const ns = stepSpan(spanHzRef.current, false);
+        const nz = nearestZoom(ns * zOld / spanHzRef.current);
+        const nc = Math.max(47e6 + ns / 2, Math.min(6e9 - ns / 2, markerFreq - (px - 0.5) / nz * ns));
+        setCenterHz(nc); setSpanHz(ns);
+        spanThrottleRef.current = performance.now();
+        d.publish(d.sweepActive ? 'rx/sweep/frequency' : 'rx/frequency', Math.round(nc));
+        d.publish('rx/span', Math.round(ns));
+        viewZoomR.current   = nz;
+        viewCenterR.current = 0.5;
+        dirtyRef.current = true;
+        return;
+      }
+      if (zNew === zOld && !zoomIn) {
+        // At min graphical zoom — step hardware span up, keep effective visible range
+        const ns = stepSpan(spanHzRef.current, true);
+        const nz = nearestZoom(ns * zOld / spanHzRef.current);
+        const nc = Math.max(47e6 + ns / 2, Math.min(6e9 - ns / 2, markerFreq - (px - 0.5) / nz * ns));
+        setCenterHz(nc); setSpanHz(ns);
+        spanThrottleRef.current = performance.now();
+        d.publish(d.sweepActive ? 'rx/sweep/frequency' : 'rx/frequency', Math.round(nc));
+        d.publish('rx/span', Math.round(ns));
+        viewZoomR.current   = nz;
+        viewCenterR.current = 0.5;
+        dirtyRef.current = true;
+        return;
+      }
+      // Keep the bin under cursor fixed
+      const cNew = viewCenterR.current + (px - 0.5) * (1 / zOld - 1 / zNew);
+      const half = 0.5 / zNew;
+      viewZoomR.current   = zNew;
+      viewCenterR.current = Math.max(half, Math.min(1 - half, cNew));
+      dirtyRef.current = true;
     }
-    // Debounce: flush final values 220 ms after last wheel event
-    clearTimeout(wheelDebounceRef.current);
-    wheelDebounceRef.current = setTimeout(() => {
-      d.publish(d.sweepActive ? 'rx/sweep/frequency' : 'rx/frequency', Math.round(centerHzRef.current));
-      d.publish('rx/span', Math.round(spanHzRef.current));
-    }, 220);
   }, [d]);
 
   // Keyboard shortcuts: +/- shift REF, [/] change RANGE (1 step = SP_ROWS dB)
@@ -817,7 +894,8 @@ function SpectrumPage({ d }) {
     const canvas = canvasRef.current;
     if (!canvas) return;
 
-    let startDist = null, startSpan = null, startVdist = null, startRange = null;
+    let startDist = null, startZoom = null, startCenter = null, startVdist = null, startRange = null;
+    let spanStepped = false;
 
     const pdist = (t) => Math.hypot(t[0].clientX - t[1].clientX, t[0].clientY - t[1].clientY);
 
@@ -831,10 +909,12 @@ function SpectrumPage({ d }) {
         };
       } else if (e.touches.length === 2) {
         mouseDragRef.current = null;
-        startDist = pdist(e.touches);
-        startSpan = spanHzRef.current;
-        startVdist = Math.abs(e.touches[0].clientY - e.touches[1].clientY) + 1;
-        startRange = rangeRef.current;
+        startDist   = pdist(e.touches);
+        startZoom   = viewZoomR.current;
+        startCenter = viewCenterR.current;
+        startVdist  = Math.abs(e.touches[0].clientY - e.touches[1].clientY) + 1;
+        startRange  = rangeRef.current;
+        spanStepped = false;
       }
     };
 
@@ -843,36 +923,55 @@ function SpectrumPage({ d }) {
       if (e.touches.length === 2) {
         const d2 = pdist(e.touches);
         if (startDist) {
-          const factor = Math.sqrt(startDist / d2);
-          const s  = spanHzRef.current;
-          const ns = snapSpan(Math.max(80e3, Math.min(300e6, startSpan * factor)));
+          // Vertical pinch → RANGE
           const vdist = Math.abs(e.touches[0].clientY - e.touches[1].clientY) + 1;
           const vFactor = Math.sqrt(startVdist / vdist);
-          const rangeSteps = Math.round((vFactor - 1) * 10);
-          setRange(Math.max(SP_ROWS, startRange + rangeSteps * SP_ROWS));
-          const mx   = (e.touches[0].clientX + e.touches[1].clientX) / 2;
-          const rect = canvas.getBoundingClientRect();
-          const px   = Math.max(0, Math.min(1, (mx - rect.left) / rect.width));
-          const pivotFreq = centerHzRef.current + (px - 0.5) * s;
-          const nc = Math.max(47e6 + ns / 2, Math.min(6e9 - ns / 2, pivotFreq - (px - 0.5) * ns));
-          setCenterHz(nc);
-          setSpanHz(ns);
-          const now = performance.now();
-          if (now - wheelPubTimerRef.current >= 200) {
-            wheelPubTimerRef.current = now;
+          setRange(Math.max(SP_ROWS, startRange + Math.round((vFactor - 1) * 10) * SP_ROWS));
+
+          // Horizontal pinch → graphical zoom (pivot = finger midpoint)
+          const rawZoom = startZoom * Math.sqrt(d2 / startDist);
+          const zNew    = Math.max(1, Math.min(8, rawZoom));
+          const mx      = (e.touches[0].clientX + e.touches[1].clientX) / 2;
+          const rect    = canvas.getBoundingClientRect();
+          const px      = Math.max(0, Math.min(1, (mx - rect.left) / rect.width));
+          const cNew    = startCenter + (px - 0.5) * (1 / startZoom - 1 / zNew);
+          const half    = 0.5 / zNew;
+          viewZoomR.current   = zNew;
+          viewCenterR.current = Math.max(half, Math.min(1 - half, cNew));
+
+          // Frequency under finger midpoint (accounting for current graphical zoom)
+          const markerFreq = centerHzRef.current +
+            (viewCenterR.current + (px - 0.5) / viewZoomR.current - 0.5) * spanHzRef.current;
+
+          // At max zoom, spreading further steps hardware span down (once per gesture)
+          if (rawZoom > 8 && !spanStepped) {
+            spanStepped = true;
+            const ns = stepSpan(spanHzRef.current, false);
+            const nz = nearestZoom(ns * viewZoomR.current / spanHzRef.current);
+            const nc = Math.max(47e6 + ns / 2, Math.min(6e9 - ns / 2, markerFreq - (px - 0.5) / nz * ns));
+            setCenterHz(nc); setSpanHz(ns);
+            spanThrottleRef.current = performance.now();
             const dv = dRef.current;
             dv.publish(dv.sweepActive ? 'rx/sweep/frequency' : 'rx/frequency', Math.round(nc));
+            dv.publish('rx/span', Math.round(ns));
+            viewZoomR.current   = nz;
+            viewCenterR.current = 0.5;
           }
-          if (now - spanThrottleRef.current >= 500) {
-            spanThrottleRef.current = now;
-            dRef.current.publish('rx/span', Math.round(ns));
-          }
-          clearTimeout(wheelDebounceRef.current);
-          wheelDebounceRef.current = setTimeout(() => {
+          // At min zoom, pinching further steps hardware span up (once per gesture)
+          if (rawZoom < 1 && !spanStepped) {
+            spanStepped = true;
+            const ns = stepSpan(spanHzRef.current, true);
+            const nz = nearestZoom(ns * viewZoomR.current / spanHzRef.current);
+            const nc = Math.max(47e6 + ns / 2, Math.min(6e9 - ns / 2, markerFreq - (px - 0.5) / nz * ns));
+            setCenterHz(nc); setSpanHz(ns);
+            spanThrottleRef.current = performance.now();
             const dv = dRef.current;
-            dv.publish('rx/span', Math.round(spanHzRef.current));
-            dv.publish(dv.sweepActive ? 'rx/sweep/frequency' : 'rx/frequency', Math.round(centerHzRef.current));
-          }, 220);
+            dv.publish(dv.sweepActive ? 'rx/sweep/frequency' : 'rx/frequency', Math.round(nc));
+            dv.publish('rx/span', Math.round(ns));
+            viewZoomR.current   = nz;
+            viewCenterR.current = 0.5;
+          }
+          dirtyRef.current = true;
         }
       } else if (e.touches.length === 1 && mouseDragRef.current) {
         const t = e.touches[0];
@@ -904,7 +1003,7 @@ function SpectrumPage({ d }) {
     };
 
     const onTouchEnd = (e) => {
-      if (e.touches.length < 2) { startDist = null; startSpan = null; startVdist = null; startRange = null; }
+      if (e.touches.length < 2) { startDist = null; startZoom = null; startCenter = null; startVdist = null; startRange = null; spanStepped = false; }
       if (e.touches.length === 0 && mouseDragRef.current) {
         const dv = dRef.current;
         dv.publish(dv.sweepActive ? 'rx/sweep/frequency' : 'rx/frequency',
@@ -1045,6 +1144,11 @@ function SpectrumPage({ d }) {
               </span>
               <CrtField val={(range / SP_ROWS).toFixed(0)} sfx="dB/DIV" readOnly />
             </span>
+            <span className="hp-fld" style={{ cursor: 'pointer', userSelect: 'none' }}
+              onClick={() => setFosfor(f => ({ off: 'light', light: 'medium', medium: 'high', high: 'off' })[f])}>
+              <span className="hp-pfx">FOSFOR</span>
+              <span style={{ color: '#fff3d6' }}>{fosfor.toUpperCase()}</span>
+            </span>
             <span className="hp-fld" style={clipBlink ? { background: 'var(--phos)', color: '#000', borderRadius: 2, padding: '0 3px', textShadow: 'none' } : {}}>
               <span className="hp-pfx">GAIN</span>
               <DbTuner value={gain} digits={2} unit="dB" onChange={pubGain} />
@@ -1081,6 +1185,7 @@ function SpectrumPage({ d }) {
           </div>
           <div className="hp-row sm">
             <CrtField pfx="ST" val={stMs.toString()} sfx="ms" readOnly />
+            {dispZoom > 1 && <CrtField pfx="ZOOM" val={`×${dispZoom}`} readOnly />}
           </div>
         </div>
       </div>
