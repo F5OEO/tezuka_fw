@@ -565,6 +565,7 @@ function SpectrumPage({ d }) {
   const centerHzRef = useSpR(sp.centerHz ?? (d.rxFreq ?? 437e6));
   const spanHzRef      = useSpR(sp.spanHz   ?? (d.span ?? d.rxSampling ?? 2.4e6));
   const spanDefaultSet = useSpR(false);
+  const dRef           = useSpR(d);
 
   const [refDb,    setRefDb]    = useSpS(() => sp.refDb    ?? 130);
   const [range,    setRange]    = useSpS(() => sp.range    ?? SP_ROWS * 10);
@@ -579,6 +580,8 @@ function SpectrumPage({ d }) {
   const [clipBlink,   setClipBlink]   = useSpS(false);
   const [isFullscreen, setIsFullscreen] = useSpS(false);
   const spPageRef = useSpR(null);
+
+  dRef.current = d;
 
   // Keep refs current for RAF loop (avoids stale closures) + persist to session store
   useSpE(() => { refDbRef.current = refDb;  dirtyRef.current = true; sp.refDb    = refDb;    }, [refDb]);
@@ -814,7 +817,7 @@ function SpectrumPage({ d }) {
     const canvas = canvasRef.current;
     if (!canvas) return;
 
-    let lastDist = null;
+    let startDist = null, startSpan = null, startVdist = null, startRange = null;
 
     const pdist = (t) => Math.hypot(t[0].clientX - t[1].clientX, t[0].clientY - t[1].clientY);
 
@@ -828,7 +831,10 @@ function SpectrumPage({ d }) {
         };
       } else if (e.touches.length === 2) {
         mouseDragRef.current = null;
-        lastDist = pdist(e.touches);
+        startDist = pdist(e.touches);
+        startSpan = spanHzRef.current;
+        startVdist = Math.abs(e.touches[0].clientY - e.touches[1].clientY) + 1;
+        startRange = rangeRef.current;
       }
     };
 
@@ -836,10 +842,14 @@ function SpectrumPage({ d }) {
       e.preventDefault();
       if (e.touches.length === 2) {
         const d2 = pdist(e.touches);
-        if (lastDist) {
-          const factor = lastDist / d2;
+        if (startDist) {
+          const factor = Math.sqrt(startDist / d2);
           const s  = spanHzRef.current;
-          const ns = snapSpan(Math.max(80e3, Math.min(300e6, s * factor)));
+          const ns = snapSpan(Math.max(80e3, Math.min(300e6, startSpan * factor)));
+          const vdist = Math.abs(e.touches[0].clientY - e.touches[1].clientY) + 1;
+          const vFactor = Math.sqrt(startVdist / vdist);
+          const rangeSteps = Math.round((vFactor - 1) * 10);
+          setRange(Math.max(SP_ROWS, startRange + rangeSteps * SP_ROWS));
           const mx   = (e.touches[0].clientX + e.touches[1].clientX) / 2;
           const rect = canvas.getBoundingClientRect();
           const px   = Math.max(0, Math.min(1, (mx - rect.left) / rect.width));
@@ -850,19 +860,20 @@ function SpectrumPage({ d }) {
           const now = performance.now();
           if (now - wheelPubTimerRef.current >= 200) {
             wheelPubTimerRef.current = now;
-            d.publish(d.sweepActive ? 'rx/sweep/frequency' : 'rx/frequency', Math.round(nc));
+            const dv = dRef.current;
+            dv.publish(dv.sweepActive ? 'rx/sweep/frequency' : 'rx/frequency', Math.round(nc));
           }
           if (now - spanThrottleRef.current >= 500) {
             spanThrottleRef.current = now;
-            d.publish('rx/span', Math.round(ns));
+            dRef.current.publish('rx/span', Math.round(ns));
           }
           clearTimeout(wheelDebounceRef.current);
           wheelDebounceRef.current = setTimeout(() => {
-            d.publish('rx/span', Math.round(spanHzRef.current));
-            d.publish(d.sweepActive ? 'rx/sweep/frequency' : 'rx/frequency', Math.round(centerHzRef.current));
+            const dv = dRef.current;
+            dv.publish('rx/span', Math.round(spanHzRef.current));
+            dv.publish(dv.sweepActive ? 'rx/sweep/frequency' : 'rx/frequency', Math.round(centerHzRef.current));
           }, 220);
         }
-        lastDist = d2;
       } else if (e.touches.length === 1 && mouseDragRef.current) {
         const t = e.touches[0];
         const W = canvas.offsetWidth, H = canvas.offsetHeight;
@@ -874,27 +885,30 @@ function SpectrumPage({ d }) {
         const steps = Math.round((dx / W) * 10);
         const step = spanHzRef.current / 10;
         const nc = Math.abs(dx) >= W * 0.05
-          ? mouseDragRef.current.startCenterHz + steps * step
+          ? mouseDragRef.current.startCenterHz - steps * step
           : mouseDragRef.current.startCenterHz;
         setCenterHz(nc);
         setRefDb(mouseDragRef.current.startRefDb + (dy / H) * rangeRef.current);
         const now = performance.now();
         if (now - wheelPubTimerRef.current >= 200) {
           wheelPubTimerRef.current = now;
-          d.publish(d.sweepActive ? 'rx/sweep/frequency' : 'rx/frequency', Math.round(nc));
+          const dv = dRef.current;
+          dv.publish(dv.sweepActive ? 'rx/sweep/frequency' : 'rx/frequency', Math.round(nc));
         }
         clearTimeout(wheelDebounceRef.current);
         wheelDebounceRef.current = setTimeout(() => {
-          d.publish(d.sweepActive ? 'rx/sweep/frequency' : 'rx/frequency', Math.round(centerHzRef.current));
+          const dv = dRef.current;
+          dv.publish(dv.sweepActive ? 'rx/sweep/frequency' : 'rx/frequency', Math.round(centerHzRef.current));
         }, 220);
       }
     };
 
     const onTouchEnd = (e) => {
-      if (e.touches.length < 2) lastDist = null;
+      if (e.touches.length < 2) { startDist = null; startSpan = null; startVdist = null; startRange = null; }
       if (e.touches.length === 0 && mouseDragRef.current) {
-        d.publish(d.sweepActive ? 'rx/sweep/frequency' : 'rx/frequency',
-                  Math.round(centerHzRef.current));
+        const dv = dRef.current;
+        dv.publish(dv.sweepActive ? 'rx/sweep/frequency' : 'rx/frequency',
+                   Math.round(centerHzRef.current));
         mouseDragRef.current = null;
         dragPubTimerRef.current = 0;
         mousePosRef.current = null;
@@ -911,7 +925,7 @@ function SpectrumPage({ d }) {
       canvas.removeEventListener('touchmove',  onTouchMove);
       canvas.removeEventListener('touchend',   onTouchEnd);
     };
-  }, [d]);
+  }, []);
 
   const onCanvasMouseDown = useSpCb((e) => {
     if (e.button !== 0) return;
