@@ -353,28 +353,104 @@ function Transverter({ d }) {
 }
 
 // ---- IQ Tape --------------------------------------------------------------
+const IQ_DEFAULT_FILES = [
+  "capture_2026-06-05_143012.iq",
+  "qo100_beacon_10489.iq",
+  "fm_bcast_98M3.iq",
+  "adsb_1090_test.iq",
+];
+const IQ_DEFAULT_META = {
+  "capture_2026-06-05_143012.iq": "2.40 MS/s · CF32 · 184 MB · 19.2 s",
+  "qo100_beacon_10489.iq":        "1.00 MS/s · CF32 · 76 MB · 19.0 s",
+  "fm_bcast_98M3.iq":             "2.40 MS/s · CS16 · 92 MB · 9.6 s",
+  "adsb_1090_test.iq":            "2.00 MS/s · CS8 · 40 MB · 10.0 s",
+};
+
 function IQTape({ d }) {
   const [sr, setSr] = useS2(null);
   const [rxFreq, setRxFreq] = useS2(null);
   const [txFreq, setTxFreq] = useS2(null);
   const [rec, setRec] = useS2(false);
-  useE2(() => { if (d.rxSampling != null) setSr(d.rxSampling); },    [d.rxSampling]);
-  useE2(() => { if (d.rxFreq    != null) setRxFreq(d.rxFreq); },    [d.rxFreq]);
-  useE2(() => { if (d.txFreq    != null) setTxFreq(d.txFreq); },    [d.txFreq]);
-  const [file, setFile] = useS2("capture_2026-06-05_143012.iq");
+  useE2(() => { if (d.rxSampling != null) setSr(d.rxSampling); }, [d.rxSampling]);
+  useE2(() => { if (d.rxFreq    != null) setRxFreq(d.rxFreq); }, [d.rxFreq]);
+  useE2(() => { if (d.txFreq    != null) setTxFreq(d.txFreq); }, [d.txFreq]);
+
+  const [folderHandle, setFolderHandle] = useS2(null);
+  const [folderFiles, setFolderFiles] = useS2(null); // null = use defaults
+  const [file, setFile] = useS2(IQ_DEFAULT_FILES[0]);
   const [playing, setPlaying] = useS2(false);
+  const [format, setFormat] = useS2("cs16");
+  const [recFilename, setRecFilename] = useS2(null);
   const mhz = (v) => (v / 1e6).toFixed(3) + " MHz";
-  const files = [
-    "capture_2026-06-05_143012.iq",
-    "qo100_beacon_10489.iq",
-    "fm_bcast_98M3.iq",
-    "adsb_1090_test.iq",
-  ];
-  const meta = { "capture_2026-06-05_143012.iq": "2.40 MS/s · CF32 · 184 MB · 19.2 s", "qo100_beacon_10489.iq": "1.00 MS/s · CF32 · 76 MB · 19.0 s", "fm_bcast_98M3.iq": "2.40 MS/s · CS16 · 92 MB · 9.6 s", "adsb_1090_test.iq": "2.00 MS/s · CS8 · 40 MB · 10.0 s" };
+
+  const makeFilename = () => {
+    const now = new Date();
+    const p = (n, l = 2) => String(n).padStart(l, '0');
+    const date = `${now.getFullYear()}${p(now.getMonth() + 1)}${p(now.getDate())}`;
+    const time = `${p(now.getHours())}${p(now.getMinutes())}${p(now.getSeconds())}`;
+    const freq = rxFreq != null ? Math.round(rxFreq) : 0;
+    const rate = sr    != null ? Math.round(sr)      : 0;
+    return `${date}_${time}_${freq}_${rate}.${format}`;
+  };
+
+  const toggleRec = () => {
+    if (!rec) {
+      const fn = makeFilename();
+      setRecFilename(fn);
+      setRec(true);
+    } else {
+      setRec(false);
+      setRecFilename(null);
+    }
+  };
+
+  const files = folderFiles ?? IQ_DEFAULT_FILES;
+  const meta  = folderFiles ? {} : IQ_DEFAULT_META;
+
+  const pickFolder = async () => {
+    if (!window.showDirectoryPicker) {
+      alert("Your browser does not support the File System Access API.\nUse Chrome or Edge to pick a local folder.");
+      return;
+    }
+    try {
+      const handle = await window.showDirectoryPicker({ mode: 'readwrite' });
+      setFolderHandle(handle);
+      const found = [];
+      for await (const [name, entry] of handle.entries()) {
+        if (entry.kind === 'file' && /\.(iq|bin|cf32|cs16|cs8|raw)$/i.test(name)) found.push(name);
+      }
+      found.sort();
+      setFolderFiles(found.length ? found : []);
+      if (found.length) setFile(found[0]);
+    } catch (_) { /* user cancelled */ }
+  };
+
+  const clearFolder = () => { setFolderHandle(null); setFolderFiles(null); setFile(IQ_DEFAULT_FILES[0]); };
 
   return (
     <div className="page">
       <div className="grid-12">
+        <Card title="Local folder" sub="Default location for recordings and playback files" className="span-12">
+          <Field label="Folder" hint={folderHandle ? "Files written here by default · click Choose to switch" : "Choose a folder to list its .iq files and save recordings there"}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              <span className="mono" style={{ flex: 1, opacity: folderHandle ? 1 : 0.4, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                {folderHandle ? folderHandle.name : 'No folder selected'}
+              </span>
+              {folderHandle && folderFiles != null && (
+                <span className="pill pill-neutral">{folderFiles.length} file{folderFiles.length !== 1 ? 's' : ''}</span>
+              )}
+              <button className="btn ghost" onClick={pickFolder}>
+                <Icon name="upload" size={15} />Choose…
+              </button>
+              {folderHandle && (
+                <button className="btn ghost" onClick={clearFolder}>
+                  <Icon name="close" size={15} />Clear
+                </button>
+              )}
+            </div>
+          </Field>
+        </Card>
+
         <Card title="Capture" sub="Record baseband I/Q to file" className="span-6">
           <Field label="Sample rate">
             {sr != null && <FreqTuner value={sr} digits={9} min={520833} max={61440000} unit="S/s" sub={(v) => (v / 1e6).toFixed(3) + " MS/s"} onChange={(v) => { setSr(v); d.publish('rx/sampling', v); d.publish('tx/sampling', v); }} />}
@@ -385,21 +461,38 @@ function IQTape({ d }) {
           <Field label="TX frequency" hint="47 MHz – 6 GHz">
             {txFreq != null && <FreqTuner value={txFreq} digits={12} min={47e6} max={6e9} unit="Hz" sub={mhz} onChange={(v) => { setTxFreq(v); d.publish('tx/frequency', v); }} />}
           </Field>
-          <button className={`btn block iq-rec ${rec ? "on" : ""}`} onClick={() => setRec((r) => !r)}>
+          <Field label="Format" hint="Sample type written to file">
+            <Select value={format} onChange={setFormat} options={["cs8", "cs16"]} disabled={rec} />
+          </Field>
+          <Field label="Filename" hint={rec ? "Currently recording" : "Generated at record start"}>
+            <span className="mono" style={{ fontSize: '0.82em', wordBreak: 'break-all', opacity: rec ? 1 : 0.55 }}>
+              {rec ? recFilename : makeFilename()}
+            </span>
+          </Field>
+          {folderHandle && (
+            <div className="iq-meta mono" style={{ marginBottom: 8 }}>
+              <Icon name="save" size={13} /> Saves to: <b>{folderHandle.name}/</b>
+            </div>
+          )}
+          <button className={`btn block iq-rec ${rec ? "on" : ""}`} onClick={toggleRec}>
             <span className="iq-dot" />{rec ? "Stop recording" : "Record"}
           </button>
         </Card>
 
         <Card title="Playback" sub="Replay a stored I/Q capture" className="span-6">
-          <Field label="File selection">
-            <Select value={file} onChange={setFile} options={files} />
+          <Field label="File selection" hint={folderHandle ? `Files in ${folderHandle.name}/` : "Demo files"}>
+            {files.length > 0
+              ? <Select value={file} onChange={setFile} options={files} />
+              : <span style={{ opacity: 0.45 }}>No .iq files found in folder</span>}
           </Field>
-          <div className="iq-meta mono">{meta[file]}</div>
+          {meta[file] && <div className="iq-meta mono">{meta[file]}</div>}
           <div className="btn-col">
-            <button className="btn primary block" onClick={() => setPlaying((p) => !p)}>
+            <button className="btn primary block" disabled={files.length === 0} onClick={() => setPlaying((p) => !p)}>
               <Icon name={playing ? "check" : "play"} size={15} />{playing ? "Stop playback" : "Play file"}
             </button>
-            <button className="btn ghost block"><Icon name="upload" size={15} />Load capture…</button>
+            <button className="btn ghost block" onClick={pickFolder}>
+              <Icon name="upload" size={15} />{folderHandle ? "Refresh folder…" : "Load capture…"}
+            </button>
           </div>
         </Card>
       </div>

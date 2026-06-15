@@ -15,7 +15,7 @@ const VER = {
 const NAV = [
   { group: null, items: [["dashboard", "Dashboard", "dashboard"]] },
   { group: "RF", items: [["spectrum", "Spectrum", "spectrum"], ["arch", "Architecture", "chip"]] },
-  { group: "Application", items: [["datv", "DATV Controller", "datv", [["analysis", "Analysis", "analysis"]]], ["transverter", "Transverter", "transverter"], ["iqtape", "IQ Tape", "tape", null, true], ["siggen", "Signal generator", "wave"]] },
+  { group: "Application", items: [["datv", "DATV Controller", "datv", [["analysis", "Analysis", "analysis"]]], ["transverter", "Transverter", "transverter"], ["iqtape", "IQ Tape", "tape"], ["siggen", "Signal generator", "wave"]] },
   { group: "System", items: [["versions", "Versions", "versions"], ["network", "Network", "network"], ["diagnostic", "Diagnostic", "pulse"], ["calibrate", "Calibrate", "target", [["kalibrate", "Kalibrate", "search"]]], ["performance", "Performance", "chip"], ["gpio", "GPIO", "circuit"], ["persistent", "Persistent", "save"], ["reboot", "Reboot", "power"]] },
 ];
 
