@@ -308,7 +308,6 @@ function Network({ d }) {
 // ---- Transverter ----------------------------------------------------------
 function Transverter({ d }) {
   const active = d.loopback === 2;
-  const hz = (v) => (v * 1e6).toFixed(0) + " Hz";
 
   return (
     <div className="page">
@@ -320,11 +319,13 @@ function Transverter({ d }) {
         </Card>
 
         <Card title="RX path" sub="Down-converter · receive" className={`span-6 ${active ? "" : "ftuner-disabled"}`}>
-          <Field label="RX frequency" hint="47 – 6000.000 MHz · scroll or click a digit to tune">
-            {d.rxFreq != null && <FreqTuner value={Math.round(d.rxFreq / 1e3)} digits={7} min={47000} max={6000000} unit="MHz" sub={(v) => (v * 1e3).toFixed(0) + " Hz"} onChange={(v) => d.publish('rx/frequency', v * 1e3)} />}
+          <Field label="RX frequency" hint="47 – 6000 MHz · scroll or click a digit to tune">
+            {d.rxFreq != null && <FreqTuner value={Math.round(d.rxFreq / 1e3)} digits={7} min={47000} max={6000000} unit="MHz"
+              sub={(v) => (v * 1e3).toFixed(0) + " Hz"} onChange={(v) => d.publish('rx/frequency', v * 1e3)} />}
           </Field>
-          <Field label="RX bandwidth" hint="0.2 – 56 MHz">
-            {d.rxBandwidth != null && <FreqTuner value={d.rxBandwidth / 1e6} digits={5} min={0.2} max={56} unit="MHz" sub={hz} onChange={(v) => d.publish('rx/bandwidth', Math.round(v * 1e6))} />}
+          <Field label="RX bandwidth" hint="200 – 56 000 kHz">
+            {d.rxBandwidth != null && <FreqTuner value={Math.round(d.rxBandwidth / 1e3)} digits={6} min={200} max={56000} unit="kHz"
+              onChange={(v) => d.publish('rx/bandwidth', v * 1e3)} />}
           </Field>
           <Field label="RX input power" hint="0 to 73 dB">
             {d.rxGain != null && <Slider value={d.rxGain} min={0} max={73} step={1} unit=" dB"
@@ -333,11 +334,13 @@ function Transverter({ d }) {
         </Card>
 
         <Card title="TX path" sub="Up-converter · transmit" className={`span-6 ${active ? "" : "ftuner-disabled"}`}>
-          <Field label="TX frequency" hint="47 – 6000.000 MHz · scroll or click a digit to tune">
-            {d.txFreq != null && <FreqTuner value={Math.round(d.txFreq / 1e3)} digits={7} min={47000} max={6000000} unit="MHz" sub={(v) => (v * 1e3).toFixed(0) + " Hz"} onChange={(v) => d.publish('tx/frequency', v * 1e3)} />}
+          <Field label="TX frequency" hint="47 – 6000 MHz · scroll or click a digit to tune">
+            {d.txFreq != null && <FreqTuner value={Math.round(d.txFreq / 1e3)} digits={7} min={47000} max={6000000} unit="MHz"
+              sub={(v) => (v * 1e3).toFixed(0) + " Hz"} onChange={(v) => d.publish('tx/frequency', v * 1e3)} />}
           </Field>
-          <Field label="TX bandwidth" hint="0.2 – 56 MHz">
-            {d.txBandwidth != null && <FreqTuner value={d.txBandwidth / 1e6} digits={5} min={0.2} max={56} unit="MHz" sub={hz} onChange={(v) => d.publish('tx/bandwidth', Math.round(v * 1e6))} />}
+          <Field label="TX bandwidth" hint="200 – 56 000 kHz">
+            {d.txBandwidth != null && <FreqTuner value={Math.round(d.txBandwidth / 1e3)} digits={6} min={200} max={56000} unit="kHz"
+              onChange={(v) => d.publish('tx/bandwidth', v * 1e3)} />}
           </Field>
           <Field label="TX output power" hint="−89.75 to 0 dB">
             {d.txGain != null && <Slider value={d.txGain} min={-89.75} max={0} step={0.25} unit=" dB"
