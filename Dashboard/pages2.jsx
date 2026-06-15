@@ -366,22 +366,84 @@ const IQ_DEFAULT_META = {
   "adsb_1090_test.iq":            "2.00 MS/s · CS8 · 40 MB · 10.0 s",
 };
 
+// Recording session singleton — survives component unmount / route changes
+if (!window._iqRec) window._iqRec = {
+  active: false, ws: null, writable: null,
+  reconnTimer: null, bitrateTimer: null,
+  bytesTotal: 0, bytesMark: 0, timeMark: 0,
+  filename: null, format: 'cs16',
+  folderHandle: null, folderFiles: null, selectedFile: IQ_DEFAULT_FILES[0],
+  playActive: false, playWs: null, playBytes: 0, playTotal: 0, playLoop: false,
+  playBytesMark: 0, playTimeMark: 0, playBitrateTimer: null,
+  // Mutable callbacks — attached by whichever IQTape instance is mounted
+  onBitrate: null, onConnected: null, onTotal: null,
+  onPlayConnected: null, onPlayProgress: null, onPlayBitrate: null,
+};
+
 function IQTape({ d }) {
+  const R = window._iqRec;
+
   const [sr, setSr] = useS2(null);
   const [rxFreq, setRxFreq] = useS2(null);
   const [txFreq, setTxFreq] = useS2(null);
-  const [rec, setRec] = useS2(false);
   useE2(() => { if (d.rxSampling != null) setSr(d.rxSampling); }, [d.rxSampling]);
   useE2(() => { if (d.rxFreq    != null) setRxFreq(d.rxFreq); }, [d.rxFreq]);
   useE2(() => { if (d.txFreq    != null) setTxFreq(d.txFreq); }, [d.txFreq]);
 
-  const [folderHandle, setFolderHandle] = useS2(null);
-  const [folderFiles, setFolderFiles] = useS2(null); // null = use defaults
-  const [file, setFile] = useS2(IQ_DEFAULT_FILES[0]);
-  const [playing, setPlaying] = useS2(false);
-  const [format, setFormat] = useS2("cs16");
-  const [recFilename, setRecFilename] = useS2(null);
+  const [folderHandle, setFolderHandle] = useS2(R.folderHandle);
+  const [folderFiles, setFolderFiles]   = useS2(R.folderFiles);
+  const [file, setFile]       = useS2(R.selectedFile);
+  const [playing,      setPlaying]      = useS2(R.playActive);
+  const [playConn,     setPlayConn]     = useS2(R.playWs != null && R.playWs.readyState === WebSocket.OPEN);
+  const [playBytes,    setPlayBytes]    = useS2(R.playBytes);
+  const [playTotal,    setPlayTotal]    = useS2(R.playTotal);
+  const [loop,         setLoop]         = useS2(R.playLoop);
+  const [playBitrate,  setPlayBitrate]  = useS2(0);
+  // Recording UI state — initialised from singleton so returning to the page restores status
+  const [rec,         setRec]         = useS2(R.active);
+  const [format,      setFormat]      = useS2(R.format);
+  const [recFilename, setRecFilename] = useS2(R.filename);
+  const [bitrate,     setBitrate]     = useS2(0);
+  const [totalBytes,  setTotalBytes]  = useS2(R.bytesTotal);
+  const [wsConnected, setWsConnected] = useS2(R.ws != null && R.ws.readyState === WebSocket.OPEN);
+
+  const folderHandleRef = React.useRef(folderHandle);
+  useE2(() => { folderHandleRef.current = folderHandle; R.folderHandle = folderHandle; }, [folderHandle]);
+  useE2(() => { R.folderFiles = folderFiles; }, [folderFiles]);
+  useE2(() => { R.selectedFile = file; }, [file]);
+
+  // Attach setState callbacks on mount, detach on unmount (recording/playback keeps running)
+  useE2(() => {
+    R.onBitrate      = setBitrate;
+    R.onConnected    = setWsConnected;
+    R.onTotal        = setTotalBytes;
+    R.onPlayConnected = setPlayConn;
+    R.onPlayProgress  = (sent, total) => { setPlayBytes(sent); setPlayTotal(total); };
+    R.onPlayBitrate   = setPlayBitrate;
+    if (R.active) {
+      setRec(true);
+      setRecFilename(R.filename);
+      setTotalBytes(R.bytesTotal);
+      setWsConnected(R.ws != null && R.ws.readyState === WebSocket.OPEN);
+    }
+    if (R.playActive) {
+      setPlaying(true);
+      setPlayBytes(R.playBytes);
+      setPlayTotal(R.playTotal);
+      setPlayConn(R.playWs != null && R.playWs.readyState === WebSocket.OPEN);
+    }
+    return () => {
+      R.onBitrate = null; R.onConnected = null; R.onTotal = null;
+      R.onPlayConnected = null; R.onPlayProgress = null; R.onPlayBitrate = null;
+    };
+  }, []);
+
   const mhz = (v) => (v / 1e6).toFixed(3) + " MHz";
+  const fmtBitrate = (bps) => {
+    if (bps >= 1e6) return (bps / 1e6).toFixed(2) + ' MB/s';
+    if (bps >= 1e3) return (bps / 1e3).toFixed(1) + ' kB/s';
+    return bps + ' B/s';
+  };
 
   const makeFilename = () => {
     const now = new Date();
@@ -390,19 +452,169 @@ function IQTape({ d }) {
     const time = `${p(now.getHours())}${p(now.getMinutes())}${p(now.getSeconds())}`;
     const freq = rxFreq != null ? Math.round(rxFreq) : 0;
     const rate = sr    != null ? Math.round(sr)      : 0;
-    return `${date}_${time}_${freq}_${rate}.${format}`;
+    return `${date}_${time}_${freq}_${rate}.${R.format}`;
   };
 
-  const toggleRec = () => {
-    if (!rec) {
+  const connectWs = () => {
+    if (!R.active) return;
+    const host  = window._tezukaDevHost || window.location.hostname;
+    const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const ws = new WebSocket(`${proto}//${host}:8765`, 'iio-rx');
+    ws.binaryType = 'arraybuffer';
+    R.ws = ws;
+    ws.onopen  = () => { if (R.onConnected) R.onConnected(true); };
+    ws.onerror = () => {};
+    ws.onmessage = (evt) => {
+      if (!(evt.data instanceof ArrayBuffer)) return;
+      R.bytesTotal += evt.data.byteLength;
+      if (R.writable) R.writable.write(evt.data).catch(() => {});
+    };
+    ws.onclose = () => {
+      if (R.onConnected) R.onConnected(false);
+      if (R.onBitrate)   R.onBitrate(0);
+      if (R.active) R.reconnTimer = setTimeout(connectWs, 2000);
+    };
+  };
+
+  const stopRec = () => {
+    R.active = false;
+    clearTimeout(R.reconnTimer);
+    clearInterval(R.bitrateTimer);
+    R.reconnTimer = null; R.bitrateTimer = null;
+    const ws = R.ws;
+    if (ws) { ws.onopen = ws.onclose = ws.onerror = ws.onmessage = null; try { ws.close(); } catch (_) {} R.ws = null; }
+    const w = R.writable;
+    if (w) { R.writable = null; w.close().catch(() => {}); }
+    R.filename = null;
+    setRec(false); setRecFilename(null); setBitrate(0); setTotalBytes(0); setWsConnected(false);
+  };
+
+  const toggleRec = async () => {
+    if (!R.active) {
       const fn = makeFilename();
-      setRecFilename(fn);
-      setRec(true);
+      R.filename = fn; R.format = format;
+      if (folderHandleRef.current) {
+        try {
+          const fh = await folderHandleRef.current.getFileHandle(fn, { create: true });
+          R.writable = await fh.createWritable();
+        } catch (e) { console.error('Could not create file:', e); }
+      }
+      R.bytesTotal = 0; R.bytesMark = 0; R.timeMark = performance.now();
+      R.active = true;
+      setRec(true); setRecFilename(fn);
+      connectWs();
+      R.bitrateTimer = setInterval(() => {
+        const now = performance.now();
+        const dt  = now - R.timeMark;
+        const db  = R.bytesTotal - R.bytesMark;
+        R.bytesMark = R.bytesTotal; R.timeMark = now;
+        if (R.onBitrate) R.onBitrate(dt > 0 ? db / (dt / 1000) : 0);
+        if (R.onTotal)   R.onTotal(R.bytesTotal);
+      }, 500);
     } else {
-      setRec(false);
-      setRecFilename(null);
+      stopRec();
     }
   };
+
+  const stopPlay = () => {
+    R.playActive = false;
+    clearInterval(R.playBitrateTimer); R.playBitrateTimer = null;
+    const ws = R.playWs;
+    if (ws) { ws.onopen = ws.onclose = ws.onerror = ws.onmessage = null; try { ws.close(); } catch (_) {} R.playWs = null; }
+    R.playBytes = 0; R.playTotal = 0; R.playBytesMark = 0;
+    setPlaying(false); setPlayConn(false); setPlayBytes(0); setPlayTotal(0); setPlayBitrate(0);
+  };
+
+  const startPlay = async () => {
+    if (!folderHandleRef.current || !file) return;
+    R.playActive = true; R.playBytes = 0; R.playTotal = 0;
+    setPlaying(true); setPlayConn(false); setPlayBytes(0); setPlayTotal(0); setPlayBitrate(0);
+
+    // Get file metadata only — no bulk read, so startup is instant regardless of file size.
+    let fileObj;
+    try {
+      const fh = await folderHandleRef.current.getFileHandle(file);
+      fileObj = await fh.getFile();
+      R.playTotal = fileObj.size; setPlayTotal(fileObj.size);
+    } catch (e) {
+      console.error('Cannot open file for playback:', e);
+      stopPlay(); return;
+    }
+    if (!R.playActive) return;
+
+    const host  = window._tezukaDevHost || window.location.hostname;
+    const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const ws = new WebSocket(`${proto}//${host}:8765`, 'iio-tx');
+    ws.binaryType = 'arraybuffer';
+    R.playWs = ws;
+
+    ws.onerror = () => {};
+    ws.onopen = () => {
+      if (R.onPlayConnected) R.onPlayConnected(true);
+      R.playBytesMark = 0; R.playTimeMark = performance.now();
+      R.playBitrateTimer = setInterval(() => {
+        const now = performance.now();
+        const dt  = now - R.playTimeMark;
+        const db  = R.playBytes - R.playBytesMark;
+        R.playBytesMark = R.playBytes; R.playTimeMark = now;
+        if (R.onPlayBitrate) R.onPlayBitrate(dt > 0 ? db / (dt / 1000) : 0);
+      }, 500);
+
+      // Read the file in 1 MB disk chunks, send to WS in 64 KB frames.
+      // Streaming avoids loading the entire file into RAM and eliminates the
+      // startup delay that a blocking arrayBuffer() causes for large files.
+      const DISK_CHUNK  = 1 << 20;   // 1 MB per disk read (one await per MB)
+      const WS_FRAME    = 65536;     // 64 KB WS frames
+      const MAX_AHEAD   = 1 << 20;   // ≤ 1 MB queued: matches server ring depth
+      let fileOffset = 0;
+      let diskBuf    = null;   // current 1 MB disk chunk (ArrayBuffer)
+      let diskPos    = 0;      // byte offset within diskBuf
+
+      const pump = async () => {
+        while (R.playActive && ws.readyState === WebSocket.OPEN) {
+          // Backpressure: wait until WS send buffer has room
+          if (ws.bufferedAmount >= MAX_AHEAD) {
+            await new Promise(r => setTimeout(r, 5));
+            continue;
+          }
+
+          // Refill disk buffer when exhausted
+          if (!diskBuf || diskPos >= diskBuf.byteLength) {
+            if (fileOffset >= fileObj.size) {
+              if (R.playLoop) {
+                fileOffset = 0; diskBuf = null; diskPos = 0;
+                R.playBytes = 0;
+                if (R.onPlayProgress) R.onPlayProgress(0, fileObj.size);
+                continue;
+              } else {
+                stopPlay(); return;
+              }
+            }
+            const readLen = Math.min(DISK_CHUNK, fileObj.size - fileOffset);
+            diskBuf  = await fileObj.slice(fileOffset, fileOffset + readLen).arrayBuffer();
+            if (!R.playActive || ws.readyState !== WebSocket.OPEN) return;
+            fileOffset += readLen;
+            diskPos     = 0;
+          }
+
+          // Send one WS frame from the in-memory disk chunk (no extra copy)
+          const sendLen = Math.min(WS_FRAME, diskBuf.byteLength - diskPos);
+          ws.send(new Uint8Array(diskBuf, diskPos, sendLen));
+          diskPos    += sendLen;
+          R.playBytes = fileOffset - (diskBuf.byteLength - diskPos);
+          if (R.onPlayProgress) R.onPlayProgress(R.playBytes, fileObj.size);
+        }
+      };
+      pump().catch(console.error);
+    };
+    ws.onclose = () => {
+      R.playWs = null;
+      if (R.onPlayConnected) R.onPlayConnected(false);
+      if (R.playActive) stopPlay();
+    };
+  };
+
+  const togglePlay = () => { if (!R.playActive) startPlay(); else stopPlay(); };
 
   const files = folderFiles ?? IQ_DEFAULT_FILES;
   const meta  = folderFiles ? {} : IQ_DEFAULT_META;
@@ -425,7 +637,10 @@ function IQTape({ d }) {
     } catch (_) { /* user cancelled */ }
   };
 
-  const clearFolder = () => { setFolderHandle(null); setFolderFiles(null); setFile(IQ_DEFAULT_FILES[0]); };
+  const clearFolder = () => {
+    R.folderHandle = null; R.folderFiles = null; R.selectedFile = IQ_DEFAULT_FILES[0];
+    setFolderHandle(null); setFolderFiles(null); setFile(IQ_DEFAULT_FILES[0]);
+  };
 
   return (
     <div className="page">
@@ -477,6 +692,14 @@ function IQTape({ d }) {
           <button className={`btn block iq-rec ${rec ? "on" : ""}`} onClick={toggleRec}>
             <span className="iq-dot" />{rec ? "Stop recording" : "Record"}
           </button>
+          {rec && (
+            <div className="iq-meta mono" style={{ marginTop: 8, display: 'flex', alignItems: 'center', gap: 8 }}>
+              <span className="iq-dot" style={{ background: wsConnected ? 'var(--c-red)' : 'var(--c-yellow, #f5b301)', flexShrink: 0 }} />
+              {wsConnected
+                ? <><span>{fmtBitrate(bitrate)}</span><span style={{ opacity: 0.55 }}>·</span><span>{fmtBytes(totalBytes)}</span></>
+                : <span>Connecting…</span>}
+            </div>
+          )}
         </Card>
 
         <Card title="Playback" sub="Replay a stored I/Q capture" className="span-6">
@@ -487,13 +710,27 @@ function IQTape({ d }) {
           </Field>
           {meta[file] && <div className="iq-meta mono">{meta[file]}</div>}
           <div className="btn-col">
-            <button className="btn primary block" disabled={files.length === 0} onClick={() => setPlaying((p) => !p)}>
-              <Icon name={playing ? "check" : "play"} size={15} />{playing ? "Stop playback" : "Play file"}
-            </button>
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button className="btn primary" style={{ flex: 1 }} disabled={files.length === 0 || !folderHandle} onClick={togglePlay}>
+                <Icon name={playing ? "check" : "play"} size={15} />
+                {playing ? (playConn ? "Stop playback" : "Stop") : "Play file"}
+              </button>
+              <button className={`btn ${loop ? "primary" : "ghost"}`} title="Loop" onClick={() => { R.playLoop = !R.playLoop; setLoop(R.playLoop); }}>
+                <Icon name="repeat" size={15} />
+              </button>
+            </div>
             <button className="btn ghost block" onClick={pickFolder}>
               <Icon name="upload" size={15} />{folderHandle ? "Refresh folder…" : "Load capture…"}
             </button>
           </div>
+          {playing && (
+            <div className="iq-meta mono" style={{ marginTop: 8, display: 'flex', alignItems: 'center', gap: 8 }}>
+              <span className="iq-dot" style={{ background: playConn ? 'var(--accent)' : 'var(--c-yellow, #f5b301)', flexShrink: 0 }} />
+              {playConn
+                ? <><span>{fmtBitrate(playBitrate)}</span><span style={{ opacity: 0.55 }}>·</span><span>{fmtBytes(playBytes)} / {fmtBytes(playTotal)}</span></>
+                : <span>{playTotal > 0 ? `Connecting… (${fmtBytes(playTotal)})` : 'Reading file…'}</span>}
+            </div>
+          )}
         </Card>
       </div>
     </div>
