@@ -98,6 +98,7 @@ function applyMqtt(prev, path, raw) {
     case 'usb/rx_rate':      return { ...prev, usbRxRate: parseInt(raw) };
     case 'usb/tx_rate':      return { ...prev, usbTxRate: parseInt(raw) };
     case 'system/iqtape':        return { ...prev, iqtape: raw };
+    case 'system/siggen':        return { ...prev, siggen: raw };
     case 'system/overclock':     return { ...prev, overclock: raw };
     case 'system/overclock_cap': try { return { ...prev, overclockCap: JSON.parse(raw) }; } catch { return prev; }
     case 'system/log':                  return { ...prev, systemLog: [...prev.systemLog, raw] };
@@ -140,12 +141,13 @@ function useLiveData(running = true) {
     kalibrateStatus: '', kalibrateChannels: [], kalibrateResultPpm: null, kalibrateResultPpb: null, kalibrateLog: [],
   }));
 
-  // MQTT connection — ws://[hostname]:9001/mqtt
+  // MQTT connection — ws://[hostname]:9001/mqtt  or  wss://[hostname]:9002/mqtt over HTTPS
   useEffectD(() => {
     if (!running || typeof Paho === 'undefined') return;
     const host = MQTT_DEV_HOST || window.location.hostname;
+    const useSSL = window.location.protocol === 'https:';
     const clientId = 'tezuka_dash_' + Math.random().toString(16).slice(2, 8);
-    const client = new Paho.MQTT.Client(host, 9001, '/mqtt', clientId);
+    const client = new Paho.MQTT.Client(host, useSSL ? 9002 : 9001, '/mqtt', clientId);
     mqttRef.current = client;
     let offlineTimer = null;
 
@@ -180,7 +182,7 @@ function useLiveData(running = true) {
       },
       reconnect: true,
       keepAliveInterval: 30,
-      useSSL: window.location.protocol === 'https:',
+      useSSL,
     });
 
     return () => { clearTimeout(offlineTimer); try { client.disconnect(); } catch (_) {} mqttRef.current = null; };

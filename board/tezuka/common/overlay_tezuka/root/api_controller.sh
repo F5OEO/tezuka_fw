@@ -348,10 +348,12 @@ dump_data () {
     USB_INIT=1
   fi
 
-  if pgrep -x iio_ws_proxy >/dev/null 2>&1; then
+  if pgrep iio_ws_proxy >/dev/null 2>&1; then
     publish "system/iqtape" "on"
+    publish "system/siggen" "on"
   else
     publish "system/iqtape" "off"
+    publish "system/siggen" "off"
   fi
 }
 
@@ -611,8 +613,23 @@ parse_cmd () {
           /usr/bin/iio_ws_proxy &
         fi
         publish_force "system/iqtape" "on"
+        publish_force "system/siggen" "on"
       else
         killall iio_ws_proxy 2>/dev/null
+        publish_force "system/iqtape" "off"
+        publish_force "system/siggen" "off"
+      fi
+    ;;
+    system/siggen)
+      if [ "$val" = "on" ]; then
+        if ! pgrep -x iio_ws_proxy >/dev/null 2>&1; then
+          /usr/bin/iio_ws_proxy &
+        fi
+        publish_force "system/siggen" "on"
+        publish_force "system/iqtape" "on"
+      else
+        killall iio_ws_proxy 2>/dev/null
+        publish_force "system/siggen" "off"
         publish_force "system/iqtape" "off"
       fi
     ;;

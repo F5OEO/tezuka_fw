@@ -394,11 +394,12 @@ const IQ_DEFAULT_META = {
 
 // Recording session singleton — survives component unmount / route changes
 if (!window._iqRec) window._iqRec = {
-  active: false, ws: null, writable: null,
+  active: false, ws: null, writable: null, chunks: null,
   reconnTimer: null, bitrateTimer: null,
   bytesTotal: 0, bytesMark: 0, timeMark: 0,
   filename: null, format: 'cs16',
   folderHandle: null, folderFiles: null, selectedFile: IQ_DEFAULT_FILES[0],
+  fileMap: {},   // non-secure context: filename → File object
   playActive: false, playWs: null, playBytes: 0, playTotal: 0, playLoop: false,
   playBytesMark: 0, playTimeMark: 0, playBitrateTimer: null,
   // Mutable callbacks — attached by whichever IQTape instance is mounted
@@ -408,6 +409,8 @@ if (!window._iqRec) window._iqRec = {
 
 function IQTape({ d }) {
   const R = window._iqRec;
+  const isSecure = window.isSecureContext;
+  const fileInputRef = React.useRef(null);
 
   const [sr, setSr] = useS2(null);
   const [rxFreq, setRxFreq] = useS2(null);
@@ -445,7 +448,7 @@ function IQTape({ d }) {
 
   // Restore folder handle from IndexedDB on first mount (no in-memory handle yet)
   useE2(() => {
-    if (R.folderHandle) return;
+    if (!isSecure || R.folderHandle) return;
     idbGet('iqFolder').then(async handle => {
       if (!handle) return;
       const perm = await handle.queryPermission({ mode: 'readwrite' });
@@ -515,6 +518,7 @@ function IQTape({ d }) {
       if (!(evt.data instanceof ArrayBuffer)) return;
       R.bytesTotal += evt.data.byteLength;
       if (R.writable) R.writable.write(evt.data).catch(() => {});
+      else if (R.chunks) R.chunks.push(evt.data);
     };
     ws.onclose = () => {
       if (R.onConnected) R.onConnected(false);
@@ -531,7 +535,18 @@ function IQTape({ d }) {
     const ws = R.ws;
     if (ws) { ws.onopen = ws.onclose = ws.onerror = ws.onmessage = null; try { ws.close(); } catch (_) {} R.ws = null; }
     const w = R.writable;
-    if (w) { R.writable = null; w.close().then(() => refreshFolder(folderHandleRef.current)).catch(() => {}); }
+    if (w) {
+      R.writable = null;
+      w.close().then(() => refreshFolder(folderHandleRef.current)).catch(() => {});
+    } else if (R.chunks) {
+      const chunks = R.chunks; R.chunks = null;
+      const blob = new Blob(chunks);
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url; a.download = R.filename || 'capture.iq';
+      a.click();
+      setTimeout(() => URL.revokeObjectURL(url), 30000);
+    }
     R.filename = null;
     setRec(false); setRecFilename(null); setBitrate(0); setTotalBytes(0); setWsConnected(false);
   };
@@ -545,6 +560,8 @@ function IQTape({ d }) {
           const fh = await folderHandleRef.current.getFileHandle(fn, { create: true });
           R.writable = await fh.createWritable();
         } catch (e) { console.error('Could not create file:', e); }
+      } else if (!isSecure) {
+        R.chunks = [];
       }
       R.bytesTotal = 0; R.bytesMark = 0; R.timeMark = performance.now();
       R.active = true;
@@ -573,15 +590,20 @@ function IQTape({ d }) {
   };
 
   const startPlay = async () => {
-    if (!folderHandleRef.current || !file) return;
+    if ((!folderHandleRef.current && !R.fileMap?.[file]) || !file) return;
     R.playActive = true; R.playBytes = 0; R.playTotal = 0;
     setPlaying(true); setPlayConn(false); setPlayBytes(0); setPlayTotal(0); setPlayBitrate(0);
 
     // Get file metadata only — no bulk read, so startup is instant regardless of file size.
     let fileObj;
     try {
-      const fh = await folderHandleRef.current.getFileHandle(file);
-      fileObj = await fh.getFile();
+      if (folderHandleRef.current) {
+        const fh = await folderHandleRef.current.getFileHandle(file);
+        fileObj = await fh.getFile();
+      } else {
+        fileObj = R.fileMap[file];
+        if (!fileObj) throw new Error('File not in loaded set');
+      }
       R.playTotal = fileObj.size; setPlayTotal(fileObj.size);
     } catch (e) {
       console.error('Cannot open file for playback:', e);
@@ -678,9 +700,19 @@ function IQTape({ d }) {
     if (found.length && !R.selectedFile) { R.selectedFile = found[0]; setFile(found[0]); }
   };
 
+  const onFileInput = (e) => {
+    const selected = Array.from(e.target.files).filter(f => /\.(iq|bin|cf32|cs16|cs8|raw)$/i.test(f.name));
+    if (!selected.length) return;
+    R.fileMap = Object.fromEntries(selected.map(f => [f.name, f]));
+    const names = selected.map(f => f.name).sort();
+    R.folderFiles = names; setFolderFiles(names);
+    if (names.length) { R.selectedFile = names[0]; setFile(names[0]); }
+    e.target.value = '';
+  };
+
   const pickFolder = async () => {
-    if (!window.showDirectoryPicker) {
-      alert("Your browser does not support the File System Access API.\nUse Chrome or Edge to pick a local folder.");
+    if (!isSecure || !window.showDirectoryPicker) {
+      fileInputRef.current?.click();
       return;
     }
     try {
@@ -707,12 +739,15 @@ function IQTape({ d }) {
 
   const clearFolder = () => {
     R.folderHandle = null; R.folderFiles = null; R.selectedFile = IQ_DEFAULT_FILES[0];
+    R.fileMap = {};
     setFolderHandle(null); setFolderFiles(null); setFile(IQ_DEFAULT_FILES[0]);
     setPendingHandle(null);
-    idbPut('iqFolder', null).catch(() => {});
+    if (isSecure) idbPut('iqFolder', null).catch(() => {});
   };
 
   return (
+    <>
+    <input ref={fileInputRef} type="file" multiple accept=".iq,.bin,.cf32,.cs16,.cs8,.raw" style={{ display: 'none' }} onChange={onFileInput} />
     <div className="page">
       <div className="grid-12">
         <Card title="Local folder" sub="Default location for recordings and playback files" className="span-12">
@@ -739,21 +774,21 @@ function IQTape({ d }) {
           </Field>
           <Field label="Folder" hint={folderHandle ? "Files written here by default · click Choose to switch" : "Choose a folder to list its .iq files and save recordings there"}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-              <span className="mono" style={{ flex: 1, opacity: folderHandle ? 1 : 0.4, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                {folderHandle ? folderHandle.name : (pendingHandle ? pendingHandle.name : 'No folder selected')}
+              <span className="mono" style={{ flex: 1, opacity: (folderHandle || (!isSecure && folderFiles != null)) ? 1 : 0.4, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                {folderHandle ? folderHandle.name : (!isSecure && folderFiles != null ? `${folderFiles.length} file(s) loaded` : pendingHandle ? pendingHandle.name : 'No files selected')}
               </span>
-              {folderHandle && folderFiles != null && (
+              {folderFiles != null && (
                 <span className="pill pill-neutral">{folderFiles.length} file{folderFiles.length !== 1 ? 's' : ''}</span>
               )}
-              {!folderHandle && pendingHandle && (
+              {isSecure && !folderHandle && pendingHandle && (
                 <button className="btn primary" onClick={restoreFolder}>
                   <Icon name="upload" size={15} />Restore…
                 </button>
               )}
               <button className="btn ghost" onClick={pickFolder}>
-                <Icon name="upload" size={15} />Choose…
+                <Icon name="upload" size={15} />{isSecure ? 'Choose…' : 'Load files…'}
               </button>
-              {(folderHandle || pendingHandle) && (
+              {(folderHandle || pendingHandle || (!isSecure && folderFiles != null)) && (
                 <button className="btn ghost" onClick={clearFolder}>
                   <Icon name="close" size={15} />Clear
                 </button>
@@ -776,7 +811,7 @@ function IQTape({ d }) {
           <Field label="Format" hint="Sample type written to file">
             <Select value={format} onChange={setFormat} options={["cs8", "cs16"]} disabled={rec} />
           </Field>
-          <Field label="Filename" hint={rec ? "Currently recording" : "Generated at record start"}>
+          <Field label="Filename" hint={rec ? "Currently recording" : (!isSecure ? "File downloads automatically on stop" : "Generated at record start")}>
             <span className="mono" style={{ fontSize: '0.82em', wordBreak: 'break-all', opacity: rec ? 1 : 0.55 }}>
               {rec ? recFilename : makeFilename()}
             </span>
@@ -808,7 +843,7 @@ function IQTape({ d }) {
           {meta[file] && <div className="iq-meta mono">{meta[file]}</div>}
           <div className="btn-col">
             <div style={{ display: 'flex', gap: 8 }}>
-              <button className="btn primary" style={{ flex: 1 }} disabled={files.length === 0 || !folderHandle} onClick={togglePlay}>
+              <button className="btn primary" style={{ flex: 1 }} disabled={files.length === 0 || (!folderHandle && folderFiles == null)} onClick={togglePlay}>
                 <Icon name={playing ? "check" : "play"} size={15} />
                 {playing ? (playConn ? "Stop playback" : "Stop") : "Play file"}
               </button>
@@ -817,7 +852,7 @@ function IQTape({ d }) {
               </button>
             </div>
             <button className="btn ghost block" onClick={pickFolder}>
-              <Icon name="upload" size={15} />{folderHandle ? "Refresh folder…" : "Load capture…"}
+              <Icon name="upload" size={15} />{isSecure ? (folderHandle ? "Refresh folder…" : "Load capture…") : "Load files…"}
             </button>
           </div>
           {playing && (
@@ -845,44 +880,410 @@ function IQTape({ d }) {
         </div>
       </div>
     </div>
+    </>
   );
+}
+
+// ---- Signal generator singleton ------------------------------------------
+if (!window._sigGen) window._sigGen = {
+  active: false, ws: null, iqBuf: null, reconnTimer: null, onConnected: null,
+};
+
+const SG_N = 131072; // 128 K samples — default loop segment for fixed-frequency types
+
+function _sgBuild(type, fs, amp, p) {
+  const A = Math.round(amp / 100 * 32767);
+  // Sweep uses one complete period; other types use the fixed SG_N block
+  const N = (type === 'Sweep')
+    ? Math.max(256, Math.min(SG_N * 8, Math.round(fs * p.sweepTime / 1000)))
+    : SG_N;
+  const iq = new Int16Array(N * 2);
+  if (type === 'CW') {
+    const w = 2 * Math.PI * p.fOffset / fs;
+    for (let n = 0; n < N; n++) {
+      iq[n*2]   = Math.round(A * Math.cos(w * n));
+      iq[n*2+1] = Math.round(A * Math.sin(w * n));
+    }
+  } else if (type === 'TwoTone') {
+    const w1 = 2 * Math.PI * (p.fOffset + p.spacing / 2) / fs;
+    const w2 = 2 * Math.PI * (p.fOffset - p.spacing / 2) / fs;
+    const A2 = Math.round(A / 2);
+    for (let n = 0; n < N; n++) {
+      iq[n*2]   = Math.round(A2 * (Math.cos(w1*n) + Math.cos(w2*n)));
+      iq[n*2+1] = Math.round(A2 * (Math.sin(w1*n) + Math.sin(w2*n)));
+    }
+  } else if (type === 'AM') {
+    const w0 = 2 * Math.PI * p.fOffset / fs;
+    const wm = 2 * Math.PI * p.fMod / fs;
+    const m  = p.modDepth / 100;
+    for (let n = 0; n < N; n++) {
+      const env = (1 + m * Math.cos(wm * n)) / (1 + m);
+      iq[n*2]   = Math.round(A * env * Math.cos(w0 * n));
+      iq[n*2+1] = Math.round(A * env * Math.sin(w0 * n));
+    }
+  } else if (type === 'FM') {
+    const w0  = 2 * Math.PI * p.fOffset / fs;
+    const wm  = 2 * Math.PI * p.fMod / fs;
+    const wd  = 2 * Math.PI * p.fDev / fs;
+    let phi = 0;
+    for (let n = 0; n < N; n++) {
+      phi += w0 + wd * Math.cos(wm * n);
+      iq[n*2]   = Math.round(A * Math.cos(phi));
+      iq[n*2+1] = Math.round(A * Math.sin(phi));
+    }
+  } else if (type === 'SSB') {
+    // Analytic signal of a single audio tone → pure USB or LSB
+    const w = 2 * Math.PI * (p.sideband === 'LSB' ? -1 : 1) * p.fAudio / fs;
+    for (let n = 0; n < N; n++) {
+      iq[n*2]   = Math.round(A * Math.cos(w * n));
+      iq[n*2+1] = Math.round(A * Math.sin(w * n));
+    }
+  } else if (type === 'Sweep') {
+    // Linear frequency chirp — instantaneous frequency integrated into phase
+    const { fStart, fStop, sweepMode } = p;
+    const df = fStop - fStart;
+    let phi = 0;
+    for (let n = 0; n < N; n++) {
+      let f;
+      if (sweepMode === 'Triangle') {
+        // Up then down: frequency returns to fStart at n=N → seamless loop point
+        const t = n / N;
+        f = (t < 0.5)
+          ? fStart + df * (t * 2)
+          : fStop  - df * ((t - 0.5) * 2);
+      } else {
+        // Sawtooth: ramp from fStart to fStop then jump back
+        f = fStart + df * (n / N);
+      }
+      phi += 2 * Math.PI * f / fs;
+      iq[n*2]   = Math.round(A * Math.cos(phi));
+      iq[n*2+1] = Math.round(A * Math.sin(phi));
+    }
+  } else if (type === 'AWGN') {
+    // Complex white Gaussian noise via Box-Muller transform.
+    // Amplitude sets 3σ so < 0.3 % of samples clip.
+    const sigma = A / 3;
+    for (let n = 0; n < N; n++) {
+      const u1 = Math.random() || 1e-10;
+      const u2 = Math.random();
+      const r  = sigma * Math.sqrt(-2 * Math.log(u1));
+      iq[n*2]   = Math.max(-32767, Math.min(32767, Math.round(r * Math.cos(2 * Math.PI * u2))));
+      iq[n*2+1] = Math.max(-32767, Math.min(32767, Math.round(r * Math.sin(2 * Math.PI * u2))));
+    }
+  }
+  return new Uint8Array(iq.buffer);
 }
 
 // ---- Signal generator -----------------------------------------------------
 function SigGen({ d }) {
-  const [txFreq, setTxFreq] = useS2(null);
-  const [txGain, setTxGain] = useS2(null);
-  const [type, setType] = useS2("CW");
-  const [on, setOn] = useS2(false);
-  useE2(() => { if (d.txFreq != null) setTxFreq(d.txFreq); }, [d.txFreq]);
-  useE2(() => { if (d.txGain != null) setTxGain(d.txGain); }, [d.txGain]);
-  const mhz = (v) => (v / 1e6).toFixed(3) + " MHz";
-  const types = ["CW", "DC", "FM-W", "FM-N", "AM", "EXT", "ASK", "FSK", "NPR"];
+  const G = window._sigGen;
+
+  const [txFreq,   setTxFreq]   = useS2(null);
+  const [txGain,   setTxGain]   = useS2(null);
+  const [on,       setOn]       = useS2(G.active);
+  const [wsConn,   setWsConn]   = useS2(G.ws != null && G.ws.readyState === WebSocket.OPEN);
+  const [preview,  setPreview]  = useS2(null);
+
+  const [fs,       setFs]       = useS2(2000000);
+  const [type,     setType]     = useS2('CW');
+  const [amp,      setAmp]      = useS2(80);
+  const [fOffset,  setFOffset]  = useS2(0);
+  const [spacing,  setSpacing]  = useS2(100000);
+  const [fMod,     setFMod]     = useS2(1000);
+  const [modDepth, setModDepth] = useS2(80);
+  const [fDev,     setFDev]     = useS2(75000);
+  const [fAudio,   setFAudio]   = useS2(1000);
+  const [sideband, setSideband] = useS2('USB');
+  const [fStart,    setFStart]   = useS2(-500000);
+  const [fStop,     setFStop]    = useS2(500000);
+  const [sweepTime, setSweepTime] = useS2(100);
+  const [sweepMode, setSweepMode] = useS2('Triangle');
+
+  useE2(() => { if (d.txFreq     != null) setTxFreq(d.txFreq); },     [d.txFreq]);
+  useE2(() => { if (d.txGain     != null) setTxGain(d.txGain); },     [d.txGain]);
+  useE2(() => { if (d.txSampling != null) setFs(d.txSampling); },     [d.txSampling]);
+
+  useE2(() => {
+    G.onConnected = setWsConn;
+    if (G.active) { setOn(true); if (G.iqBuf) setPreview(G.iqBuf); }
+    return () => { G.onConnected = null; };
+  }, []);
+
+  const mhz    = (v) => (v / 1e6).toFixed(3) + ' MHz';
+  const getP   = () => ({ fOffset, spacing, fMod, modDepth, fDev, fAudio, sideband, fStart, fStop, sweepTime, sweepMode });
+
+  const pump = async (ws) => {
+    const FRAME = 65536, MAX_AHEAD = 1 << 20;
+    let offset = 0;
+    while (G.active && ws.readyState === WebSocket.OPEN) {
+      if (ws.bufferedAmount >= MAX_AHEAD) { await new Promise(r => setTimeout(r, 5)); continue; }
+      const buf = G.iqBuf;
+      if (!buf) { await new Promise(r => setTimeout(r, 10)); continue; }
+      const len = Math.min(FRAME, buf.length - offset);
+      ws.send(buf.subarray(offset, offset + len));
+      offset = (offset + len) % buf.length;
+    }
+  };
+
+  const connectWs = () => {
+    if (!G.active) return;
+    const host  = window._tezukaDevHost || window.location.hostname;
+    const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const ws = new WebSocket(`${proto}//${host}:8765`, 'iio-tx');
+    ws.binaryType = 'arraybuffer';
+    G.ws = ws;
+    ws.onopen  = () => { if (G.onConnected) G.onConnected(true); pump(ws); };
+    ws.onerror = () => {};
+    ws.onclose = () => {
+      G.ws = null;
+      if (G.onConnected) G.onConnected(false);
+      if (G.active) G.reconnTimer = setTimeout(connectWs, 2000);
+    };
+  };
+
+  const start = () => {
+    if (G.active) return;
+    const buf = _sgBuild(type, fs, amp, getP());
+    G.iqBuf = buf; G.active = true;
+    setOn(true); setPreview(buf);
+    connectWs();
+  };
+
+  const stop = () => {
+    G.active = false;
+    clearTimeout(G.reconnTimer); G.reconnTimer = null;
+    const ws = G.ws;
+    if (ws) { ws.onopen = ws.onclose = ws.onerror = null; try { ws.close(); } catch (_) {} G.ws = null; }
+    setOn(false); setWsConn(false);
+  };
+
+  const regen = () => {
+    const buf = _sgBuild(type, fs, amp, getP());
+    G.iqBuf = buf;
+    setPreview(buf);
+  };
+
+  // Refresh preview when params change while idle
+  useE2(() => {
+    if (!on) { setPreview(_sgBuild(type, fs, amp, getP())); }
+  }, [type, fs, amp, fOffset, spacing, fMod, modDepth, fDev, fAudio, sideband, fStart, fStop, sweepTime, sweepMode]);
+
+  const constRef = React.useRef(null);
+  const waveRef  = React.useRef(null);
+
+  useE2(() => {
+    const c = constRef.current;
+    if (!c || !preview) return;
+    const W = c.offsetWidth || 180;
+    c.width = W;
+    const ctx = c.getContext('2d');
+    ctx.fillStyle = '#0a0f11'; ctx.fillRect(0, 0, W, c.height);
+    ctx.strokeStyle = '#1c2830'; ctx.lineWidth = 1; ctx.beginPath();
+    ctx.moveTo(W/2, 0); ctx.lineTo(W/2, c.height);
+    ctx.moveTo(0, c.height/2); ctx.lineTo(W, c.height/2);
+    const r = Math.min(W, c.height) / 2 - 6;
+    ctx.arc(W/2, c.height/2, r, 0, Math.PI * 2);
+    ctx.stroke();
+    const iq = new Int16Array(preview.buffer);
+    const N = Math.min(2048, iq.length / 2);
+    const sc = r / 32767;
+    ctx.fillStyle = 'rgba(91,196,255,0.55)';
+    for (let n = 0; n < N; n++) {
+      const x = W/2 + iq[n*2]   * sc;
+      const y = c.height/2 - iq[n*2+1] * sc;
+      ctx.fillRect(x - 1, y - 1, 2, 2);
+    }
+  }, [preview]);
+
+  useE2(() => {
+    const c = waveRef.current;
+    if (!c || !preview) return;
+    const W = c.offsetWidth || 300;
+    c.width = W;
+    const ctx = c.getContext('2d');
+    ctx.fillStyle = '#0a0f11'; ctx.fillRect(0, 0, W, c.height);
+    ctx.strokeStyle = '#1c2830'; ctx.lineWidth = 1; ctx.beginPath();
+    ctx.moveTo(0, c.height/2); ctx.lineTo(W, c.height/2); ctx.stroke();
+    const iq   = new Int16Array(preview.buffer);
+    const DISP = Math.min(512, iq.length / 2);
+    const sc   = (c.height / 2 - 3) / 32767;
+    const draw = (color, ch) => {
+      ctx.strokeStyle = color; ctx.lineWidth = 1.5; ctx.beginPath();
+      for (let i = 0; i < DISP; i++) {
+        const x = (i / (DISP - 1)) * W;
+        const y = c.height / 2 - iq[i*2 + ch] * sc;
+        i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+      }
+      ctx.stroke();
+    };
+    draw('#5bc4ff', 0); // I
+    draw('#ff9b4a', 1); // Q
+  }, [preview]);
+
+  const typeParams = () => {
+    if (type === 'CW') return (
+      <Field label="Frequency offset" hint="Baseband offset from TX carrier (0 = pure carrier)">
+        <TextInput value={String(fOffset)} onChange={v => setFOffset(parseInt(v) || 0)} suffix="Hz" />
+      </Field>
+    );
+    if (type === 'TwoTone') return (<>
+      <Field label="Center offset" hint="Common offset of both tones">
+        <TextInput value={String(fOffset)} onChange={v => setFOffset(parseInt(v) || 0)} suffix="Hz" />
+      </Field>
+      <Field label="Tone spacing" hint="Total Hz between the two tones (each at ±spacing/2)">
+        <TextInput value={String(spacing)} onChange={v => setSpacing(Math.abs(parseInt(v)) || 100000)} suffix="Hz" />
+      </Field>
+    </>);
+    if (type === 'AM') return (<>
+      <Field label="Carrier offset">
+        <TextInput value={String(fOffset)} onChange={v => setFOffset(parseInt(v) || 0)} suffix="Hz" />
+      </Field>
+      <Field label="Mod frequency">
+        <TextInput value={String(fMod)} onChange={v => setFMod(Math.max(1, parseInt(v) || 1000))} suffix="Hz" />
+      </Field>
+      <Field label="Mod depth">
+        <Slider value={modDepth} min={0} max={100} step={1} unit="%" fmt={v => v.toFixed(0)} onChange={setModDepth} />
+      </Field>
+    </>);
+    if (type === 'FM') return (<>
+      <Field label="Carrier offset">
+        <TextInput value={String(fOffset)} onChange={v => setFOffset(parseInt(v) || 0)} suffix="Hz" />
+      </Field>
+      <Field label="Mod frequency">
+        <TextInput value={String(fMod)} onChange={v => setFMod(Math.max(1, parseInt(v) || 1000))} suffix="Hz" />
+      </Field>
+      <Field label="Deviation">
+        <TextInput value={String(fDev)} onChange={v => setFDev(Math.max(1, parseInt(v) || 75000))} suffix="Hz" />
+      </Field>
+    </>);
+    if (type === 'SSB') return (<>
+      <Field label="Audio frequency">
+        <TextInput value={String(fAudio)} onChange={v => setFAudio(Math.max(1, parseInt(v) || 1000))} suffix="Hz" />
+      </Field>
+      <Field label="Sideband">
+        <Select value={sideband} onChange={setSideband} options={['USB', 'LSB']} />
+      </Field>
+    </>);
+    if (type === 'Sweep') {
+      const actualN = Math.max(256, Math.min(SG_N * 8, Math.round(fs * sweepTime / 1000)));
+      const actualMs = (actualN / fs * 1000).toFixed(1);
+      const bw = Math.abs(fStop - fStart);
+      return (<>
+        <Field label="Start freq" hint="Sweep start (baseband offset from TX carrier)">
+          <TextInput value={String(fStart)} onChange={v => setFStart(parseInt(v) || -500000)} suffix="Hz" />
+        </Field>
+        <Field label="Stop freq" hint="Sweep stop (baseband offset from TX carrier)">
+          <TextInput value={String(fStop)} onChange={v => setFStop(parseInt(v) || 500000)} suffix="Hz" />
+        </Field>
+        <Field label="Sweep time" hint={`One period = ${actualN.toLocaleString()} samples · ${actualMs} ms actual`}>
+          <TextInput value={String(sweepTime)} onChange={v => setSweepTime(Math.max(1, parseInt(v) || 100))} suffix="ms" />
+        </Field>
+        <Field label="Shape">
+          <Select value={sweepMode} onChange={setSweepMode} options={[
+            { v: 'Triangle', l: 'Triangle (up/down, seamless loop)' },
+            { v: 'Sawtooth', l: 'Sawtooth (ramp then reset)' },
+          ]} />
+        </Field>
+        <div className="iq-meta mono" style={{ marginTop: 4 }}>
+          {(fStart / 1e3).toFixed(1)} kHz → {(fStop / 1e3).toFixed(1)} kHz · span {(bw / 1e3).toFixed(1)} kHz
+        </div>
+      </>);
+    }
+    return null;
+  };
+
+  const siggenOn = d.siggen === 'on';
 
   return (
     <div className="page">
       <div className="datv-head">
         <div className="datv-title">
           <h1>Signal generator</h1>
-          <span className="datv-sub mono">Continuous-wave &amp; modulated test source · {type}</span>
+          <span className="datv-sub mono">
+            {type} · {(fs / 1e6).toFixed(3)} MS/s · {amp}% FS
+            {type === 'Sweep' && ` · ${(fStart/1e3).toFixed(1)}→${(fStop/1e3).toFixed(1)} kHz · ${sweepTime} ms ${sweepMode}`}
+            {on && ` · ${wsConn ? 'streaming' : 'connecting…'}`}
+          </span>
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+          <button
+            className={`btn ${siggenOn ? 'primary' : 'ghost'}`}
+            onClick={() => {
+              const next = !siggenOn;
+              if (!next && on) {
+                if (!window.confirm('Signal generator is running. Stop streaming and disable service?')) return;
+                stop();
+              }
+              d.publish('system/siggen', next ? 'on' : 'off');
+            }}
+          >
+            <Icon name={siggenOn ? 'check' : 'close'} size={15} />
+            {siggenOn ? 'Service on' : 'Service off'}
+          </button>
+          <div className={`onair-box ${on ? 'live' : ''}`}>
+            <div className="onair-lamp"><span /></div>
+            <div className="onair-text">
+              <span>{on ? 'TX ON' : 'TX OFF'}</span>
+              <small className="mono">OUTPUT</small>
+            </div>
+            <Toggle on={on} onChange={v => v ? start() : stop()} labels={['OFF', 'ON']} />
+          </div>
         </div>
       </div>
 
-      <div className="grid-12">
-        <Card title="Output" sub="Carrier frequency &amp; level" className="span-12">
-          <Field label="TX frequency" hint="47 MHz – 6 GHz · scroll or click a digit to tune">
-            {txFreq != null && <FreqTuner value={txFreq} digits={12} min={47e6} max={6e9} unit="Hz" sub={mhz} onChange={(v) => { setTxFreq(v); d.publish('tx/frequency', v); }} />}
+      <div className="grid-12" style={!siggenOn ? { opacity: 0.4, pointerEvents: 'none' } : undefined}>
+        <Card title="RF output" sub="Carrier frequency &amp; level" className="span-6">
+          <Field label="TX frequency" hint="47 MHz – 6 GHz">
+            {txFreq != null && <FreqTuner value={txFreq} digits={12} min={47e6} max={6e9} unit="Hz" sub={mhz}
+              onChange={v => { setTxFreq(v); d.publish('tx/frequency', v); }} />}
           </Field>
-          <Field label="TX gain" hint="0 to −89.75 dB">
-            {txGain != null && <Slider value={txGain} min={-89} max={0} step={0.25} onChange={(v) => { setTxGain(v); d.publish('tx/gain', v); }} unit=" dB" fmt={(v) => v.toFixed(2)} />}
+          <Field label="TX gain" hint="−89.75 to 0 dB">
+            {txGain != null && <Slider value={txGain} min={-89.75} max={0} step={0.25}
+              onChange={v => { setTxGain(v); d.publish('tx/gain', v); }} unit=" dB" fmt={v => v.toFixed(2)} />}
           </Field>
-          <Field label="Signal type" hint="Waveform / modulation">
-            <Select value={type} onChange={setType} options={types} />
+          <Field label="Sample rate" hint="Must match device TX sampling rate">
+            <FreqTuner value={fs} digits={9} min={520833} max={61440000} unit="S/s"
+              sub={v => (v / 1e6).toFixed(3) + ' MS/s'}
+              onChange={v => { setFs(v); d.publish('tx/sampling', v); d.publish('rx/sampling', v); }} />
           </Field>
-          <div className={`onair-box ${on ? "live" : ""}`}>
-            <div className="onair-lamp"><span /></div>
-            <div className="onair-text"><span>{on ? "TX ON" : "TX OFF"}</span><small className="mono">OUTPUT</small></div>
-            <Toggle on={on} onChange={setOn} labels={["OFF", "ON"]} />
+        </Card>
+
+        <Card title="Waveform" sub="Signal type &amp; modulation parameters" className="span-6">
+          <Field label="Type">
+            <Select value={type} onChange={setType}
+              options={[
+                { v: 'CW',      l: 'CW — Carrier wave' },
+                { v: 'TwoTone', l: 'Two tone' },
+                { v: 'AM',      l: 'AM — Amplitude modulation' },
+                { v: 'FM',      l: 'FM — Frequency modulation' },
+                { v: 'SSB',     l: 'SSB — Single sideband' },
+                { v: 'Sweep',   l: 'Sweep — Linear frequency chirp' },
+                { v: 'AWGN',    l: 'AWGN — Gaussian white noise' },
+              ]} />
+          </Field>
+          <Field label="Amplitude" hint="Peak level relative to full scale">
+            <Slider value={amp} min={1} max={100} step={1} unit="%" fmt={v => v.toFixed(0)} onChange={setAmp} />
+          </Field>
+          {typeParams()}
+          {on && (
+            <button className="btn ghost" style={{ marginTop: 8 }} onClick={regen}>
+              <Icon name="refresh" size={15} />Apply changes
+            </button>
+          )}
+        </Card>
+
+        <Card title="IQ constellation" sub={<>I/Q plot · 2048 pts &nbsp;<span style={{color:'#5bc4ff'}}>■</span> I · <span style={{color:'#ff9b4a'}}>■</span> Q</>} className="span-4">
+          <canvas ref={constRef} height={160}
+            style={{ width: '100%', borderRadius: 6, display: 'block', background: '#0a0f11' }} />
+        </Card>
+
+        <Card title="Time domain" sub="First 512 samples" className="span-8">
+          <canvas ref={waveRef} height={80}
+            style={{ width: '100%', borderRadius: 4, display: 'block', background: '#0a0f11' }} />
+          <div style={{ display: 'flex', gap: 16, marginTop: 6, fontSize: '0.78em', opacity: 0.6 }}>
+            <span><span style={{ color: '#5bc4ff' }}>■</span> I (in-phase)</span>
+            <span><span style={{ color: '#ff9b4a' }}>■</span> Q (quadrature)</span>
+            <span className="mono" style={{ marginLeft: 'auto' }}>{SG_N.toLocaleString()} samples · {(SG_N * 4 / 1024).toFixed(0)} KB per loop</span>
           </div>
         </Card>
       </div>
