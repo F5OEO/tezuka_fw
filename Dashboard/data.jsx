@@ -97,6 +97,7 @@ function applyMqtt(prev, path, raw) {
     case 'rx/dma_transfer':  return { ...prev, rxDmaTransfer: parseInt(raw) };
     case 'usb/rx_rate':      return { ...prev, usbRxRate: parseInt(raw) };
     case 'usb/tx_rate':      return { ...prev, usbTxRate: parseInt(raw) };
+    case 'system/iqtape':        return { ...prev, iqtape: raw };
     case 'system/overclock':     return { ...prev, overclock: raw };
     case 'system/overclock_cap': try { return { ...prev, overclockCap: JSON.parse(raw) }; } catch { return prev; }
     case 'system/log':                  return { ...prev, systemLog: [...prev.systemLog, raw] };

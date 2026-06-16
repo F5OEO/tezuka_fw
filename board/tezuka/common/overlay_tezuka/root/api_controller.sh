@@ -347,6 +347,12 @@ dump_data () {
     USB_TX_PREV=$usb_tx
     USB_INIT=1
   fi
+
+  if pgrep -x iio_ws_proxy >/dev/null 2>&1; then
+    publish "system/iqtape" "on"
+  else
+    publish "system/iqtape" "off"
+  fi
 }
 
 do_sweep_stop () {
@@ -598,6 +604,17 @@ parse_cmd () {
         /root/watchconsoletx.sh &
       fi
       publish_force "rx/loopback" "$(read_file "${debug_folder}loopback")"
+    ;;
+    system/iqtape)
+      if [ "$val" = "on" ]; then
+        if ! pgrep -x iio_ws_proxy >/dev/null 2>&1; then
+          /usr/bin/iio_ws_proxy &
+        fi
+        publish_force "system/iqtape" "on"
+      else
+        killall iio_ws_proxy 2>/dev/null
+        publish_force "system/iqtape" "off"
+      fi
     ;;
     system/reboot)
       if [ "$val" = "poweroff" ]; then poweroff; else reboot; fi

@@ -29,6 +29,7 @@ function Icon({ name, size = 20 }) {
     transverter: <><path d="M7 21V5" /><path d="M4 8l3-3 3 3" /><path d="M17 3v16" /><path d="M14 16l3 3 3-3" /></>,
     tape: <><rect x="3" y="6" width="18" height="12" rx="2" /><circle cx="8.5" cy="12" r="2.2" /><circle cx="15.5" cy="12" r="2.2" /><path d="M7 18l1.6-2.6M17 18l-1.6-2.6" /></>,
     play: <><path d="M7 5l12 7-12 7z" /></>,
+    repeat: <><path d="M17 2l4 4-4 4" /><path d="M3 11V9a4 4 0 014-4h14M7 22l-4-4 4-4" /><path d="M21 13v2a4 4 0 01-4 4H3" /></>,
     target: <><circle cx="12" cy="12" r="8.5" /><circle cx="12" cy="12" r="3.5" /><path d="M12 1.5v4M12 18.5v4M1.5 12h4M18.5 12h4" /></>,
     pulse: <><path d="M3 12h4l2.5-6 4 12 2.5-6h5" /></>,
     save: <><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z" /><polyline points="17 21 17 13 7 13 7 21" /><polyline points="7 3 7 8 15 8" /></>,

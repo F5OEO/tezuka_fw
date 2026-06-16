@@ -352,6 +352,32 @@ function Transverter({ d }) {
   );
 }
 
+// ---- IQ Tape — IndexedDB helpers for persisting the folder handle ----------
+// FileSystemDirectoryHandle is structured-cloneable → IDB, not localStorage.
+const _idbOpen = () => new Promise((res, rej) => {
+  const req = indexedDB.open('tezuka', 1);
+  req.onupgradeneeded = e => e.target.result.createObjectStore('handles');
+  req.onsuccess = e => res(e.target.result);
+  req.onerror   = e => rej(e.target.error);
+});
+const idbPut = async (key, val) => {
+  const db = await _idbOpen();
+  return new Promise((res, rej) => {
+    const tx = db.transaction('handles', 'readwrite');
+    tx.objectStore('handles').put(val, key);
+    tx.oncomplete = res; tx.onerror = e => rej(e.target.error);
+  });
+};
+const idbGet = async (key) => {
+  const db = await _idbOpen();
+  return new Promise((res, rej) => {
+    const tx = db.transaction('handles', 'readonly');
+    const req = tx.objectStore('handles').get(key);
+    req.onsuccess = e => res(e.target.result ?? null);
+    req.onerror   = e => rej(e.target.error);
+  });
+};
+
 // ---- IQ Tape --------------------------------------------------------------
 const IQ_DEFAULT_FILES = [
   "capture_2026-06-05_143012.iq",
@@ -407,10 +433,31 @@ function IQTape({ d }) {
   const [totalBytes,  setTotalBytes]  = useS2(R.bytesTotal);
   const [wsConnected, setWsConnected] = useS2(R.ws != null && R.ws.readyState === WebSocket.OPEN);
 
+  const [pendingHandle, setPendingHandle] = useS2(null); // saved handle awaiting permission gesture
+
+  const [iqtapeOn, setIqtapeOn] = useS2(d.iqtape !== 'off');
+  useE2(() => { if (d.iqtape != null) setIqtapeOn(d.iqtape === 'on'); }, [d.iqtape]);
+
   const folderHandleRef = React.useRef(folderHandle);
   useE2(() => { folderHandleRef.current = folderHandle; R.folderHandle = folderHandle; }, [folderHandle]);
   useE2(() => { R.folderFiles = folderFiles; }, [folderFiles]);
   useE2(() => { R.selectedFile = file; }, [file]);
+
+  // Restore folder handle from IndexedDB on first mount (no in-memory handle yet)
+  useE2(() => {
+    if (R.folderHandle) return;
+    idbGet('iqFolder').then(async handle => {
+      if (!handle) return;
+      const perm = await handle.queryPermission({ mode: 'readwrite' });
+      if (perm === 'granted') {
+        R.folderHandle = handle;
+        setFolderHandle(handle);
+        refreshFolder(handle);
+      } else if (perm === 'prompt') {
+        setPendingHandle(handle); // show Restore button — needs user gesture
+      }
+    }).catch(() => {});
+  }, []);
 
   // Attach setState callbacks on mount, detach on unmount (recording/playback keeps running)
   useE2(() => {
@@ -484,7 +531,7 @@ function IQTape({ d }) {
     const ws = R.ws;
     if (ws) { ws.onopen = ws.onclose = ws.onerror = ws.onmessage = null; try { ws.close(); } catch (_) {} R.ws = null; }
     const w = R.writable;
-    if (w) { R.writable = null; w.close().catch(() => {}); }
+    if (w) { R.writable = null; w.close().then(() => refreshFolder(folderHandleRef.current)).catch(() => {}); }
     R.filename = null;
     setRec(false); setRecFilename(null); setBitrate(0); setTotalBytes(0); setWsConnected(false);
   };
@@ -619,6 +666,18 @@ function IQTape({ d }) {
   const files = folderFiles ?? IQ_DEFAULT_FILES;
   const meta  = folderFiles ? {} : IQ_DEFAULT_META;
 
+  const refreshFolder = async (handle) => {
+    if (!handle) return;
+    const found = [];
+    for await (const [name, entry] of handle.entries()) {
+      if (entry.kind === 'file' && /\.(iq|bin|cf32|cs16|cs8|raw)$/i.test(name)) found.push(name);
+    }
+    found.sort();
+    R.folderFiles = found.length ? found : [];
+    setFolderFiles(R.folderFiles);
+    if (found.length && !R.selectedFile) { R.selectedFile = found[0]; setFile(found[0]); }
+  };
+
   const pickFolder = async () => {
     if (!window.showDirectoryPicker) {
       alert("Your browser does not support the File System Access API.\nUse Chrome or Edge to pick a local folder.");
@@ -626,38 +685,75 @@ function IQTape({ d }) {
     }
     try {
       const handle = await window.showDirectoryPicker({ mode: 'readwrite' });
+      R.folderHandle = handle;
       setFolderHandle(handle);
-      const found = [];
-      for await (const [name, entry] of handle.entries()) {
-        if (entry.kind === 'file' && /\.(iq|bin|cf32|cs16|cs8|raw)$/i.test(name)) found.push(name);
-      }
-      found.sort();
-      setFolderFiles(found.length ? found : []);
-      if (found.length) setFile(found[0]);
+      setPendingHandle(null);
+      await refreshFolder(handle);
+      if (R.folderFiles?.length) { R.selectedFile = R.folderFiles[0]; setFile(R.folderFiles[0]); }
+      idbPut('iqFolder', handle).catch(() => {});
     } catch (_) { /* user cancelled */ }
+  };
+
+  const restoreFolder = async () => {
+    if (!pendingHandle) return;
+    const perm = await pendingHandle.requestPermission({ mode: 'readwrite' });
+    if (perm === 'granted') {
+      R.folderHandle = pendingHandle;
+      setFolderHandle(pendingHandle);
+      setPendingHandle(null);
+      refreshFolder(pendingHandle);
+    }
   };
 
   const clearFolder = () => {
     R.folderHandle = null; R.folderFiles = null; R.selectedFile = IQ_DEFAULT_FILES[0];
     setFolderHandle(null); setFolderFiles(null); setFile(IQ_DEFAULT_FILES[0]);
+    setPendingHandle(null);
+    idbPut('iqFolder', null).catch(() => {});
   };
 
   return (
     <div className="page">
       <div className="grid-12">
         <Card title="Local folder" sub="Default location for recordings and playback files" className="span-12">
+          <Field label="IQ Tape" hint="Enable or disable the iio_ws_proxy streaming service on the device">
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              <button
+                className={`btn ${iqtapeOn ? 'primary' : 'ghost'}`}
+                onClick={() => {
+                  const next = !iqtapeOn;
+                  if (!next && (rec || R.playActive)) {
+                    const what = rec && R.playActive ? 'Recording and playback' : rec ? 'Recording' : 'Playback';
+                    if (!window.confirm(`${what} in progress. Confirm to stop?`)) return;
+                    if (rec) stopRec();
+                    if (R.playActive) stopPlay();
+                  }
+                  setIqtapeOn(next);
+                  d.publish('system/iqtape', next ? 'on' : 'off');
+                }}
+              >
+                <Icon name={iqtapeOn ? 'check' : 'close'} size={15} />
+                {iqtapeOn ? 'On' : 'Off'}
+              </button>
+            </div>
+          </Field>
           <Field label="Folder" hint={folderHandle ? "Files written here by default · click Choose to switch" : "Choose a folder to list its .iq files and save recordings there"}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
               <span className="mono" style={{ flex: 1, opacity: folderHandle ? 1 : 0.4, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                {folderHandle ? folderHandle.name : 'No folder selected'}
+                {folderHandle ? folderHandle.name : (pendingHandle ? pendingHandle.name : 'No folder selected')}
               </span>
               {folderHandle && folderFiles != null && (
                 <span className="pill pill-neutral">{folderFiles.length} file{folderFiles.length !== 1 ? 's' : ''}</span>
               )}
+              {!folderHandle && pendingHandle && (
+                <button className="btn primary" onClick={restoreFolder}>
+                  <Icon name="upload" size={15} />Restore…
+                </button>
+              )}
               <button className="btn ghost" onClick={pickFolder}>
                 <Icon name="upload" size={15} />Choose…
               </button>
-              {folderHandle && (
+              {(folderHandle || pendingHandle) && (
                 <button className="btn ghost" onClick={clearFolder}>
                   <Icon name="close" size={15} />Clear
                 </button>
@@ -666,6 +762,7 @@ function IQTape({ d }) {
           </Field>
         </Card>
 
+        <div className="span-12 grid-12" style={!iqtapeOn ? { opacity: 0.4, pointerEvents: 'none' } : undefined}>
         <Card title="Capture" sub="Record baseband I/Q to file" className="span-6">
           <Field label="Sample rate">
             {sr != null && <FreqTuner value={sr} digits={9} min={520833} max={61440000} unit="S/s" sub={(v) => (v / 1e6).toFixed(3) + " MS/s"} onChange={(v) => { setSr(v); d.publish('rx/sampling', v); d.publish('tx/sampling', v); }} />}
@@ -724,14 +821,28 @@ function IQTape({ d }) {
             </button>
           </div>
           {playing && (
-            <div className="iq-meta mono" style={{ marginTop: 8, display: 'flex', alignItems: 'center', gap: 8 }}>
-              <span className="iq-dot" style={{ background: playConn ? 'var(--accent)' : 'var(--c-yellow, #f5b301)', flexShrink: 0 }} />
-              {playConn
-                ? <><span>{fmtBitrate(playBitrate)}</span><span style={{ opacity: 0.55 }}>·</span><span>{fmtBytes(playBytes)} / {fmtBytes(playTotal)}</span></>
-                : <span>{playTotal > 0 ? `Connecting… (${fmtBytes(playTotal)})` : 'Reading file…'}</span>}
-            </div>
+            <>
+              <div className="iq-meta mono" style={{ marginTop: 8, display: 'flex', alignItems: 'center', gap: 8 }}>
+                <span className="iq-dot" style={{ background: playConn ? 'var(--accent)' : 'var(--c-yellow, #f5b301)', flexShrink: 0 }} />
+                {playConn
+                  ? <><span>{fmtBitrate(playBitrate)}</span><span style={{ opacity: 0.55 }}>·</span><span>{fmtBytes(playBytes)} / {fmtBytes(playTotal)}</span></>
+                  : <span>{playTotal > 0 ? `Connecting… (${fmtBytes(playTotal)})` : 'Reading file…'}</span>}
+              </div>
+              {playTotal > 0 && (() => {
+                const pct = Math.min(100, playBytes / playTotal * 100);
+                return (
+                  <div className="hgauge" style={{ marginTop: 6 }}>
+                    <div className="hgauge-track">
+                      <div className="hgauge-fill" style={{ width: pct.toFixed(1) + '%', background: 'var(--accent)' }} />
+                    </div>
+                    <span className="hgauge-val">{pct.toFixed(0)}%</span>
+                  </div>
+                );
+              })()}
+            </>
           )}
         </Card>
+        </div>
       </div>
     </div>
   );
