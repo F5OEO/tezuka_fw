@@ -9,9 +9,26 @@ Usage:
   python3 bundle.py > output.html
   python3 bundle.py /path/to/output.html
 """
-import os, sys
+import os, sys, subprocess
 
 HERE = os.path.dirname(os.path.abspath(__file__))
+
+def build_signals():
+    """Rebuild vendor/signals.bundle.js via npm + esbuild."""
+    bundle = os.path.join(HERE, 'vendor', 'signals.bundle.js')
+    entry  = os.path.join(HERE, 'signals-entry.js')
+    print('[bundle] npm install @jtarrio/signals esbuild...', file=sys.stderr)
+    subprocess.run(['npm', 'install', '@jtarrio/signals', 'esbuild'],
+                   cwd=HERE, check=True)
+    print('[bundle] esbuild signals-entry.js -> vendor/signals.bundle.js...', file=sys.stderr)
+    subprocess.run(
+        ['npx', 'esbuild', entry,
+         '--bundle', '--format=iife', '--global-name=Signals',
+         f'--outfile={bundle}'],
+        cwd=HERE, check=True)
+    print(f'[bundle] signals.bundle.js ({os.path.getsize(bundle)//1024} KB)', file=sys.stderr)
+
+build_signals()
 
 VENDOR = [
     ('vendor/react.js',     'https://unpkg.com/react@18.3.1/umd/react.production.min.js'),
@@ -30,6 +47,9 @@ SOURCES = [
     ('jsx', 'pages1.jsx'),
     ('jsx', 'pages2.jsx'),
     ('jsx', 'pages3.jsx'),
+    ('jsx', 'pages4.jsx'),
+    ('js',  'vendor/signals.bundle.js'),
+    ('jsx', 'pages5.jsx'),
     ('jsx', 'app.jsx'),
 ]
 

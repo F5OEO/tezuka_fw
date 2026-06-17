@@ -1,0 +1,6 @@
+{
+  "dependencies": {
+    "@jtarrio/signals": "^0.10.1",
+    "esbuild": "^0.28.1"
+  }
+}
