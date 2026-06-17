@@ -5,24 +5,39 @@
 
 NAME=gpsd
 DAEMON=/usr/sbin/$NAME
-DEVICES="/dev/ttyACM0"
 PIDFILE=/var/run/$NAME.pid
 GPSD_OPTIONS="-G -n -r"
 
 [ -x "$DAEMON" ] || exit 0
 
+# Check which device exists and assign it
+if [ -e "/dev/ttyUL0" ]; then
+        DEVICES="/dev/ttyUL0"
+elif [ -e "/dev/ttyACM0" ]; then
+        DEVICES="/dev/ttyACM0"
+else
+        DEVICES=""
+fi
+
 start() {
-        printf 'Starting %s: ' "$NAME"
+        if [ -z "$DEVICES" ]; then
+                echo "Error: Neither /dev/ttyUL0 nor /dev/ttyACM0 was found."
+                exit 1
+        fi
+
+        printf 'Starting %s using %s: ' "$NAME" "$DEVICES"
         # shellcheck disable=SC2086
-        start-stop-daemon -S -q -p "$PIDFILE" --exec "$DAEMON" -- -P "$PIDFILE" $GPSD_OPTIONS "$DEVICES" && echo "OK" || echo "FAIL"
+        start-stop-daemon -S -q -p "$PIDFILE" --exec "$DAEMON" -- -P "$PIDFILE" $GPSD_OPTIONS "$DEVICES" && echo "OK"
         sleep 3
         gpsctl --nmea
 }
+
 stop() {
         printf 'Stopping %s: ' "$NAME"
-        start-stop-daemon -K -q -p $PIDFILE && echo "OK" || echo "Failed"
-        rm -f $PIDFILE
+        start-stop-daemon -K -q -p "$PIDFILE" && echo "OK" || echo "Failed"
+        rm -f "$PIDFILE"
 }
+
 restart() {
         stop
         start
