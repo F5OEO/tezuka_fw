@@ -17,6 +17,7 @@ const NAV = [
   { group: "RF", items: [["spectrum", "Spectrum", "spectrum"], ["arch", "Architecture", "chip"]] },
   { group: "Application", items: [["datv", "DATV Controller", "datv", [["analysis", "Analysis", "analysis"]]], ["transverter", "Transverter", "transverter"], ["iqtape", "IQ Tape", "tape"], ["siggen", "Signal generator", "wave"]] },
   { group: "System", items: [["versions", "Versions", "versions"], ["network", "Network", "network"], ["diagnostic", "Diagnostic", "pulse"], ["calibrate", "Calibrate", "target", [["kalibrate", "Kalibrate", "search"]]], ["performance", "Performance", "chip"], ["gpio", "GPIO", "circuit"], ["persistent", "Persistent", "save"], ["reboot", "Reboot", "power"]] },
+  { group: "Documentation", items: [["docs", "Documentation", "book"]] },
 ];
 
 const TWEAK_DEFAULTS = /*EDITMODE-BEGIN*/{
@@ -78,7 +79,7 @@ function Sidebar({ route, setRoute, collapsed, labels, operator }) {
   );
 }
 
-const TITLES = { dashboard: "Dashboard", spectrum: "Spectrum", datv: "DATV Controller", transverter: "Transverter", iqtape: "IQ Tape", siggen: "Signal generator", calibrate: "Calibrate", analysis: "Analysis", arch: "Architecture", versions: "Versions & system", network: "Network", diagnostic: "Diagnostic", kalibrate: "Kalibrate from RF", performance: "Performance", gpio: "GPIO", persistent: "Persistent storage", reboot: "Reboot", operator: "Operator" };
+const TITLES = { dashboard: "Dashboard", spectrum: "Spectrum", datv: "DATV Controller", transverter: "Transverter", iqtape: "IQ Tape", siggen: "Signal generator", calibrate: "Calibrate", analysis: "Analysis", arch: "Architecture", versions: "Versions & system", network: "Network", diagnostic: "Diagnostic", kalibrate: "Kalibrate from RF", performance: "Performance", gpio: "GPIO", persistent: "Persistent storage", reboot: "Reboot", operator: "Operator", docs: "Documentation" };
 
 function Topbar({ onMenu, route, mqtt }) {
   return (
@@ -149,6 +150,7 @@ function App() {
       case "persistent": return <Persistent d={d} />;
       case "reboot": return <Reboot d={d} ver={ver} />;
       case "operator": return <Operator operator={op} onSave={setOperator} />;
+      case "docs": return <Documentation />;
       default: return <Dashboard d={d} ver={ver} />;
     }
   };

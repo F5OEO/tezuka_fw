@@ -584,7 +584,7 @@ function SpectrumPage({ d }) {
   const spanThrottleRef   = useSpR(0);  // 500 ms gate for rx/span publishes
   const spanDebounceRef   = useSpR(0);  // setTimeout id for post-span-change flush
   const centerHzRef = useSpR(sp.centerHz ?? (d.rxFreq ?? 437e6));
-  const spanHzRef      = useSpR(sp.spanHz   ?? (d.span ?? d.rxSampling ?? 2.4e6));
+  const spanHzRef      = useSpR(sp.spanHz   ?? (d.span ?? d.rxSampling ?? null));
   const spanDefaultSet = useSpR(false);
   const dRef           = useSpR(d);
   const viewZoomR      = useSpR(1);    // graphical zoom factor (1 = full view)
@@ -595,7 +595,7 @@ function SpectrumPage({ d }) {
   const [refDb,    setRefDb]    = useSpS(() => sp.refDb    ?? 130);
   const [range,    setRange]    = useSpS(() => sp.range    ?? SP_ROWS * 10);
   const [centerHz, setCenterHz] = useSpS(() => sp.centerHz ?? (d.rxFreq    ?? 437e6));
-  const [spanHz,   setSpanHz]   = useSpS(() => sp.spanHz   ?? (d.span ?? d.rxSampling ?? 2.4e6));
+  const [spanHz,   setSpanHz]   = useSpS(() => sp.spanHz   ?? (d.span ?? d.rxSampling ?? null));
   const [gain,     setGain]     = useSpS(() => sp.gain     ?? (d.rxGain    ?? 50));
   const [rxInput,  setRxInput]  = useSpS(() => sp.rxInput  ?? (d.rxRfinput === 2 ? 'rx2' : 'rx1'));
   const [wsState,  setWsState]  = useSpS('disconnected');
@@ -623,17 +623,10 @@ function SpectrumPage({ d }) {
   useSpE(() => { if (d.rxGain    != null) setGain(d.rxGain); },    [d.rxGain]);
   useSpE(() => { if (d.rxFreq    != null) setCenterHz(d.rxFreq); }, [d.rxFreq]);
   useSpE(() => {
+    // Prefer an explicit span echo (d.span) over the raw sampling rate.
+    // Never publish cmd/rx/span at startup — only reflect what the device reports.
     const s = d.span ?? d.rxSampling;
-    if (s != null) { spanDefaultSet.current = true; setSpanHz(s); return; }
-    if (spanDefaultSet.current) return;
-    const t = setTimeout(() => {
-      if (!spanDefaultSet.current) {
-        spanDefaultSet.current = true;
-        setSpanHz(10e6);
-        d.publish('rx/span', 10000000);
-      }
-    }, 500);
-    return () => clearTimeout(t);
+    if (s != null) { spanDefaultSet.current = true; setSpanHz(s); }
   }, [d.span, d.rxSampling]);
   useSpE(() => {
     if (d.rxRfinput != null) setRxInput(d.rxRfinput === 2 ? 'rx2' : 'rx1');
@@ -1179,7 +1172,7 @@ function SpectrumPage({ d }) {
             <div className="hp-fld">
               <span className="hp-pfx">SPAN</span>
               <div className="hp-tuner">
-                <FreqTuner value={Math.round(spanHz / 1000)} digits={6} min={80} max={300000} unit="MHz" onChange={onSpanChg} />
+                {spanHz != null && <FreqTuner value={Math.round(spanHz / 1000)} digits={6} min={80} max={300000} unit="MHz" onChange={onSpanChg} />}
               </div>
             </div>
           </div>
