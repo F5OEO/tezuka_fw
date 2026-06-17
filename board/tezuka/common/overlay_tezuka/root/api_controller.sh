@@ -234,6 +234,19 @@ dump_data () {
     publish "rx/sweep/engaged" "0"
     publish "rx/sweep/activate" "0"
     echo "0" > /tmp/sweep_on
+    # In single-band mode (not sweep, not DDC), keep sweep_span in sync with the
+    # actual hardware SR.  Fixes stale /tmp/sweep_span when api_controller starts
+    # before the AD9361 settles at its final rate (e.g. init reads 2.4 MHz but
+    # hardware later lands at 30.72 MHz).
+    # Guard: skip when span < 2.4 MHz — that signals DDC mode where the display
+    # span is intentionally smaller than the hardware SR.
+    if [ "${s_span:-0}" -ge "2400000" ]; then
+      local hw_sr; hw_sr=$(read_file "${folder}in_voltage_sampling_frequency")
+      if [ "$hw_sr" != "n/a" ] && [ -n "$hw_sr" ] && [ "${hw_sr:-0}" -ge "2400000" ]; then
+        s_span=$hw_sr
+        echo "$hw_sr" > /tmp/sweep_span
+      fi
+    fi
   fi
 
   publish "rx/sweep/frequency" "${s_freq:-0}"
@@ -355,6 +368,19 @@ dump_data () {
     publish "system/iqtape" "off"
     publish "system/siggen" "off"
   fi
+
+  # GPS fix and Maidenhead locator — poll via gpsd every 5 cycles (~10 s)
+  if pidof gpsd >/dev/null 2>&1 && command -v gpspipe >/dev/null 2>&1; then
+    GPS_TICK=$(( GPS_TICK + 1 ))
+    [ $(( GPS_TICK % 5 )) -eq 1 ] && poll_gps &
+  else
+    printf 'none' > /tmp/gps_fix
+  fi
+  local _gfix _gloc
+  _gfix=$(cat /tmp/gps_fix 2>/dev/null)
+  _gloc=$(cat /tmp/gps_locator 2>/dev/null)
+  publish "system/gps/fix" "${_gfix:-none}"
+  [ -n "$_gloc" ] && publish "system/gps/locator" "$_gloc"
 }
 
 do_sweep_stop () {
@@ -401,6 +427,37 @@ gpioset gpiochip0 63=0
 gpioset gpiochip0 64=0
 gpioset gpiochip0 65=0
   
+}
+
+# ============================================================
+#  GPS HELPER
+# ============================================================
+
+poll_gps () {
+  local raw fix="none" lat="" lon="" locator=""
+  raw=$(timeout 3 gpspipe -w -n 15 2>/dev/null | grep -m1 '"class":"TPV"')
+  if [ -n "$raw" ]; then
+    local mode
+    mode=$(printf '%s' "$raw" | awk -F'"mode":' 'NF>1{split($2,a,/[^0-9]/);print a[1]}')
+    lat=$(printf '%s'  "$raw" | awk -F'"lat":'  'NF>1{split($2,a,/[,}]/);print a[1]}')
+    lon=$(printf '%s'  "$raw" | awk -F'"lon":'  'NF>1{split($2,a,/[,}]/);print a[1]}')
+    case "${mode:-0}" in
+      3) fix="3D" ;;
+      2) fix="2D" ;;
+      *) fix="none" ;;
+    esac
+    if [ -n "$lat" ] && [ -n "$lon" ]; then
+      locator=$(awk -v la="$lat" -v lo="$lon" 'BEGIN {
+        lo += 180; la += 90
+        A = int(lo / 20);        B = int(la / 10)
+        C = int((lo % 20) / 2);  D = int(la % 10)
+        E = int((lo % 2) * 12);  F = int((la % 1) * 24)
+        printf "%c%c%d%d%c%c", 65+A, 65+B, C, D, 97+E, 97+F
+      }')
+      printf '%s' "$locator" > /tmp/gps_locator
+    fi
+  fi
+  printf '%s' "$fix" > /tmp/gps_fix
 }
 
 # ============================================================
@@ -781,6 +838,7 @@ IQ_INIT=0
 USB_RX_PREV=0
 USB_TX_PREV=0
 USB_INIT=0
+GPS_TICK=0
 
 # ============================================================
 #  MAIN LOOP

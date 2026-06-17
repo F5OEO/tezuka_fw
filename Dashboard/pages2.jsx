@@ -1996,4 +1996,38 @@ function Performance({ d }) {
   );
 }
 
-Object.assign(window, { DATV, Versions, Analysis, Network, Transverter, IQTape, SigGen, Calibrate, Diagnostic, Reboot, Operator, Kalibrate, Persistent, Performance, GPIO });
+function GpsPage({ d }) {
+  const fix = d.gpsfix || 'none';
+  const locator = d.gpsLocator || '';
+
+  const fixMeta = {
+    '3D': { cls: 'ok',   label: '3D Fix',  desc: 'Full position + altitude' },
+    '2D': { cls: 'warn', label: '2D Fix',  desc: 'Position — altitude unreliable' },
+    'none': { cls: 'dim', label: 'No Fix', desc: 'Waiting for satellite fix' },
+  };
+  const meta = fixMeta[fix] || fixMeta['none'];
+
+  return (
+    <div className="page">
+      <div className="grid-12">
+        <Card title="GPS" sub="Fix status and Maidenhead locator via gpsd" className="span-12">
+          <div className="gps-panel">
+            <div className={`gps-fix gps-fix-${fix}`}>
+              <Icon name="mappin" size={40} />
+              <span className="gps-fix-label">{meta.label}</span>
+              <span className="gps-fix-desc">{meta.desc}</span>
+            </div>
+            <div className="gps-sep" />
+            <div className="gps-loc-wrap">
+              <span className="gps-loc-cap">Maidenhead Locator</span>
+              <span className="gps-loc mono">{locator || '—'}</span>
+              {locator && <span className="gps-loc-hint">6-char grid square</span>}
+            </div>
+          </div>
+        </Card>
+      </div>
+    </div>
+  );
+}
+
+Object.assign(window, { DATV, Versions, Analysis, Network, Transverter, IQTape, SigGen, Calibrate, Diagnostic, Reboot, Operator, Kalibrate, Persistent, Performance, GPIO, GpsPage });

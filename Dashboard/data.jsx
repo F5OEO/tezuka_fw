@@ -108,6 +108,8 @@ function applyMqtt(prev, path, raw) {
     case 'system/kalibrate/result_ppm': return { ...prev, kalibrateResultPpm: parseFloat(raw) };
     case 'system/kalibrate/result_ppb': return { ...prev, kalibrateResultPpb: parseFloat(raw) };
     case 'system/kalibrate/log':        return { ...prev, kalibrateLog: [...prev.kalibrateLog, raw] };
+    case 'system/gps/fix':             return { ...prev, gpsfix: raw };
+    case 'system/gps/locator':         return { ...prev, gpsLocator: raw };
     default:                    return prev;
   }
 }
@@ -139,6 +141,7 @@ function useLiveData(running = true) {
     overclock: null, overclockCap: [],
     gainTableConfig: null,
     kalibrateStatus: '', kalibrateChannels: [], kalibrateResultPpm: null, kalibrateResultPpb: null, kalibrateLog: [],
+    gpsfix: null, gpsLocator: null,
   }));
 
   // MQTT connection — ws://[hostname]:9001/mqtt  or  wss://[hostname]:9002/mqtt over HTTPS

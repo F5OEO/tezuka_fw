@@ -618,6 +618,107 @@ body {
 .gpio-state { font-size: 11px; font-weight: 700; letter-spacing: 0.06em; color: var(--dim-2); flex-shrink: 0; }
 .gpio-pin.gpio-on .gpio-state { color: var(--ok); }
 
+/* ---- GPS page ---- */
+.gps-panel {
+  display: flex;
+  align-items: stretch;
+  gap: 0;
+  min-height: 200px;
+}
+.gps-fix {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 2rem 3rem;
+  border-radius: var(--r-sm);
+  flex: 1;
+  text-align: center;
+}
+.gps-fix-none { background: var(--inset); color: var(--dim); }
+.gps-fix-2D   { background: rgba(245,179,1,0.1); color: var(--warn); }
+.gps-fix-3D   { background: rgba(70,211,154,0.1); color: var(--ok); }
+.gps-fix-label { font-size: 1.75rem; font-weight: 700; line-height: 1; }
+.gps-fix-desc  { font-size: 0.75rem; opacity: 0.7; }
+.gps-sep { width: 1px; background: var(--border-soft); margin: 0.5rem 0; flex-shrink: 0; }
+.gps-loc-wrap {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  flex: 2;
+  padding: 2rem;
+}
+.gps-loc-cap  { font-size: 0.65rem; text-transform: uppercase; letter-spacing: 0.12em; color: var(--dim); }
+.gps-loc      { font-size: 4rem; font-weight: 700; letter-spacing: 0.15em; color: var(--accent); line-height: 1; }
+.gps-loc-hint { font-size: 0.7rem; color: var(--dim-2); }
+
+/* ---- Documentation page ---- */
+.docs-page { display: flex; flex-direction: column; gap: 0; padding: 0; }
+.docs-header {
+  display: flex; align-items: flex-start; justify-content: space-between; gap: 20px;
+  padding: 28px 28px 24px; background: var(--panel); border-bottom: 1px solid var(--border-soft);
+  flex-shrink: 0;
+}
+.docs-title { margin: 0 0 6px; font-size: 20px; font-weight: 700; letter-spacing: -0.02em; }
+.docs-subtitle { margin: 0; font-size: 13px; color: var(--dim); max-width: 640px; line-height: 1.55; }
+.docs-lang-btn { flex-shrink: 0; display: flex; align-items: center; gap: 6px; }
+
+.docs-layout { display: flex; flex: 1; min-height: 0; overflow: hidden; }
+
+/* TOC sidebar */
+.docs-toc {
+  width: 220px; flex-shrink: 0; overflow-y: auto; padding: 18px 12px;
+  border-right: 1px solid var(--border-soft); background: var(--bg-2);
+  display: flex; flex-direction: column; gap: 2px;
+}
+.docs-toc-title {
+  font-size: 10.5px; font-weight: 600; letter-spacing: 0.12em; text-transform: uppercase;
+  color: var(--dim-2); padding: 6px 10px 10px;
+}
+.docs-toc-item {
+  display: flex; align-items: center; gap: 9px; width: 100%;
+  padding: 7px 10px; border: none; background: none; color: var(--dim);
+  cursor: pointer; border-radius: var(--r-sm); font-size: 12.5px; font-weight: 500;
+  text-align: left; transition: background .13s, color .13s; white-space: nowrap;
+  overflow: hidden; text-overflow: ellipsis;
+}
+.docs-toc-item:hover { background: var(--panel); color: var(--text); }
+.docs-toc-item.active { background: color-mix(in oklab, var(--accent) 14%, transparent); color: var(--accent); }
+.docs-toc-item svg { flex-shrink: 0; }
+
+/* Content area */
+.docs-content {
+  flex: 1; overflow-y: auto; padding: 28px 32px;
+  display: flex; flex-direction: column; gap: 36px;
+}
+.docs-content::-webkit-scrollbar { width: 10px; }
+.docs-content::-webkit-scrollbar-thumb { background: var(--border); border-radius: 8px; border: 3px solid var(--bg); }
+
+.docs-section { display: flex; flex-direction: column; gap: 16px; scroll-margin-top: 16px; }
+
+.docs-sec-head { display: flex; align-items: center; gap: 10px; padding-bottom: 4px; border-bottom: 1px solid var(--border-soft); }
+.docs-sec-icon { display: inline-flex; }
+.docs-sec-title { margin: 0; font-size: 16px; font-weight: 700; letter-spacing: -0.01em; }
+.docs-sec-desc { margin: 0; font-size: 13px; color: var(--dim); line-height: 1.6; max-width: 760px; }
+
+.docs-group { display: flex; flex-direction: column; gap: 6px; }
+.docs-group-title {
+  font-size: 11px; font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase;
+  color: var(--dim-2); padding: 2px 0 4px;
+}
+.docs-table { width: 100%; border-collapse: collapse; }
+.docs-table tr { border-bottom: 1px solid var(--border-soft); }
+.docs-table tr:last-child { border-bottom: none; }
+.docs-table tr:hover { background: color-mix(in oklab, var(--panel) 50%, transparent); }
+.docs-td-name {
+  padding: 7px 14px 7px 0; vertical-align: top; white-space: nowrap;
+  font-size: 12px; color: var(--accent); width: 1%; min-width: 180px;
+}
+.docs-td-desc { padding: 7px 0; vertical-align: top; font-size: 13px; line-height: 1.5; color: var(--text); }
+
 /* ---- Spectrum WebSocket page ---- */
 .sp-page { display: flex; flex-direction: column; gap: var(--gap); }
 .sp-page:fullscreen { background: #0a0a0a; padding: var(--gap); justify-content: center; }
