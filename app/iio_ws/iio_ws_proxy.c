@@ -2,13 +2,13 @@
  * iio_ws_proxy.c — libiio IQ stream ↔ WebSocket binary bridge
  *
  * Full-duplex single WebSocket connection:
- *   IIO ADC samples  →  WS binary frames  (server push)
- *   WS binary frames →  IIO DAC samples   (client push)
+ * IIO ADC samples  →  WS binary frames  (server push)
+ * WS binary frames →  IIO DAC samples   (client push)
  *
  * WS sub-protocol negotiation (client selects one):
- *   "iio-iq"   full-duplex   (default)
- *   "iio-rx"   ADC→WS only
- *   "iio-tx"   WS→DAC only
+ * "iio-iq"   full-duplex   (Also acts as DEFAULT fallback if client provides NO subprotocol)
+ * "iio-rx"   ADC→WS only
+ * "iio-tx"   WS→DAC only
  *
  * TX framing: the proxy accumulates incoming WS data until a full IIO
  * buffer's worth has arrived, then hands it to the DAC thread.  WS
@@ -17,18 +17,18 @@
  * RX framing: each iio_buffer_refill() result becomes one binary WS frame.
  *
  * Build (cross-compile for Pluto):
- *   $(CC) -O2 -o iio_ws_proxy iio_ws_proxy.c -liio -lwebsockets -lpthread
+ * $(CC) -O2 -o iio_ws_proxy iio_ws_proxy.c -liio -lwebsockets -lpthread
  *
  * Usage:
- *   iio_ws_proxy [OPTIONS]
- *     -u URI    IIO context URI        (default: local:)
- *     -r DEV    RX IIO device          (default: cf-ad9361-lpc)
- *     -t DEV    TX IIO device          (default: cf-ad9361-dds-core-lpc)
- *     -p PORT   WebSocket listen port  (default: 8765)
- *     -n N      Buffer samples         (default: 262144)
- *     -R        ADC→WS only  (disable DAC path)
- *     -T        WS→DAC only  (disable ADC path)
- *     -s        Throughput stats every second
+ * iio_ws_proxy [OPTIONS]
+ * -u URI    IIO context URI        (default: local:)
+ * -r DEV    RX IIO device          (default: cf-ad9361-lpc)
+ * -t DEV    TX IIO device          (default: cf-ad9361-dds-core-lpc)
+ * -p PORT   WebSocket listen port  (default: 8765)
+ * -n N      Buffer samples         (default: 262144)
+ * -R        ADC→WS only  (disable DAC path)
+ * -T        WS→DAC only  (disable ADC path)
+ * -s        Throughput stats every second
  */
 
 #define _GNU_SOURCE
@@ -50,7 +50,7 @@
 #endif
 
 /* ------------------------------------------------------------------ */
-/*  Defaults                                                            */
+/* Defaults                                                            */
 /* ------------------------------------------------------------------ */
 #define DEF_PORT         8765
 #define DEF_BUF_SAMPLES  (1 << 18)   /* 262144 samples */
@@ -61,7 +61,7 @@
 #define IIO_TIMEOUT_MS   1000         /* lets RX thread notice shutdown */
 
 /* ------------------------------------------------------------------ */
-/*  Lock-free SPSC ring buffer                                          */
+/* Lock-free SPSC ring buffer                                          */
 /* ------------------------------------------------------------------ */
 struct slot {
     uint8_t *buf;    /* LWS_PRE headroom + data payload */
@@ -126,7 +126,7 @@ static bool ring_has_data(struct ring *r)
 }
 
 /* ------------------------------------------------------------------ */
-/*  Application context                                                 */
+/* Application context                                                 */
 /* ------------------------------------------------------------------ */
 struct app {
     /* Config */
@@ -184,7 +184,7 @@ struct app {
 static struct app A;
 
 /* ------------------------------------------------------------------ */
-/*  IIO helpers                                                         */
+/* IIO helpers                                                         */
 /* ------------------------------------------------------------------ */
 static void enable_channels(struct iio_device *dev)
 {
@@ -197,12 +197,7 @@ static void enable_channels(struct iio_device *dev)
 }
 
 /* ------------------------------------------------------------------ */
-/*  DMA-aware memcpy                                                    */
-/*                                                                      */
-/*  iio_buffer_start() on Zynq (maia_sdr / HP-port DMA) returns a      */
-/*  pointer into non-cached DDR.  Plain scalar reads stall on every     */
-/*  cache miss (~40 MB/s).  NEON 128-bit burst loads with PLD           */
-/*  prefetch ahead keep the DDR controller pipeline full (~150 MB/s).  */
+/* DMA-aware memcpy                                                    */
 /* ------------------------------------------------------------------ */
 #ifdef __ARM_NEON__
 static void memcpy_iio(void *restrict dst, const void *restrict src, size_t n)
@@ -210,15 +205,11 @@ static void memcpy_iio(void *restrict dst, const void *restrict src, size_t n)
     const uint8_t *s = (const uint8_t *)src;
     uint8_t       *d = (uint8_t *)dst;
 
-    /* Prime the prefetch pipeline: 4 lines × 64 bytes = 256 bytes */
     __builtin_prefetch(s,       0, 0);
     __builtin_prefetch(s + 64,  0, 0);
     __builtin_prefetch(s + 128, 0, 0);
     __builtin_prefetch(s + 192, 0, 0);
 
-    /* 64 bytes per iteration; prefetch 4 lines (256 bytes) ahead.
-     * On Cortex-A9 the PLD linefill latency is ~50-100 bus cycles,
-     * so 4-line lookahead keeps the non-cached reads from stalling. */
     while (n >= 64) {
         __builtin_prefetch(s + 256, 0, 0);
         uint8x16_t v0 = vld1q_u8(s);
@@ -231,22 +222,20 @@ static void memcpy_iio(void *restrict dst, const void *restrict src, size_t n)
         vst1q_u8(d + 48, v3);
         s += 64; d += 64; n -= 64;
     }
-    if (n) memcpy(d, s, n);   /* tail: always < 64 bytes */
+    if (n) memcpy(d, s, n);
 }
 #else
 #define memcpy_iio memcpy
 #endif
 
 /* ------------------------------------------------------------------ */
-/*  IIO RX thread: refill buffer → ring → wake WS                      */
+/* IIO RX thread: refill buffer → ring → wake WS                      */
 /* ------------------------------------------------------------------ */
 static void *rx_thread(void *arg)
 {
     struct app *a = arg;
 
     while (a->running) {
-        /* Always drain IIO even when there is no client or ring is full,
-         * to prevent the kernel DMA queue from overflowing. */
         ssize_t nb = iio_buffer_refill(a->rx_buf);
         if (nb < 0) {
             if (!a->running) break;
@@ -256,27 +245,24 @@ static void *rx_thread(void *arg)
         }
 
         if (!atomic_load_explicit(&a->wsi_rx, memory_order_acquire))
-            continue;   /* no RX client, discard */
+            continue;
 
         struct slot *sl = ring_write_begin(&a->rx_ring);
-        if (!sl) continue;   /* ring full, drop */
+        if (!sl) continue;
 
         size_t bytes = (size_t)nb < a->rx_ring.cap ? (size_t)nb : a->rx_ring.cap;
-        /* iio_buffer_start() on maia_sdr / Zynq HP-port DMA returns a
-         * non-cached DDR pointer.  memcpy_iio uses NEON + PLD prefetch
-         * to hide the DDR latency and maximise throughput. */
         memcpy_iio(sl->buf + LWS_PRE, iio_buffer_start(a->rx_buf), bytes);
         sl->len = bytes;
         ring_write_end(&a->rx_ring);
 
         atomic_fetch_add_explicit(&a->rx_bytes, bytes, memory_order_relaxed);
-        lws_cancel_service(a->lws);   /* only safe lws call from a non-lws thread */
+        lws_cancel_service(a->lws);
     }
     return NULL;
 }
 
 /* ------------------------------------------------------------------ */
-/*  IIO TX thread: ring → push to DAC                                   */
+/* IIO TX thread: ring → push to DAC                                   */
 /* ------------------------------------------------------------------ */
 static void *tx_thread(void *arg)
 {
@@ -296,8 +282,7 @@ static void *tx_thread(void *arg)
         if (copy < a->buf_bytes)
             memset(dst + copy, 0, a->buf_bytes - copy);
         ring_read_end(&a->tx_ring);
-        /* If WS receive was paused due to a full ring, wake the lws loop so it
-         * can re-enable flow control now that a slot is free. */
+        
         if (atomic_load_explicit(&a->tx_flow_paused, memory_order_acquire))
             lws_cancel_service(a->lws);
 
@@ -311,23 +296,27 @@ static void *tx_thread(void *arg)
 }
 
 /* ------------------------------------------------------------------ */
-/*  WebSocket callback                                                  */
+/* WebSocket callback                                                  */
 /* ------------------------------------------------------------------ */
 static int ws_cb(struct lws *wsi, enum lws_callback_reasons reason,
                  void *user, void *in, size_t len)
 {
     (void)user;
 
-    /* lws_get_protocol() returns NULL for pre-handshake internal callbacks
-     * (HTTP upgrade, WSI_CREATE, FILTER_PROTOCOL_CONNECTION, etc.).
-     * Return immediately for anything that doesn't yet have a protocol. */
     const struct lws_protocols *lws_proto = lws_get_protocol(wsi);
     if (!lws_proto) return 0;
     const char *proto = lws_proto->name;
+    
     bool is_rx = A.do_rx && (strcmp(proto, "iio-rx") == 0 || strcmp(proto, "iio-iq") == 0);
     bool is_tx = A.do_tx && (strcmp(proto, "iio-tx") == 0 || strcmp(proto, "iio-iq") == 0);
 
     switch (reason) {
+
+    case LWS_CALLBACK_FILTER_PROTOCOL_CONNECTION: {
+        /* Return 0 to bypass strict subprotocol enforcement and allow 
+         * protocol-less handshakes to proceed into fallback mode. */
+        return 0;
+    }
 
     case LWS_CALLBACK_ESTABLISHED: {
         if (is_rx) {
@@ -342,7 +331,6 @@ static int ws_cb(struct lws *wsi, enum lws_callback_reasons reason,
             struct lws *ex = (struct lws *)atomic_load_explicit(&A.wsi_tx, memory_order_acquire);
             if (ex) {
                 fprintf(stderr, "[ws] rejecting second TX client (%s)\n", proto);
-                /* Roll back RX slot we may have just claimed for iio-iq */
                 if (is_rx)
                     atomic_store_explicit(&A.wsi_rx, (uintptr_t)NULL, memory_order_release);
                 return -1;
@@ -350,10 +338,10 @@ static int ws_cb(struct lws *wsi, enum lws_callback_reasons reason,
             A.tx_fill_slot = NULL;
             A.tx_fill_len  = 0;
             atomic_store_explicit(&A.tx_flow_paused, false, memory_order_release);
-            lws_rx_flow_control(wsi, 1); /* ensure receive is enabled */
+            lws_rx_flow_control(wsi, 1);
             atomic_store_explicit(&A.wsi_tx, (uintptr_t)wsi, memory_order_release);
         }
-        fprintf(stderr, "[ws] client connected (%s)\n", proto);
+        fprintf(stderr, "[ws] client connected (%s / fallback-mode)\n", proto);
         if (is_rx)
             lws_callback_on_writable(wsi);
         break;
@@ -366,7 +354,6 @@ static int ws_cb(struct lws *wsi, enum lws_callback_reasons reason,
         }
         if (atomic_load_explicit(&A.wsi_tx, memory_order_acquire) == (uintptr_t)wsi) {
             atomic_store_explicit(&A.wsi_tx, (uintptr_t)NULL, memory_order_release);
-            /* Abandon uncommitted ring slot — it stays invisible to tx_thread */
             A.tx_fill_slot = NULL;
             A.tx_fill_len  = 0;
             atomic_store_explicit(&A.tx_flow_paused, false, memory_order_release);
@@ -375,13 +362,11 @@ static int ws_cb(struct lws *wsi, enum lws_callback_reasons reason,
         break;
 
     case LWS_CALLBACK_SERVER_WRITEABLE: {
-        /* Only serve writes if this wsi is the registered RX sender */
         if (atomic_load_explicit(&A.wsi_rx, memory_order_acquire) != (uintptr_t)wsi)
             break;
         struct slot *sl = ring_read_begin(&A.rx_ring);
         if (!sl) break;
 
-        /* sl->buf has LWS_PRE headroom — passed directly, no internal copy */
         int sent = lws_write(wsi, sl->buf + LWS_PRE, sl->len, LWS_WRITE_BINARY);
         ring_read_end(&A.rx_ring);
         if (sent < 0) return -1;
@@ -392,7 +377,6 @@ static int ws_cb(struct lws *wsi, enum lws_callback_reasons reason,
     }
 
     case LWS_CALLBACK_RECEIVE: {
-        /* Only handle data from the registered TX receiver */
         if (atomic_load_explicit(&A.wsi_tx, memory_order_acquire) != (uintptr_t)wsi)
             break;
         if (!len) break;
@@ -400,18 +384,11 @@ static int ws_cb(struct lws *wsi, enum lws_callback_reasons reason,
         const uint8_t *src = in;
         size_t remaining = len;
 
-        /* At a buffer boundary with no open slot, try to claim one now.
-         * If the ring is full: pause WS receive (TCP back-pressure propagates to
-         * the client) instead of dropping.  tx_thread calls lws_cancel_service
-         * when it frees a slot; the main loop then re-enables flow. */
         if (!A.tx_fill_slot && A.tx_fill_len == 0) {
             A.tx_fill_slot = ring_write_begin(&A.tx_ring);
             if (!A.tx_fill_slot) {
                 atomic_store_explicit(&A.tx_flow_paused, true, memory_order_release);
                 lws_rx_flow_control(wsi, 0);
-                /* Flow is paused: lws won't deliver more frames until re-enabled.
-                 * Fall through to the loop below so remaining bytes from this
-                 * frame are counted toward alignment (drop-mode, no memcpy). */
             }
         }
 
@@ -433,7 +410,6 @@ static int ws_cb(struct lws *wsi, enum lws_callback_reasons reason,
                     A.tx_fill_slot->len = A.buf_bytes;
                     ring_write_end(&A.tx_ring);
                 }
-                /* Claim next slot; pause flow if ring is now full */
                 A.tx_fill_slot = ring_write_begin(&A.tx_ring);
                 A.tx_fill_len  = 0;
                 if (!A.tx_fill_slot) {
@@ -453,8 +429,9 @@ static int ws_cb(struct lws *wsi, enum lws_callback_reasons reason,
 }
 
 /* ------------------------------------------------------------------ */
-/*  Protocols — non-const so rx_buffer_size can be set at runtime       */
+/* Protocols                                                          */
 /* ------------------------------------------------------------------ */
+/* MODIFIED: "iio-iq" is placed first so protocol-less handshakes fall back to full-duplex mode */
 static struct lws_protocols protocols[] = {
     { "iio-iq", ws_cb, 0, 0, 0, NULL, 0 },
     { "iio-rx", ws_cb, 0, 0, 0, NULL, 0 },
@@ -463,7 +440,7 @@ static struct lws_protocols protocols[] = {
 };
 
 /* ------------------------------------------------------------------ */
-/*  Stats                                                               */
+/* Stats                                                               */
 /* ------------------------------------------------------------------ */
 static void show_stats(void)
 {
@@ -490,13 +467,12 @@ static void show_stats(void)
 }
 
 /* ------------------------------------------------------------------ */
-/*  Signal handler / usage                                              */
+/* Signal handler / usage                                              */
 /* ------------------------------------------------------------------ */
 static void on_signal(int s)
 {
     (void)s;
     A.running = false;
-    /* Unblock iio_buffer_refill so the RX thread can exit promptly */
     if (A.rx_buf) iio_buffer_cancel(A.rx_buf);
     if (A.lws)    lws_cancel_service(A.lws);
 }
@@ -520,7 +496,7 @@ static void usage(const char *prog)
 }
 
 /* ------------------------------------------------------------------ */
-/*  main                                                                */
+/* main                                                                */
 /* ------------------------------------------------------------------ */
 int main(int argc, char **argv)
 {
@@ -551,12 +527,10 @@ int main(int argc, char **argv)
     signal(SIGINT,  on_signal);
     signal(SIGTERM, on_signal);
 
-    /* ---- IIO ---- */
     fprintf(stderr, "iio: connecting %s\n", A.iio_uri);
     A.iio = iio_create_context_from_uri(A.iio_uri);
     if (!A.iio) { fprintf(stderr, "iio context failed\n"); return 1; }
 
-    /* Set global IIO timeout so iio_buffer_refill can wake up on shutdown */
     iio_context_set_timeout(A.iio, IIO_TIMEOUT_MS);
 
     if (A.do_rx) {
@@ -566,7 +540,7 @@ int main(int argc, char **argv)
             return 1;
         }
         enable_channels(A.rx_dev);
-        iio_device_set_kernel_buffers_count(A.rx_dev,8);
+        iio_device_set_kernel_buffers_count(A.rx_dev, 8);
         A.sample_size = iio_device_get_sample_size(A.rx_dev);
         A.buf_bytes   = A.buf_samples * A.sample_size;
         A.rx_buf = iio_device_create_buffer(A.rx_dev, A.buf_samples, false);
@@ -592,9 +566,8 @@ int main(int argc, char **argv)
     }
 
     if (!A.buf_bytes)
-        A.buf_bytes = A.buf_samples * 4;   /* fallback: int16 I+Q = 4 bytes */
+        A.buf_bytes = A.buf_samples * 4;
 
-    /* ---- Rings ---- */
     if (A.do_rx && ring_init(&A.rx_ring, A.buf_bytes) < 0) {
         fprintf(stderr, "rx ring alloc failed\n"); return 1;
     }
@@ -602,17 +575,14 @@ int main(int argc, char **argv)
         if (ring_init(&A.tx_ring, A.buf_bytes) < 0) {
             fprintf(stderr, "tx ring alloc failed\n"); return 1;
         }
-        /* tx_fill_slot/tx_fill_len are reset in LWS_CALLBACK_ESTABLISHED */
     }
 
-    /* ---- WebSocket ---- */
-    lws_set_log_level(LLL_ERR | LLL_WARN, NULL);
+    lws_set_log_level(LLL_ERR | LLL_WARN | LLL_NOTICE | LLL_INFO, NULL);
 
-    /* Match WS receive buffer to IIO buffer size (cap at 1 MB to avoid
-     * per-connection overcommit; fragmentation handling covers the rest) */
     size_t ws_rx_sz = A.buf_bytes < (1u << 20) ? A.buf_bytes : (1u << 20);
-    for (int i = 0; protocols[i].name; i++)
+    for (int i = 0; protocols[i].name; i++) {
         protocols[i].rx_buffer_size = ws_rx_sz;
+    }
 
     struct lws_context_creation_info info = {
         .port      = A.port,
@@ -623,10 +593,8 @@ int main(int argc, char **argv)
     };
     A.lws = lws_create_context(&info);
     if (!A.lws) { fprintf(stderr, "lws context failed\n"); return 1; }
-    fprintf(stderr, "ws: listening on port %d  (subprotocols: iio-iq iio-rx iio-tx)\n",
-            A.port);
+    fprintf(stderr, "ws: listening on port %d  (default fallback: iio-iq full duplex enabled)\n", A.port);
 
-    /* ---- Start worker threads ---- */
     A.running = true;
     atomic_init(&A.wsi_rx, (uintptr_t)NULL);
     atomic_init(&A.wsi_tx, (uintptr_t)NULL);
@@ -634,27 +602,17 @@ int main(int argc, char **argv)
     if (A.do_rx) pthread_create(&A.rx_tid, NULL, rx_thread, &A);
     if (A.do_tx) pthread_create(&A.tx_tid, NULL, tx_thread, &A);
 
-    /* ---- Event loop ---- */
     while (A.running) {
         lws_service(A.lws, 50);
 
-        /* lws_cancel_service() in rx_thread wakes us here. Schedule the
-         * writeable callback from the main thread — the only thread where
-         * it is safe to call lws_callback_on_writable (wsi lifetime is
-         * managed by lws_service; by the time we reach here after
-         * LWS_CALLBACK_CLOSED the atomic store of NULL is already visible). */
         if (A.do_rx) {
-            struct lws *wsi = (struct lws *)atomic_load_explicit(
-                                    &A.wsi_rx, memory_order_acquire);
+            struct lws *wsi = (struct lws *)atomic_load_explicit(&A.wsi_rx, memory_order_acquire);
             if (wsi && ring_has_data(&A.rx_ring))
                 lws_callback_on_writable(wsi);
         }
 
-        /* Re-enable WS receive for the TX client once the ring has a free slot.
-         * tx_thread called lws_cancel_service() to wake us here. */
         if (A.do_tx && atomic_load_explicit(&A.tx_flow_paused, memory_order_acquire)) {
-            struct lws *wsi_tx = (struct lws *)atomic_load_explicit(
-                                        &A.wsi_tx, memory_order_acquire);
+            struct lws *wsi_tx = (struct lws *)atomic_load_explicit(&A.wsi_tx, memory_order_acquire);
             if (wsi_tx && ring_write_begin(&A.tx_ring) != NULL) {
                 atomic_store_explicit(&A.tx_flow_paused, false, memory_order_release);
                 lws_rx_flow_control(wsi_tx, 1);
@@ -664,7 +622,6 @@ int main(int argc, char **argv)
         if (A.stats) show_stats();
     }
 
-    /* ---- Shutdown ---- */
     A.running = false;
     if (A.do_rx) pthread_join(A.rx_tid, NULL);
     if (A.do_tx) pthread_join(A.tx_tid, NULL);
