@@ -170,6 +170,18 @@ function DATV({ d, callsign }) {
   const queue = dv['tx/dvbs2/queue'] ? parseInt(dv['tx/dvbs2/queue']) : 0;
   const queueWarn = queue > 100;
 
+  // Push OBS auto-bitrate whenever net bitrate changes (mirrors DATVObs effect)
+  useE2(() => {
+    const obsIp   = localStorage.getItem('datv_obs_ip')   || '';
+    const obsPass = localStorage.getItem('datv_obs_pass') || '';
+    if (!obsIp || !isDvbs2) return;
+    const tsAddrVal = dv['tx/dvbs2/tssourceaddress'] || '';
+    const msg = { bitrate: netBitrateKbps, host: obsIp, mode: 'record', format: 'mpegts' };
+    if (obsPass)    msg.password = obsPass;
+    if (tsAddrVal)  msg.url = `udp://${tsAddrVal}?pkt_size=1316&bitrate=${netBitrateKbps * 1000}`;
+    d.publish('encoder/auto_bitrate', JSON.stringify(msg));
+  }, [netBitrateKbps]);
+
   // Re-publish all DVB-S2 parameters when leaving passthrough mode
   const prevModeRef = React.useRef(mode);
   useE2(() => {
