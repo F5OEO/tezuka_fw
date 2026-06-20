@@ -85,7 +85,7 @@ function Dashboard({ d, ver }) {
     else if (d.txFirInterp === 4)       setDInterp("×4");
     else if (d.txFirInterp === 2)       setDInterp("×2");
   }, [d.rxFirEnable, d.rxFirDecim, d.txFirInterp]);
-  useE1(() => { if (d.txRfinput != null)  setOutput(d.txRfinput - 1); }, [d.txRfinput]);
+  useE1(() => { if (d.txRfoutput != null)  setOutput(d.txRfoutput - 1); }, [d.txRfoutput]);
 
   const RX = ["RX1", "RX2"], TX = ["TX1", "TX2"];
   const mhz = (v) => (v / 1e6).toFixed(3) + " MHz", ms = (v) => (v / 1e6).toFixed(3) + " MS/s";
@@ -107,7 +107,7 @@ function Dashboard({ d, ver }) {
       <div className="grid-12">
         <Card className="span-12">
           <div className="ds-shared">
-            <div className="ds-shared-head"><span className="bigstat-label" style={{ margin: 0 }}>Baseband</span><span className="pill pill-neutral">RX + TX · common</span></div>
+            <div className="ds-shared-head"><span className="bigstat-label" style={{ margin: 0 }}>Baseband</span><span className={`pill ${d.sys2r2t ? 'pill-ok' : 'pill-neutral'}`}>{d.sys2r2t ? '2R2T' : '1R1T'}</span></div>
             <div className="bw-grid">
               <div>
                 <div className="bw-field-head"><span className="field-label">Sample rate</span></div>
@@ -174,7 +174,7 @@ function Dashboard({ d, ver }) {
                 {d.txDmaTransfer != null && d.txBufferSize != null && <HBarGauge value={d.txDmaTransfer} max={500} color="var(--c-pink)" label="DMA" fmt={fmtBytes} />}
               </div>
               <div className="bigstat-grid">
-                <BigStat label="Output" value={TX[output]} options color={d.txDmaTransfer > 0 ? "var(--c-pink)" : undefined} onCycle={() => { const next = (output + 1) % 2; setOutput(next); d.publish("tx/rfinput", next + 1); }} />
+                <BigStat label="Output" value={TX[output]} options color={d.txDmaTransfer > 0 ? "var(--c-pink)" : undefined} onCycle={() => { const next = (output + 1) % 2; setOutput(next); d.publish("tx/rfoutput", next + 1); }} />
               </div>
             </div>
           </div>

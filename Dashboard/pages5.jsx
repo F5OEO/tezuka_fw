@@ -20,12 +20,13 @@ function RadioPage({ d }) {
   const [mode,    setMode]    = useS5('NBFM');
   const [volume,  setVolume]  = useS5(100);
   const [sqOn,    setSqOn]    = useS5(false);
-  const [sqLevel, setSqLevel] = useS5(-40);
+  const [sqLevel, setSqLevel] = useS5(0.8);  // linear SNR ratio 0-6; was dB (broken)
 
   // ── Session state ───────────────────────────────────────────────────────
   const [status,      setStatus]      = useS5('idle');  // idle | starting | connecting | playing | error
   const [msg,         setMsg]         = useS5('');
   const [activeRate,  setActiveRate]  = useS5(null);    // sample rate the running radio was started with
+  const [audioPower,  setAudioPower]  = useS5(null);    // dBFS, null when idle
 
   const pushRef      = useR5(null);
   const radioRef     = useR5(null);
@@ -33,6 +34,8 @@ function RadioPage({ d }) {
   const wsRef        = useR5(null);
   const reconnTimRef = useR5(null);
   const activeRef    = useR5(false);
+  const levelRef     = useR5(-100);   // audio RMS in dBFS, updated by play() intercept
+  const rafRef       = useR5(null);   // requestAnimationFrame handle for meter
 
   // Sync center/rate from MQTT while radio is not active.
   // setListenFreq resets to new center so the offset stays at 0 on retune.
@@ -85,11 +88,13 @@ function RadioPage({ d }) {
     // and radio.stop() / stopStream() never return.
     if (push) try { await push.close(); } catch (_) {}
 
+    if (rafRef.current) { cancelAnimationFrame(rafRef.current); rafRef.current = null; }
     if (r) await r.stop();
     if (publishOff) d.publish('system/iqtape', 'off');
     setActiveRate(null);
     setStatus('idle');
     setMsg('');
+    setAudioPower(null);
   }, [d]);
 
   // ── WebSocket connect (with auto-reconnect while active) ─────────────────
@@ -143,6 +148,16 @@ function RadioPage({ d }) {
       demod.setFrequencyOffset(listenFreq - centerFreq);
       applySquelch(demod, sqOn, sqLevel);
 
+      // Intercept AudioPlayer.play() to measure audio RMS without touching AudioContext graph
+      const origPlay = demod.player.play.bind(demod.player);
+      demod.player.play = (left, right) => {
+        let sum = 0;
+        for (let i = 0; i < left.length; i++) sum += left[i] * left[i];
+        const rms = Math.sqrt(sum / left.length);
+        levelRef.current = rms > 1e-10 ? 20 * Math.log10(rms) : -100;
+        origPlay(left, right);
+      };
+
       // Scale buffers/sec so each buffer stays ~64 K samples regardless of rate.
       // samplesPerBuf = 512 * ceil(sampleRate / buffersPerSecond / 512) ≈ 65536
       const buffersPerSecond = Math.max(10, Math.ceil(sampleRate / 65536));
@@ -167,6 +182,13 @@ function RadioPage({ d }) {
       demodRef.current = demod;
       activeRef.current = true;
       setActiveRate(sampleRate);
+      levelRef.current = -100;
+      // RAF loop updates audio meter at ~30 fps without flooding React renders
+      (function tick() {
+        if (!activeRef.current) return;
+        setAudioPower(levelRef.current);
+        rafRef.current = requestAnimationFrame(tick);
+      })();
 
       // Ask the device to start iio_ws_proxy, then connect
       d.publish('system/iqtape', 'on');
@@ -260,12 +282,29 @@ function RadioPage({ d }) {
         <Field label="Squelch">
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
             <Toggle on={sqOn} onChange={setSqOn} labels={['off', 'on']} />
-            <Slider value={sqLevel} min={-60} max={-10} onChange={setSqLevel} />
+            <Slider value={sqLevel} min={0} max={2} step={0.05} onChange={setSqLevel} />
             <span style={{ fontSize: '0.75rem', color: 'var(--fg-dim)', minWidth: 40 }}>
-              {sqOn ? sqLevel + ' dB' : '—'}
+              {sqOn ? sqLevel.toFixed(2) : '—'}
             </span>
           </div>
         </Field>
+        {audioPower !== null && (
+          <Field label="Audio level">
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+              <div style={{ flex: 1, height: 8, background: 'rgba(255,255,255,0.07)', borderRadius: 4, overflow: 'hidden' }}>
+                <div style={{
+                  height: '100%', borderRadius: 4,
+                  width: Math.max(0, (audioPower + 60) / 60 * 100) + '%',
+                  background: audioPower > -3 ? '#f55' : audioPower > -12 ? '#fa0' : '#5b8',
+                  transition: 'width 50ms linear, background 80ms',
+                }} />
+              </div>
+              <span style={{ fontSize: '0.75rem', color: 'var(--fg-dim)', minWidth: 60, textAlign: 'right', fontFamily: 'monospace' }}>
+                {audioPower > -99 ? audioPower.toFixed(1) + ' dBFS' : '−∞'}
+              </span>
+            </div>
+          </Field>
+        )}
       </Card>
 
       {rateChanged && (

@@ -1,6 +1,127 @@
 // pages2.jsx — DATV Controller, Versions, Analysis, Network
 const { useState: useS2, useEffect: useE2 } = React;
 
+// ── QO-100 Wideband transponder bandplan ──────────────────────────────────────
+// Downlink 10491.0–10500.5 MHz · Uplink = DL − 8089.5 MHz
+const QO100_LO = 10491.0, QO100_HI = 10500.5, QO100_DL2UL = -8089.5;
+
+const QO100_ROWS = [
+  {
+    key: 'wide', label: 'Wide', color: 'var(--c-blue)', h: 28, y: 20,
+    slots: [
+      { id: 'bcn', label: 'BCN', dl: 10491.5, bw: 1.5, sr: 1500000, fixed: true },
+      { id: 'w1',  label: 'W1',  dl: 10493.25, bw: 1.5, sr: 1000000 },
+      { id: 'w2',  label: 'W2',  dl: 10494.75, bw: 1.5, sr: 1000000 },
+      { id: 'w3',  label: 'W3',  dl: 10496.25, bw: 1.5, sr: 1000000 },
+    ],
+  },
+  {
+    key: 'narrow', label: 'Narrow', color: 'var(--accent)', h: 18, y: 52,
+    slots: Array.from({ length: 14 }, (_, i) => ({
+      id: `n${i+1}`, label: `N${i+1}`, dl: 10492.75 + i * 0.5, bw: 0.5, sr: 333000,
+    })),
+  },
+  {
+    key: 'vn', label: 'VN', color: 'var(--ok)', h: 11, y: 74,
+    slots: Array.from({ length: 27 }, (_, i) => ({
+      id: `vn${i+1}`, label: '', dl: 10492.75 + i * 0.25, bw: 0.25, sr: 125000,
+    })),
+  },
+];
+
+function QO100Plan({ currentUlHz, onSelect }) {
+  const ref = React.useRef(null);
+  const [W, setW] = useS2(260);
+  const [hov, setHov] = useS2(null);
+  useE2(() => {
+    if (!ref.current) return;
+    const ro = new ResizeObserver(e => setW(e[0].contentRect.width));
+    ro.observe(ref.current);
+    return () => ro.disconnect();
+  }, []);
+
+  const f2x = f => (f - QO100_LO) / (QO100_HI - QO100_LO) * W;
+  const bw2w = bw => Math.max(1, bw / (QO100_HI - QO100_LO) * W - 1);
+  const allSlots = QO100_ROWS.flatMap(r => r.slots.map(s => ({ ...s, row: r })));
+  const hovSlot = allSlots.find(s => s.id === hov);
+
+  // Current TX frequency marker (convert UL → DL)
+  const curDl = currentUlHz ? currentUlHz / 1e6 - QO100_DL2UL : null;
+
+  const SVG_H = 112;
+  const AXIS_Y = 90;
+
+  return (
+    <div ref={ref} style={{ width: '100%', overflow: 'hidden' }}>
+      <svg width={W} height={SVG_H} style={{ display: 'block' }}>
+
+        {/* Frequency axis ticks */}
+        {[10491,10492,10493,10494,10495,10496,10497,10498,10499,10500].map(f => (
+          <g key={f}>
+            <line x1={f2x(f)} y1={AXIS_Y} x2={f2x(f)} y2={AXIS_Y+5} stroke="var(--dim)" strokeOpacity={0.5} />
+            <text x={f2x(f)} y={AXIS_Y+14} textAnchor="middle" fontSize={7} fill="var(--dim)" opacity={0.65}>
+              {String(f).slice(-3)}
+            </text>
+          </g>
+        ))}
+        <text x={2} y={AXIS_Y+14} fontSize={7} fill="var(--dim)" opacity={0.45}>104</text>
+        <line x1={0} y1={AXIS_Y} x2={W} y2={AXIS_Y} stroke="var(--dim)" strokeOpacity={0.2} />
+
+        {/* UL label */}
+        <text x={W/2} y={SVG_H-2} textAnchor="middle" fontSize={7} fill="var(--dim)" opacity={0.5}>
+          UL: {curDl ? ((curDl + QO100_DL2UL)*1000).toFixed(0)+' kHz' : '2402–2410 MHz'}
+        </text>
+
+        {/* Rows */}
+        {QO100_ROWS.map(row => (
+          <g key={row.key}>
+            <text x={2} y={row.y - 3} fontSize={6.5} fill={row.color} opacity={0.8} fontWeight="600">{row.label}</text>
+            {row.slots.map(s => {
+              const x = f2x(s.dl - s.bw / 2);
+              const sw = bw2w(s.bw);
+              const isHov = hov === s.id;
+              const color = s.id === 'bcn' ? 'var(--c-coral)' : row.color;
+              return (
+                <g key={s.id}
+                   style={{ cursor: s.fixed ? 'default' : 'pointer' }}
+                   onMouseEnter={() => setHov(s.id)}
+                   onMouseLeave={() => setHov(null)}
+                   onClick={() => !s.fixed && onSelect((s.dl + QO100_DL2UL) * 1e6, s.sr)}>
+                  <rect x={x} y={row.y} width={sw} height={row.h}
+                    fill={color} fillOpacity={isHov ? 1 : 0.55} rx={1} />
+                  {sw > 16 && (
+                    <text x={x + sw/2} y={row.y + row.h/2 + 3.5}
+                      textAnchor="middle" fontSize={8} fill="white" fontWeight="600"
+                      style={{ pointerEvents: 'none' }}>
+                      {s.label}
+                    </text>
+                  )}
+                </g>
+              );
+            })}
+          </g>
+        ))}
+
+        {/* Current frequency marker */}
+        {curDl && curDl >= QO100_LO && curDl <= QO100_HI && (
+          <line x1={f2x(curDl)} y1={16} x2={f2x(curDl)} y2={AXIS_Y}
+            stroke="white" strokeWidth={1.5} strokeOpacity={0.7} strokeDasharray="3,2" />
+        )}
+
+        {/* Hover tooltip */}
+        {hovSlot && (
+          <g>
+            <rect x={0} y={0} width={W} height={16} fill="var(--bg-card)" fillOpacity={0.92} />
+            <text x={W/2} y={11} textAnchor="middle" fontSize={9} fill="var(--fg)">
+              {hovSlot.label || hovSlot.id.toUpperCase()} · DL {hovSlot.dl.toFixed(2)} · UL {(hovSlot.dl+QO100_DL2UL).toFixed(2)} MHz · {(hovSlot.sr/1000).toFixed(0)} kS
+            </text>
+          </g>
+        )}
+      </svg>
+    </div>
+  );
+}
+
 function DATV({ d, callsign }) {
   const dv = d.datv || {};
   const call = callsign || 'F5OEO';
@@ -18,6 +139,7 @@ function DATV({ d, callsign }) {
   const [firFilter, setFirFilter] = useS2('0');
   const [tsSource, setTsSource] = useS2('0');
   const [tsAddr, setTsAddr] = useS2('239.0.0.1:5004');
+  const [lnbLo, setLnbLo] = useS2(() => parseFloat(localStorage.getItem('datv_lnb_lo')) || 9750e6);
   // Sync from MQTT retained values on first arrival
   useE2(() => { if (dv['tx/frequency']             != null) setFreqHz(parseFloat(dv['tx/frequency'])); },           [dv['tx/frequency']]);
   useE2(() => { if (dv['tx/gain']                  != null) setGain(parseFloat(dv['tx/gain'])); },                  [dv['tx/gain']]);
@@ -39,11 +161,35 @@ function DATV({ d, callsign }) {
   const hasSr = isDvbs2 || mode === 'dvbs';
 
   const fecNum = (s) => { if (s === 'auto') return 0.5; const [a, b] = s.split('/'); return parseFloat(a) / parseFloat(b); };
-  const tsBitrateStr = dv['tx/dvbs2/ts/bitrate']
-    ? (parseFloat(dv['tx/dvbs2/ts/bitrate']) / 1000).toFixed(1) + ' Kb/s'
-    : isDvbs2 ? (sr * 2 * fecNum(fec) * 0.88 / 1000).toFixed(1) + ' Kb/s (est.)' : '—';
+  const moduBits = { qpsk: 2, '8psk': 3, '16apsk': 4, '32apsk': 5 };
+  const netBitrateKbps = dv['tx/dvbs2/ts/bitrate']
+    ? Math.round(parseFloat(dv['tx/dvbs2/ts/bitrate']) / 1000)
+    : Math.round(sr * (moduBits[modu] || 2) * fecNum(fec) * 0.88 / 1000);
+  const netBitrateReal = !!dv['tx/dvbs2/ts/bitrate'];
+  const tsBitrateStr = isDvbs2 ? netBitrateKbps + ' Kb/s' + (netBitrateReal ? '' : ' (est.)') : '—';
   const queue = dv['tx/dvbs2/queue'] ? parseInt(dv['tx/dvbs2/queue']) : 0;
   const queueWarn = queue > 100;
+
+  // Re-publish all DVB-S2 parameters when leaving passthrough mode
+  const prevModeRef = React.useRef(mode);
+  useE2(() => {
+    const prev = prevModeRef.current;
+    prevModeRef.current = mode;
+    if (prev !== 'pass' || mode === 'pass') return;
+    // Transition pass → DVB: push all retained values back to device
+    pub('tx/dvbs2/sr', sr);
+    pub('tx/dvbs2/constel', modu);
+    pub('tx/dvbs2/pilots', pilots);
+    pub('tx/dvbs2/frame', frame);
+    pub('tx/dvbs2/firfilter', firFilter);
+    if (fec === 'auto') { pub('tx/dvbs2/fecmode', 'variable'); }
+    else { pub('tx/dvbs2/fecmode', 'fixed'); pub('tx/dvbs2/fec', fec); }
+    if (tsSource === '0') pub('tx/dvbs2/tssourceaddress', tsAddr);
+    pub('tx/dvbs2/tssourcemode', tsSource);
+    pub('tx/frequency', freqHz);
+    pub('tx/gain', gain);
+  }, [mode]);
+
 
   const modeLabels = { test: 'Test tone', pass: 'Passthrough', 'dvbs2-ts': 'DVB-S2/TS', 'dvbs2-gse': 'DVB-S2/GSE', dvbs: 'DVB-S' };
   const modeOpts = Object.entries(modeLabels).map(([v, l]) => ({ v, l }));
@@ -123,24 +269,114 @@ function DATV({ d, callsign }) {
               )}
             </Card>
           )}
-          <Card title="Stream status">
-            <div className="budget">
-              <div className="budget-main"><span>TS bitrate</span><b className="mono">{tsBitrateStr}</b></div>
-              <div className="budget-row" style={queueWarn ? { color: 'var(--c-coral)' } : {}}>
-                <span>Buffer queue</span><b className="mono">{queue} BBframes{queueWarn ? ' ↑' : ''}</b>
-              </div>
-              {dv['tx/dvbs2/ts/fecvariable'] && (
-                <div className="budget-row"><span>Current FEC</span><b className="mono">{dv['tx/dvbs2/ts/fecvariable']}</b></div>
-              )}
-              {dv['tx/dvbs2/ts/ccerror'] && (
-                <div className="budget-row" style={{ color: 'var(--c-coral)' }}>
-                  <span>CC error PID</span><b className="mono">{dv['tx/dvbs2/ts/ccerror']}</b>
-                </div>
-              )}
-              <div className="budget-row"><span>Firmware</span><b className="mono">{dv['system/version'] || '—'}</b></div>
-            </div>
+          <Card title="QO-100 WB bandplan" sub="Click slot → set TX frequency, SR & RX IF">
+            <Field label="LNB LO" hint="Local oscillator frequency (Hz)">
+              <TextInput value={String(lnbLo)}
+                onChange={(v) => { const n = parseFloat(v); if (!isNaN(n)) { setLnbLo(n); localStorage.setItem('datv_lnb_lo', n); } }}
+                suffix="Hz" />
+            </Field>
+            <QO100Plan
+              currentUlHz={freqHz}
+              onSelect={(ulHz, sr) => {
+                const dlHz  = ulHz - QO100_DL2UL * 1e6;   // UL + 8089.5 MHz = DL
+                const rxHz  = dlHz - lnbLo;               // DL − LNB LO
+                setFreqHz(ulHz); setSr(sr);
+                pub('tx/frequency', ulHz);
+                pub('tx/dvbs2/sr', sr);
+                pub('rx/frequency', rxHz);
+              }} />
           </Card>
         </div>
+
+        <Card title="Stream status" className="span-5">
+          <div className="budget">
+            <div className="budget-main"><span>TS bitrate</span><b className="mono">{tsBitrateStr}</b></div>
+            <div className="budget-row" style={queueWarn ? { color: 'var(--c-coral)' } : {}}>
+              <span>Buffer queue</span><b className="mono">{queue} BBframes{queueWarn ? ' ↑' : ''}</b>
+            </div>
+            {dv['tx/dvbs2/ts/fecvariable'] && (
+              <div className="budget-row"><span>Current FEC</span><b className="mono">{dv['tx/dvbs2/ts/fecvariable']}</b></div>
+            )}
+            {dv['tx/dvbs2/ts/ccerror'] && (
+              <div className="budget-row" style={{ color: 'var(--c-coral)' }}>
+                <span>CC error PID</span><b className="mono">{dv['tx/dvbs2/ts/ccerror']}</b>
+              </div>
+            )}
+            <div className="budget-row"><span>Firmware</span><b className="mono">{dv['system/version'] || '—'}</b></div>
+          </div>
+        </Card>
+
+      </div>
+    </div>
+  );
+}
+
+// ---- DATV OBS sub-page -------------------------------------------------------
+function DATVObs({ d, callsign }) {
+  const dv   = d.datv || {};
+  const call = callsign || 'F5OEO';
+
+  const mode = dv['tx/stream/mode'] || '';
+  const isDvbs2 = mode === 'dvbs2-ts' || mode === 'dvbs2-gse';
+  const tsAddr  = dv['tx/dvbs2/tssourceaddress'] || '';
+
+  const fecNum = (s) => { if (!s || s === 'auto') return 0.5; const [a, b] = s.split('/'); return parseFloat(a) / parseFloat(b); };
+  const moduBits = { qpsk: 2, '8psk': 3, '16apsk': 4, '32apsk': 5 };
+  const sr   = parseInt(dv['tx/dvbs2/sr']) || 250000;
+  const modu = dv['tx/dvbs2/constel'] || 'qpsk';
+  const fec  = dv['tx/dvbs2/fecmode'] === 'variable' ? 'auto' : (dv['tx/dvbs2/fec'] || '2/3');
+  const netBitrateKbps = dv['tx/dvbs2/ts/bitrate']
+    ? Math.round(parseFloat(dv['tx/dvbs2/ts/bitrate']) / 1000)
+    : Math.round(sr * (moduBits[modu] || 2) * fecNum(fec) * 0.88 / 1000);
+  const netBitrateReal = !!dv['tx/dvbs2/ts/bitrate'];
+
+  const [obsIp,   setObsIp]   = useS2(() => localStorage.getItem('datv_obs_ip')   || '');
+  const [obsPass, setObsPass] = useS2(() => localStorage.getItem('datv_obs_pass') || '');
+
+  // Status of last publish
+  const [lastSent, setLastSent] = useS2(null);
+
+  useE2(() => {
+    if (!obsIp || !isDvbs2 || !dv['tx/dvbs2/ts/bitrate']) return;
+    const msg = { bitrate: netBitrateKbps, host: obsIp, mode: 'record', format: 'mpegts' };
+    if (obsPass) msg.password = obsPass;
+    if (tsAddr)  msg.url = `udp://${tsAddr}?pkt_size=1316&bitrate=${netBitrateKbps * 1000}`;
+    d.publish('encoder/auto_bitrate', JSON.stringify(msg));
+    setLastSent(new Date().toLocaleTimeString());
+  }, [dv['tx/dvbs2/ts/bitrate']]);
+
+  return (
+    <div className="page">
+      <div className="grid-12">
+        <Card title="OBS encoder" sub={`Auto-configure OBS via MQTT · cmd/encoder/auto_bitrate · ${call}`} className="span-12">
+          <div className="form-grid">
+            <Field label="OBS IP" hint="Host running obs-websocket (port 4455)">
+              <TextInput value={obsIp} onChange={(v) => { setObsIp(v); localStorage.setItem('datv_obs_ip', v); }} />
+            </Field>
+            <Field label="WS password" hint="OBS WebSocket password">
+              <TextInput value={obsPass} onChange={(v) => { setObsPass(v); localStorage.setItem('datv_obs_pass', v); }} />
+            </Field>
+            <Field label="Net bitrate" hint={netBitrateReal ? 'From telemetry' : 'Estimated from SR / FEC / constellation'}>
+              <span className="mono" style={{ lineHeight: '2' }}>{netBitrateKbps} kbps{netBitrateReal ? '' : ' (est.)'}</span>
+            </Field>
+            <Field label="Output URL" hint="Built from TS source address">
+              <span className="mono" style={{ lineHeight: '2', fontSize: '0.82em', opacity: tsAddr ? 1 : 0.4 }}>
+                {tsAddr ? `udp://${tsAddr}?pkt_size=1316&bitrate=${netBitrateKbps * 1000}` : '— no TS address set —'}
+              </span>
+            </Field>
+          </div>
+          {lastSent && (
+            <div className="mqtt-status" style={{ marginTop: 8 }}>
+              <Pill tone="ok" dot>Auto-sent</Pill>
+              <span className="dim mono">{lastSent}</span>
+            </div>
+          )}
+          {!isDvbs2 && (
+            <div className="mqtt-status" style={{ marginTop: 8 }}>
+              <Pill tone="warn" dot>Not in DVB-S2 mode</Pill>
+            </div>
+          )}
+        </Card>
       </div>
     </div>
   );

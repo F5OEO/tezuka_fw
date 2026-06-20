@@ -48,7 +48,7 @@ function applyMqtt(prev, path, raw) {
     case 'rx/active':           return { ...prev, rxActive: raw === '0' };
     case 'tx/active':           return { ...prev, txActive: raw === '0' };
     case 'rx/rfinput':          return { ...prev, rxRfinput: parseInt(raw) };
-    case 'tx/rfinput':          return { ...prev, txRfinput: parseInt(raw) };
+    case 'tx/rfoutput':         return { ...prev, txRfoutput: parseInt(raw) };
     case 'rx/loopback':         return { ...prev, loopback: parseInt(raw) };
     case 'rx/fir_enable':       return { ...prev, rxFirEnable: raw === '1' };
     case 'rx/overload':         return { ...prev, rxOverload: raw === '1' };
@@ -97,6 +97,7 @@ function applyMqtt(prev, path, raw) {
     case 'rx/dma_transfer':  return { ...prev, rxDmaTransfer: parseInt(raw) };
     case 'usb/rx_rate':      return { ...prev, usbRxRate: parseInt(raw) };
     case 'usb/tx_rate':      return { ...prev, usbTxRate: parseInt(raw) };
+    case 'system/2r2t':          return { ...prev, sys2r2t: raw === '1' };
     case 'system/iqtape':        return { ...prev, iqtape: raw };
     case 'system/siggen':        return { ...prev, siggen: raw };
     case 'system/overclock':     return { ...prev, overclock: raw };

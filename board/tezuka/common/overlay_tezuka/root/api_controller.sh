@@ -52,7 +52,8 @@ declare -A VMAP=(
   [${folder}rx_path_rates]='main/rx_path_rates'
   [${folder}tx_path_rates]='main/tx_path_rates'
   [${debug_folder}adi,1rx-1tx-mode-use-rx-num]='rx/rfinput'
-  [${debug_folder}adi,1rx-1tx-mode-use-tx-num]='tx/rfinput'
+  [${debug_folder}adi,1rx-1tx-mode-use-tx-num]='tx/rfoutput'
+  [${debug_folder}adi,2rx-2tx-mode-enable]='system/2r2t'
   [${debug_folder}loopback]='rx/loopback'
 )
 
@@ -534,8 +535,8 @@ parse_cmd () {
     [ "$cmd" = "main/freq_correction" ] && publish_force "system/xo_correction" "$(read_file "${folder}xo_correction")"
   else
     case $cmd in
-    rx/rfinput)          /root/switch_rfinput.sh "rx${val}" & ;;
-    tx/rfinput)          /root/switch_rfoutput.sh "tx${val}" & ;;
+    rx/rfinput)          /root/switch_rfinput.sh "rx${val}"; publish_force "rx/rfinput" "$(read_file "${debug_folder}adi,1rx-1tx-mode-use-rx-num")" ;;
+    tx/rfoutput)         /root/switch_rfoutput.sh "tx${val}"; publish_force "tx/rfoutput" "$(read_file "${debug_folder}adi,1rx-1tx-mode-use-tx-num")" ;;
     
     rx/span | rx/sweep/span)
       local SPAN; SPAN=$(printf "%0.f" "$val")

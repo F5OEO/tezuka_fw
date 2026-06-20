@@ -84,7 +84,7 @@ const DOCS = {
               ['TX gain Slider', 'Attenuation −89 to 0 dB, step 0.25 dB.'],
               ['LED Clipping', 'Red when state/tx/overload = 1.'],
               ['LED Underflow', 'Red when state/tx/underflow = 1.'],
-              ['Output BigStat', 'Active output: TX1 / TX2. Click to toggle — publishes cmd/tx/rfinput.'],
+              ['Output BigStat', 'Active output: TX1 / TX2. Click to toggle — publishes cmd/tx/rfoutput.'],
             ],
           },
           {
@@ -815,7 +815,7 @@ const DOCS = {
               ['Gain TX Slider', 'Atténuation −89 à 0 dB, pas 0,25 dB.'],
               ['LED Clipping', 'Rouge si state/tx/overload = 1.'],
               ['LED Underflow', 'Rouge si state/tx/underflow = 1.'],
-              ['BigStat Sortie', 'Sortie active : TX1 / TX2. Clic pour basculer — publie cmd/tx/rfinput.'],
+              ['BigStat Sortie', 'Sortie active : TX1 / TX2. Clic pour basculer — publie cmd/tx/rfoutput.'],
             ],
           },
           {
