@@ -25,8 +25,9 @@ config BR2_PACKAGE_TEZUKA_COMMON_TOOLS_MINI
 select BR2_PACKAGE_BUSYBOX_SHOW_OTHERS
 select BR2_PACKAGE_READLINE
 select BR2_PACKAGE_BASH	
-#ntp 
+#ntp
 select BR2_PACKAGE_CHRONY
+select BR2_IIO_WS
 	help
 	  "Tezuka mini common tools"
 
