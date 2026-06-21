@@ -1,0 +1,20 @@
+--- a/src-core/CMakeLists.txt
++++ b/src-core/CMakeLists.txt
+@@ -74,8 +74,14 @@
+ if(${ARCHFLAGS} MATCHES "^arm")
+     enable_language(ASM)
+     if(CMAKE_ASM_COMPILER_WORKS)
+-        set(ANGELSCRIPT_SOURCE ${ANGELSCRIPT_SOURCE} angelscript/lib/as_callfunc_arm.cpp angelscript/lib/as_callfunc_arm_gcc.S)
+-        set_property(SOURCE as_callfunc_arm_gcc.S APPEND PROPERTY COMPILE_FLAGS " -Wa,-mimplicit-it=always")
++        set(ANGELSCRIPT_SOURCE ${ANGELSCRIPT_SOURCE}
++		angelscript/lib/as_callfunc_arm.cpp
++		angelscript/lib/as_callfunc_arm_gcc.S
++	)
++
++	set_source_files_properties(angelscript/lib/as_callfunc_arm_gcc.S
++		PROPERTIES COMPILE_OPTIONS "-marm;-Wa,-mimplicit-it=always"
++	)
+     else()
+         message(FATAL ERROR "ARM target requires a working assembler")
+     endif()
+
