@@ -1,0 +1,48 @@
+From: F5OEO <evaristec@gmail.com>
+Date: Thu, 18 Jun 2026
+Subject: [PATCH] ws: fix missing blank-line terminator in HTTP 101 response
+
+When a WebSocket upgrade is performed without negotiating a subprotocol
+or extensions, the Sec-WebSocket-Accept header value is written with no
+trailing CRLF.  The single \r\n at the end of the response builder
+therefore terminates the Accept header line rather than acting as the
+mandatory blank line that separates HTTP headers from the message body
+(RFC 7230 §3).
+
+Clients that follow RFC 7230 strictly (e.g. cpp-httplib) observe a
+stream of the form:
+
+  Sec-WebSocket-Accept: <value>\r\n<WS binary frame>
+
+instead of the required:
+
+  Sec-WebSocket-Accept: <value>\r\n\r\n<WS binary frame>
+
+and reject the upgrade.
+
+Fix by checking whether the last byte already ends a header line
+(\x0a) before writing the blank-line terminator.  When a subprotocol
+or extensions are present they each write their own trailing \r\n, so
+the check is a no-op in those paths.
+
+Signed-off-by: F5OEO <evaristec@gmail.com>
+---
+ lib/roles/ws/server-ws.c | 7 +++++++
+ 1 file changed, 7 insertions(+)
+
+--- a/lib/roles/ws/server-ws.c
++++ b/lib/roles/ws/server-ws.c
+@@ -765,6 +765,13 @@ lws_process_ws_upgrade2(struct lws *wsi)
+
+ 	/* end of response packet */
+
++	/* When no subprotocol or extensions are negotiated, the
++	 * Sec-WebSocket-Accept header has no trailing CRLF yet.
++	 * Ensure the last header line is terminated before the
++	 * mandatory blank line that ends the HTTP response header
++	 * section (RFC 7230 §3). */
++	if (p > response && p[-1] != '\x0a')
++		LWS_CPYAPP(p, "\x0d\x0a");
+ 	LWS_CPYAPP(p, "\x0d\x0a");
+
+ 	/* okay send the handshake response accepting the connection */
