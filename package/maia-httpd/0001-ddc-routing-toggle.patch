@@ -1,0 +1,84 @@
+Add DDC routing toggle to PATCH /api/ddc/config (axi_ad9361 reg 0x790200BC)
+
+OpenRF MaiaSource needs to route the on-FPGA DDC output into cf-ad9361-lpc
+for its overlay session and restore full-rate IQ afterwards, so ordinary
+libiio clients (SDR++/SDR#/GNU Radio) keep wideband IQ by default. The
+routing register lives in the cf-ad9361-lpc core (outside the maia-sdr UIO
+region) so it is written via a one-shot /dev/mem mapping. Adds a settable
+'enabled' field to PatchDDCConfig; None leaves routing unchanged.
+
+Signed-off-by: The OpenRF Authors <noreply@openrf>
+
+--- a/maia-httpd/maia-json/src/lib.rs	2026-06-24 19:04:42.873218045 +0200
++++ b/maia-httpd/maia-json/src/lib.rs	2026-06-24 19:04:59.976374262 +0200
+@@ -366,6 +366,13 @@
+     /// Frequency for the mixer, in Hz.
+     #[serde(skip_serializing_if = "Option::is_none")]
+     pub frequency: Option<f64>,
++    /// Whether to route the DDC output into the cf-ad9361-lpc capture device.
++    ///
++    /// `Some(true)` enables DDC routing (the iio capture carries the decimated
++    /// narrow channel); `Some(false)` restores full-rate wideband IQ; `None`
++    /// leaves routing unchanged. Maps to axi_ad9361 register 0x790200BC.
++    #[serde(skip_serializing_if = "Option::is_none")]
++    pub enabled: Option<bool>,
+ }
+ 
+ /// Configuration of a FIR filter in the DDC.
+--- a/maia-httpd/src/httpd/ddc.rs	2026-06-24 19:04:42.875218064 +0200
++++ b/maia-httpd/src/httpd/ddc.rs	2026-06-24 19:05:23.683589665 +0200
+@@ -4,6 +4,44 @@
+ use axum::{Json, extract::State};
+ use maia_json::{DDCConfig, DDCConfigSummary, PatchDDCConfig, PutDDCConfig, PutDDCDesign};
+ 
++/// Route the on-FPGA DDC output into the cf-ad9361-lpc capture device, or restore
++/// full-rate wideband IQ, by writing the axi_ad9361 routing register 0x790200BC.
++///
++/// This register lives in the cf-ad9361-lpc core (not the maia-sdr UIO region), so
++/// it is written through a one-shot /dev/mem mapping. The boot/default state is
++/// disabled, so ordinary libiio clients (SDR++/SDR#/GNU Radio) stream full-rate IQ
++/// unless a client (e.g. the OpenRF overlay) explicitly enables routing for its
++/// session and disables it again when done.
++fn set_ddc_routing(enable: bool) -> Result<()> {
++    use std::os::unix::io::AsRawFd;
++    const REG_BASE: libc::off_t = 0x7902_0000;
++    const REG_OFFSET: usize = 0xBC;
++    const MAP_LEN: usize = 0x1000;
++    let mem = std::fs::OpenOptions::new()
++        .read(true)
++        .write(true)
++        .open("/dev/mem")?;
++    // SAFETY: map one page at the page-aligned core base and write the 32-bit
++    // routing register at offset 0xBC with volatile semantics, then unmap.
++    unsafe {
++        let map = libc::mmap(
++            std::ptr::null_mut(),
++            MAP_LEN,
++            libc::PROT_READ | libc::PROT_WRITE,
++            libc::MAP_SHARED,
++            mem.as_raw_fd(),
++            REG_BASE,
++        );
++        if map == libc::MAP_FAILED {
++            anyhow::bail!("mmap /dev/mem for DDC routing register failed");
++        }
++        let reg = (map as *mut u8).add(REG_OFFSET) as *mut u32;
++        std::ptr::write_volatile(reg, u32::from(enable));
++        libc::munmap(map, MAP_LEN);
++    }
++    Ok(())
++}
++
+ async fn ddc_config(state: &AppState) -> Result<Json<DDCConfig>, JsonError> {
+     let samp_rate = state
+         .ad9361_samp_rate()
+@@ -62,6 +100,9 @@
+             .set_ddc_frequency(frequency, samp_rate)
+             .map_err(JsonError::client_error_alert)?;
+     }
++    if let Some(enabled) = patch.enabled {
++        set_ddc_routing(enabled).map_err(JsonError::server_error)?;
++    }
+     ddc_config(&state).await
+ }
+ 
