@@ -27,7 +27,7 @@ select BR2_PACKAGE_READLINE
 select BR2_PACKAGE_BASH	
 #ntp
 select BR2_PACKAGE_CHRONY
-select BR2_IIO_WS
+select BR2_PACKAGE_IIO_WS
 	help
 	  "Tezuka mini common tools"
 
