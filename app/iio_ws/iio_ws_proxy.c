@@ -144,6 +144,10 @@ struct app {
     bool         do_rx;
     bool         do_tx;
     bool         stats;
+    bool         do_cs12;    /* -c: pack RX int16 -> 12-bit (3 bytes/complex), ~25% less link BW */
+    bool         rx1_only;   /* -1: enable only RX1 (first 2 scan elements) for a clean I/Q stream */
+    bool         lazy;       /* -L: hold cf-ad9361-lpc only while an RX WS client is connected */
+    atomic_bool  want_rx;    /* lazy: an iio-rx client is currently connected */
 
     /* IIO */
     struct iio_context *iio;
@@ -191,13 +195,39 @@ static struct app A;
 /* ------------------------------------------------------------------ */
 /* IIO helpers                                                         */
 /* ------------------------------------------------------------------ */
-static void enable_channels(struct iio_device *dev)
+/* Pack S12/16 int16 IQ -> tight 12-bit, 3 bytes per complex (2 int16). ~25% less
+ * link bandwidth. Byte order matches the OpenRF MaiaSource host decoder. */
+static size_t pack_cs12(uint8_t *restrict dst, const int16_t *restrict src, size_t n_int16)
+{
+    size_t o = 0;
+    for (size_t i = 0; i + 1 < n_int16; i += 2) {
+        uint16_t v0 = (uint16_t)src[i]     & 0x0FFF;
+        uint16_t v1 = (uint16_t)src[i + 1] & 0x0FFF;
+        dst[o++] = (uint8_t)(v0 & 0xFF);
+        dst[o++] = (uint8_t)(((v1 & 0x0F) << 4) | ((v0 >> 8) & 0x0F));
+        dst[o++] = (uint8_t)((v1 >> 4) & 0xFF);
+    }
+    return o;
+}
+
+/* Enable scan-element channels. max_scan>0 limits to the first max_scan scan
+ * elements (RX1-only = 2: voltage0=I, voltage1=Q); 0 = all. The AD9361 exposes
+ * 4 RX scan elements (RX1 I/Q + RX2 I/Q); enabling all packs 8-byte slots that a
+ * single-RX consumer misreads, so RX1-only gives a clean 4-byte interleaved stream. */
+static void enable_channels(struct iio_device *dev, unsigned max_scan)
 {
     unsigned n = iio_device_get_channels_count(dev);
+    unsigned en = 0;
     for (unsigned i = 0; i < n; i++) {
         struct iio_channel *ch = iio_device_get_channel(dev, i);
-        if (iio_channel_is_scan_element(ch))
-            iio_channel_enable(ch);
+        if (iio_channel_is_scan_element(ch)) {
+            if (max_scan && en >= max_scan) {
+                iio_channel_disable(ch);
+            } else {
+                iio_channel_enable(ch);
+                en++;
+            }
+        }
     }
 }
 
@@ -241,12 +271,41 @@ static void *rx_thread(void *arg)
     struct app *a = arg;
 
     while (a->running) {
+        /* Lazy device hold: own cf-ad9361-lpc only while an RX client is connected,
+         * so ordinary libiio clients (SDR++/SDR#) can use the device when idle. All
+         * rx_buf create/destroy stays in this one thread to avoid cross-thread races. */
+        if (a->lazy) {
+            bool want = atomic_load_explicit(&a->want_rx, memory_order_acquire);
+            if (want && !a->rx_buf) {
+                enable_channels(a->rx_dev, a->rx1_only ? 2 : 0);
+                a->rx_buf = iio_device_create_buffer(a->rx_dev, a->buf_samples, false);
+                if (!a->rx_buf) { usleep(50000); continue; }
+                fprintf(stderr, "[rx] client present -> acquired %s\n", a->rx_dev_name);
+            } else if (!want && a->rx_buf) {
+                struct iio_buffer *b = a->rx_buf;
+                a->rx_buf = NULL;
+                iio_buffer_destroy(b);
+                fprintf(stderr, "[rx] no client -> released %s\n", a->rx_dev_name);
+            }
+            if (!a->rx_buf) { usleep(20000); continue; }
+        }
+
         ssize_t nb = iio_buffer_refill(a->rx_buf);
         if (nb < 0) {
             if (!a->running) break;
             if (-nb == ETIMEDOUT) continue;
-            fprintf(stderr, "[rx] refill: %s\n", strerror(-nb));
-            break;
+            /* Survive a rate change / transient DMA error: drop the buffer and
+             * recreate it instead of dying, so the stream resumes by itself. */
+            fprintf(stderr, "[rx] refill: %s -> recreating buffer\n", strerror(-nb));
+            iio_buffer_destroy(a->rx_buf);
+            a->rx_buf = NULL;
+            if (!a->lazy) {
+                enable_channels(a->rx_dev, a->rx1_only ? 2 : 0);
+                a->rx_buf = iio_device_create_buffer(a->rx_dev, a->buf_samples, false);
+                if (!a->rx_buf) { fprintf(stderr, "[rx] recreate failed\n"); break; }
+            }
+            usleep(50000);
+            continue;
         }
 
         if (!atomic_load_explicit(&a->wsi_rx, memory_order_acquire))
@@ -258,14 +317,23 @@ static void *rx_thread(void *arg)
             continue;
         }
 
-        size_t bytes = (size_t)nb < a->rx_ring.cap ? (size_t)nb : a->rx_ring.cap;
-        memcpy_iio(sl->buf + LWS_PRE, iio_buffer_start(a->rx_buf), bytes);
+        size_t bytes;
+        if (a->do_cs12) {
+            /* nb bytes = nb/2 int16 samples -> nb*3/4 packed bytes (< raw, fits cap) */
+            bytes = pack_cs12(sl->buf + LWS_PRE,
+                              (const int16_t *)iio_buffer_start(a->rx_buf),
+                              (size_t)nb / sizeof(int16_t));
+        } else {
+            bytes = (size_t)nb < a->rx_ring.cap ? (size_t)nb : a->rx_ring.cap;
+            memcpy_iio(sl->buf + LWS_PRE, iio_buffer_start(a->rx_buf), bytes);
+        }
         sl->len = bytes;
         ring_write_end(&a->rx_ring);
 
         atomic_fetch_add_explicit(&a->rx_bytes, bytes, memory_order_relaxed);
         lws_cancel_service(a->lws);
     }
+    if (a->lazy && a->rx_buf) { iio_buffer_destroy(a->rx_buf); a->rx_buf = NULL; }
     return NULL;
 }
 
@@ -338,6 +406,8 @@ static int ws_cb(struct lws *wsi, enum lws_callback_reasons reason,
                     fprintf(stderr, "[ws] TCP_USER_TIMEOUT: %s\n", strerror(errno));
             }
             atomic_store_explicit(&A.wsi_rx, (uintptr_t)wsi, memory_order_release);
+            if (A.lazy)
+                atomic_store_explicit(&A.want_rx, true, memory_order_release);
         }
         if (is_tx) {
             struct lws *ex = (struct lws *)atomic_load_explicit(&A.wsi_tx, memory_order_acquire);
@@ -361,6 +431,8 @@ static int ws_cb(struct lws *wsi, enum lws_callback_reasons reason,
     case LWS_CALLBACK_CLOSED:
         if (atomic_load_explicit(&A.wsi_rx, memory_order_acquire) == (uintptr_t)wsi) {
             atomic_store_explicit(&A.wsi_rx, (uintptr_t)NULL, memory_order_release);
+            if (A.lazy)
+                atomic_store_explicit(&A.want_rx, false, memory_order_release);
             fprintf(stderr, "[ws] RX client disconnected\n");
         }
         if (atomic_load_explicit(&A.wsi_tx, memory_order_acquire) == (uintptr_t)wsi) {
@@ -480,6 +552,9 @@ static void usage(const char *prog)
         "  -R        ADC→WS only\n"
         "  -T        WS→DAC only\n"
         "  -s        throughput stats\n"
+        "  -c        pack RX as CS12 (12-bit, 3 bytes/complex)\n"
+        "  -1        RX1 only (first 2 scan elements: clean 4-byte I/Q)\n"
+        "  -L        lazy device hold (own RX device only while a WS client is connected)\n"
         "  -h        this help\n",
         prog,
         DEF_IIO_URI, DEF_RX_DEV, DEF_TX_DEV,
@@ -512,7 +587,7 @@ int main(int argc, char **argv)
     A.do_tx       = true;
 
     int opt;
-    while ((opt = getopt(argc, argv, "u:r:t:p:n:RTsh")) != -1) {
+    while ((opt = getopt(argc, argv, "u:r:t:p:n:RTsc1Lh")) != -1) {
         switch (opt) {
         case 'u': A.iio_uri     = optarg;           break;
         case 'r': A.rx_dev_name = optarg;           break;
@@ -522,6 +597,9 @@ int main(int argc, char **argv)
         case 'R': A.do_rx = true;  A.do_tx = false; break;
         case 'T': A.do_rx = false; A.do_tx = true;  break;
         case 's': A.stats = true;                   break;
+        case 'c': A.do_cs12  = true;                break;
+        case '1': A.rx1_only = true;                break;
+        case 'L': A.lazy     = true;                break;
         case 'h': usage(argv[0]); return 0;
         default:  usage(argv[0]); return 1;
         }
@@ -542,14 +620,21 @@ int main(int argc, char **argv)
             fprintf(stderr, "device not found: %s\n", A.rx_dev_name);
             return 1;
         }
-        enable_channels(A.rx_dev);
+        enable_channels(A.rx_dev, A.rx1_only ? 2 : 0);
         iio_device_set_kernel_buffers_count(A.rx_dev, 8);
         A.sample_size = iio_device_get_sample_size(A.rx_dev);
         A.buf_bytes   = A.buf_samples * A.sample_size;
-        A.rx_buf = iio_device_create_buffer(A.rx_dev, A.buf_samples, false);
-        if (!A.rx_buf) { fprintf(stderr, "rx buffer create failed\n"); return 1; }
-        fprintf(stderr, "iio: RX dev=%s  samples=%zu  sample_size=%zu  buf=%zu B\n",
-                A.rx_dev_name, A.buf_samples, A.sample_size, A.buf_bytes);
+        if (A.lazy) {
+            /* Defer buffer creation to the RX thread (created on first WS client),
+             * so the device stays free for ordinary libiio clients while idle. */
+            fprintf(stderr, "iio: RX dev=%s  lazy-hold (acquired on WS connect)  sample_size=%zu\n",
+                    A.rx_dev_name, A.sample_size);
+        } else {
+            A.rx_buf = iio_device_create_buffer(A.rx_dev, A.buf_samples, false);
+            if (!A.rx_buf) { fprintf(stderr, "rx buffer create failed\n"); return 1; }
+            fprintf(stderr, "iio: RX dev=%s  samples=%zu  sample_size=%zu  buf=%zu B\n",
+                    A.rx_dev_name, A.buf_samples, A.sample_size, A.buf_bytes);
+        }
     }
 
     if (A.do_tx) {
@@ -558,7 +643,7 @@ int main(int argc, char **argv)
             fprintf(stderr, "device not found: %s\n", A.tx_dev_name);
             return 1;
         }
-        enable_channels(A.tx_dev);
+        enable_channels(A.tx_dev, 0);
         iio_device_set_kernel_buffers_count(A.tx_dev, 4);
         if (!A.sample_size) {
             A.sample_size = iio_device_get_sample_size(A.tx_dev);
@@ -602,6 +687,7 @@ int main(int argc, char **argv)
     A.running = true;
     atomic_init(&A.wsi_rx, (uintptr_t)NULL);
     atomic_init(&A.wsi_tx, (uintptr_t)NULL);
+    atomic_init(&A.want_rx, false);
     if (A.do_rx) { pthread_create(&A.rx_tid, NULL, rx_thread, &A); set_realtime(A.rx_tid, 10); }
     if (A.do_tx) { pthread_create(&A.tx_tid, NULL, tx_thread, &A); set_realtime(A.tx_tid,  5); }
 
