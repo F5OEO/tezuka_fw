@@ -6,7 +6,7 @@
  *
  * Licensed under the GPL-2.
  */
-#include "zynq.dtsi"
+#include "zynq-7000.dtsi"
 #include <dt-bindings/input/input.h>
 #include <dt-bindings/gpio/gpio.h>
 #include <dt-bindings/interrupt-controller/irq.h>
@@ -179,6 +179,7 @@
 			compatible = "adi,axi-dmac-1.00.a";
 			reg = <0x7c400000 0x10000>;
 			#dma-cells = <1>;
+			interrupt-parent = <&intc>;
 			interrupts = <0 57 IRQ_TYPE_LEVEL_HIGH>;
 			clocks = <&clkc 16>;
 
@@ -200,6 +201,7 @@
 			compatible = "adi,axi-dmac-1.00.a";
 			reg = <0x7c420000 0x10000>;
 			#dma-cells = <1>;
+			interrupt-parent = <&intc>;
 			interrupts = <0 56 IRQ_TYPE_LEVEL_HIGH>;
 			clocks = <&clkc 16>;
 
