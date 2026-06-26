@@ -43,8 +43,14 @@
 #include <getopt.h>
 #include <errno.h>
 #include <time.h>
+#include <sched.h>
+#include <semaphore.h>
 #include <stdatomic.h>
 #include <stdbool.h>
+#include <netinet/tcp.h>
+#ifndef TCP_NOTSENT_LOWAT          /* musl may not expose it yet */
+#define TCP_NOTSENT_LOWAT 25
+#endif
 #ifdef __ARM_NEON__
 #include <arm_neon.h>
 #endif
@@ -153,19 +159,18 @@ struct app {
     /* Separate slots for the two directions so an iio-rx recorder and an
      * iio-tx player can be connected simultaneously.  iio-iq uses wsi_rx
      * for writes and wsi_tx for the same connection (set to the same wsi). */
-    atomic_uintptr_t     wsi_rx;     /* (struct lws *) ADC→WS client */
-    atomic_uintptr_t     wsi_tx;     /* (struct lws *) WS→DAC client */
-    atomic_bool          tx_flow_paused; /* lws RX flow disabled on wsi_tx (ring full) */
+    atomic_uintptr_t     wsi_rx;          /* (struct lws *) ADC→WS client */
+    atomic_uintptr_t     wsi_tx;          /* (struct lws *) WS→DAC client */
+    atomic_bool          tx_push_pending; /* push in flight; WS RX paused */
 
     /* IIO→WS ring (producer: rx_thread, consumer: ws_cb writeable) */
     struct ring rx_ring;
-    /* WS→IIO ring (producer: ws_cb receive, consumer: tx_thread) */
-    struct ring tx_ring;
-    /* TX accumulation: fill directly into the current ring slot.
-     * Eliminates the tx_assem intermediate buffer and one memcpy.
-     * tx_fill_slot is NULL while no slot is open (between commits). */
-    struct slot *tx_fill_slot;
-    size_t       tx_fill_len;
+    /* TX: WS writes directly into iio_buffer_start(); sem signals push.
+     * Client must send frames that are multiples of sample_size so that
+     * tx_fill_len always reaches buf_bytes exactly (no straddle loss).
+     * Dashboard sends 64 KB frames; default buf_bytes = 1 MB = 16×64 KB. */
+    sem_t  tx_push_sem;
+    size_t tx_fill_len;  /* bytes written into TX IIO buffer so far */
 
     /* Worker threads */
     pthread_t   rx_tid;
@@ -176,9 +181,9 @@ struct app {
 
     /* Stats counters */
     atomic_uint_fast64_t rx_bytes;
+    atomic_uint_fast64_t rx_drop;    /* IIO buffers dropped (ring full, WS can't keep up) */
     atomic_uint_fast64_t tx_bytes;
-    atomic_uint_fast64_t tx_drop;    /* bytes dropped (ring full or no client) */
-    atomic_uint_fast64_t tx_under;   /* underrun events (ring empty at push time) */
+    atomic_uint_fast64_t tx_drop;    /* bytes dropped (frame straddles buffer boundary) */
 };
 
 static struct app A;
@@ -248,7 +253,10 @@ static void *rx_thread(void *arg)
             continue;
 
         struct slot *sl = ring_write_begin(&a->rx_ring);
-        if (!sl) continue;
+        if (!sl) {
+            atomic_fetch_add_explicit(&a->rx_drop, 1, memory_order_relaxed);
+            continue;
+        }
 
         size_t bytes = (size_t)nb < a->rx_ring.cap ? (size_t)nb : a->rx_ring.cap;
         memcpy_iio(sl->buf + LWS_PRE, iio_buffer_start(a->rx_buf), bytes);
@@ -262,35 +270,25 @@ static void *rx_thread(void *arg)
 }
 
 /* ------------------------------------------------------------------ */
-/* IIO TX thread: ring → push to DAC                                   */
+/* IIO TX thread: semaphore-driven push to DAC                         */
 /* ------------------------------------------------------------------ */
 static void *tx_thread(void *arg)
 {
     struct app *a = arg;
 
     while (a->running) {
-        struct slot *sl = ring_read_begin(&a->tx_ring);
-        if (!sl) {
-            atomic_fetch_add_explicit(&a->tx_under, 1, memory_order_relaxed);
-            usleep(200);
+        while (sem_wait(&a->tx_push_sem) == -1 && errno == EINTR)
             continue;
-        }
-
-        uint8_t *dst  = iio_buffer_start(a->tx_buf);
-        size_t   copy = sl->len < a->buf_bytes ? sl->len : a->buf_bytes;
-        memcpy(dst, sl->buf, copy);
-        if (copy < a->buf_bytes)
-            memset(dst + copy, 0, a->buf_bytes - copy);
-        ring_read_end(&a->tx_ring);
-        
-        if (atomic_load_explicit(&a->tx_flow_paused, memory_order_acquire))
-            lws_cancel_service(a->lws);
+        if (!a->running) break;
 
         ssize_t n = iio_buffer_push(a->tx_buf);
         if (n < 0 && a->running)
             fprintf(stderr, "[tx] push: %s\n", strerror(-n));
         else if (n > 0)
             atomic_fetch_add_explicit(&a->tx_bytes, (size_t)n, memory_order_relaxed);
+
+        atomic_store_explicit(&a->tx_push_pending, false, memory_order_release);
+        lws_cancel_service(a->lws);   /* wake main loop to re-enable WS RX flow */
     }
     return NULL;
 }
@@ -325,6 +323,20 @@ static int ws_cb(struct lws *wsi, enum lws_callback_reasons reason,
                 fprintf(stderr, "[ws] rejecting second RX client (%s)\n", proto);
                 return -1;
             }
+            int fd = lws_get_socket_fd(wsi);
+            if (fd >= 0) {
+                /* Limit unsent queue depth to reduce BBR RTT inflation. */
+                int lowat = (int)A.buf_bytes;
+                if (setsockopt(fd, IPPROTO_TCP, TCP_NOTSENT_LOWAT,
+                               &lowat, sizeof(lowat)) < 0)
+                    fprintf(stderr, "[ws] TCP_NOTSENT_LOWAT: %s\n", strerror(errno));
+                /* Kill connections that stall (zero-window or dead peer) so
+                 * the client can reconnect instead of hanging indefinitely. */
+                unsigned int user_timeout_ms = 5000;
+                if (setsockopt(fd, IPPROTO_TCP, TCP_USER_TIMEOUT,
+                               &user_timeout_ms, sizeof(user_timeout_ms)) < 0)
+                    fprintf(stderr, "[ws] TCP_USER_TIMEOUT: %s\n", strerror(errno));
+            }
             atomic_store_explicit(&A.wsi_rx, (uintptr_t)wsi, memory_order_release);
         }
         if (is_tx) {
@@ -335,9 +347,8 @@ static int ws_cb(struct lws *wsi, enum lws_callback_reasons reason,
                     atomic_store_explicit(&A.wsi_rx, (uintptr_t)NULL, memory_order_release);
                 return -1;
             }
-            A.tx_fill_slot = NULL;
-            A.tx_fill_len  = 0;
-            atomic_store_explicit(&A.tx_flow_paused, false, memory_order_release);
+            A.tx_fill_len = 0;
+            atomic_store_explicit(&A.tx_push_pending, false, memory_order_release);
             lws_rx_flow_control(wsi, 1);
             atomic_store_explicit(&A.wsi_tx, (uintptr_t)wsi, memory_order_release);
         }
@@ -354,9 +365,7 @@ static int ws_cb(struct lws *wsi, enum lws_callback_reasons reason,
         }
         if (atomic_load_explicit(&A.wsi_tx, memory_order_acquire) == (uintptr_t)wsi) {
             atomic_store_explicit(&A.wsi_tx, (uintptr_t)NULL, memory_order_release);
-            A.tx_fill_slot = NULL;
-            A.tx_fill_len  = 0;
-            atomic_store_explicit(&A.tx_flow_paused, false, memory_order_release);
+            A.tx_fill_len = 0;
             fprintf(stderr, "[ws] TX client disconnected\n");
         }
         break;
@@ -368,11 +377,10 @@ static int ws_cb(struct lws *wsi, enum lws_callback_reasons reason,
         if (!sl) break;
 
         int sent = lws_write(wsi, sl->buf + LWS_PRE, sl->len, LWS_WRITE_BINARY);
-        ring_read_end(&A.rx_ring);
-        if (sent < 0) return -1;
+        if (sent < 0)
+            return -1;
 
-        if (ring_has_data(&A.rx_ring))
-            lws_callback_on_writable(wsi);
+        ring_read_end(&A.rx_ring);
         break;
     }
 
@@ -381,43 +389,25 @@ static int ws_cb(struct lws *wsi, enum lws_callback_reasons reason,
             break;
         if (!len) break;
 
-        const uint8_t *src = in;
-        size_t remaining = len;
+        /* iio_buffer_start() pointer may change after each push (kernel rotates
+         * DMA regions), so always re-read it here. tx_push_pending + flow-control
+         * guarantee no RECEIVE fires while a push is in flight. */
+        uint8_t        *iio_dst  = iio_buffer_start(A.tx_buf);
+        const uint8_t  *src      = in;
+        size_t          space    = A.buf_bytes - A.tx_fill_len;
+        size_t          chunk    = len < space ? len : space;
 
-        if (!A.tx_fill_slot && A.tx_fill_len == 0) {
-            A.tx_fill_slot = ring_write_begin(&A.tx_ring);
-            if (!A.tx_fill_slot) {
-                atomic_store_explicit(&A.tx_flow_paused, true, memory_order_release);
-                lws_rx_flow_control(wsi, 0);
-            }
-        }
+        memcpy(iio_dst + A.tx_fill_len, src, chunk);
+        A.tx_fill_len += chunk;
 
-        while (remaining > 0) {
-            size_t space = A.buf_bytes - A.tx_fill_len;
-            size_t chunk = remaining < space ? remaining : space;
+        if (chunk < len)
+            atomic_fetch_add_explicit(&A.tx_drop, len - chunk, memory_order_relaxed);
 
-            if (A.tx_fill_slot)
-                memcpy(A.tx_fill_slot->buf + A.tx_fill_len, src, chunk);
-            else
-                atomic_fetch_add_explicit(&A.tx_drop, chunk, memory_order_relaxed);
-
-            A.tx_fill_len += chunk;
-            src           += chunk;
-            remaining     -= chunk;
-
-            if (A.tx_fill_len >= A.buf_bytes) {
-                if (A.tx_fill_slot) {
-                    A.tx_fill_slot->len = A.buf_bytes;
-                    ring_write_end(&A.tx_ring);
-                }
-                A.tx_fill_slot = ring_write_begin(&A.tx_ring);
-                A.tx_fill_len  = 0;
-                if (!A.tx_fill_slot) {
-                    atomic_store_explicit(&A.tx_flow_paused, true, memory_order_release);
-                    lws_rx_flow_control(wsi, 0);
-                    break;
-                }
-            }
+        if (A.tx_fill_len >= A.buf_bytes) {
+            A.tx_fill_len = 0;
+            atomic_store_explicit(&A.tx_push_pending, true, memory_order_release);
+            lws_rx_flow_control(wsi, 0);
+            sem_post(&A.tx_push_sem);
         }
         break;
     }
@@ -444,7 +434,7 @@ static struct lws_protocols protocols[] = {
 /* ------------------------------------------------------------------ */
 static void show_stats(void)
 {
-    static uint64_t prx, ptx, pdrop, punder;
+    static uint64_t prx, prx_drop, ptx, pdrop;
     static time_t   pt;
 
     time_t now = time(NULL);
@@ -452,18 +442,18 @@ static void show_stats(void)
     double dt = difftime(now, pt);
     if (dt < 1.0) return;
 
-    uint64_t rx    = (uint64_t)atomic_load_explicit(&A.rx_bytes, memory_order_relaxed);
-    uint64_t tx    = (uint64_t)atomic_load_explicit(&A.tx_bytes, memory_order_relaxed);
-    uint64_t drop  = (uint64_t)atomic_load_explicit(&A.tx_drop,  memory_order_relaxed);
-    uint64_t under = (uint64_t)atomic_load_explicit(&A.tx_under, memory_order_relaxed);
+    uint64_t rx      = (uint64_t)atomic_load_explicit(&A.rx_bytes, memory_order_relaxed);
+    uint64_t rx_drop = (uint64_t)atomic_load_explicit(&A.rx_drop,  memory_order_relaxed);
+    uint64_t tx      = (uint64_t)atomic_load_explicit(&A.tx_bytes, memory_order_relaxed);
+    uint64_t drop    = (uint64_t)atomic_load_explicit(&A.tx_drop,  memory_order_relaxed);
 
     fprintf(stderr,
-            "stats: RX %.2f MB/s  TX %.2f MB/s  TX-drop %.2f MB/s  TX-under %.0f/s\n",
-            (double)(rx    - prx)   / dt / 1e6,
-            (double)(tx    - ptx)   / dt / 1e6,
-            (double)(drop  - pdrop) / dt / 1e6,
-            (double)(under - punder) / dt);
-    prx = rx; ptx = tx; pdrop = drop; punder = under; pt = now;
+            "stats: RX %.2f MB/s  RX-drop %.0f/s  TX %.2f MB/s  TX-drop %.2f MB/s\n",
+            (double)(rx      - prx)      / dt / 1e6,
+            (double)(rx_drop - prx_drop) / dt,
+            (double)(tx      - ptx)      / dt / 1e6,
+            (double)(drop    - pdrop)    / dt / 1e6);
+    prx = rx; prx_drop = rx_drop; ptx = tx; pdrop = drop; pt = now;
 }
 
 /* ------------------------------------------------------------------ */
@@ -475,6 +465,7 @@ static void on_signal(int s)
     A.running = false;
     if (A.rx_buf) iio_buffer_cancel(A.rx_buf);
     if (A.lws)    lws_cancel_service(A.lws);
+    sem_post(&A.tx_push_sem);   /* unblock tx_thread if waiting */
 }
 
 static void usage(const char *prog)
@@ -493,6 +484,18 @@ static void usage(const char *prog)
         prog,
         DEF_IIO_URI, DEF_RX_DEV, DEF_TX_DEV,
         DEF_PORT, DEF_BUF_SAMPLES);
+}
+
+/* ------------------------------------------------------------------ */
+/* Thread scheduling                                                   */
+/* ------------------------------------------------------------------ */
+static void set_realtime(pthread_t tid, int prio)
+{
+    struct sched_param sp = { .sched_priority = prio };
+    int r = pthread_setschedparam(tid, SCHED_FIFO, &sp);
+    if (r)
+        fprintf(stderr, "warn: SCHED_FIFO prio %d failed: %s (run as root?)\n",
+                prio, strerror(r));
 }
 
 /* ------------------------------------------------------------------ */
@@ -556,6 +559,7 @@ int main(int argc, char **argv)
             return 1;
         }
         enable_channels(A.tx_dev);
+        iio_device_set_kernel_buffers_count(A.tx_dev, 4);
         if (!A.sample_size) {
             A.sample_size = iio_device_get_sample_size(A.tx_dev);
             A.buf_bytes   = A.buf_samples * A.sample_size;
@@ -572,9 +576,9 @@ int main(int argc, char **argv)
         fprintf(stderr, "rx ring alloc failed\n"); return 1;
     }
     if (A.do_tx) {
-        if (ring_init(&A.tx_ring, A.buf_bytes) < 0) {
-            fprintf(stderr, "tx ring alloc failed\n"); return 1;
-        }
+        sem_init(&A.tx_push_sem, 0, 0);
+        atomic_init(&A.tx_push_pending, false);
+        A.tx_fill_len = 0;
     }
 
     lws_set_log_level(LLL_ERR | LLL_WARN | LLL_NOTICE | LLL_INFO, NULL);
@@ -598,12 +602,12 @@ int main(int argc, char **argv)
     A.running = true;
     atomic_init(&A.wsi_rx, (uintptr_t)NULL);
     atomic_init(&A.wsi_tx, (uintptr_t)NULL);
-    atomic_init(&A.tx_flow_paused, false);
-    if (A.do_rx) pthread_create(&A.rx_tid, NULL, rx_thread, &A);
-    if (A.do_tx) pthread_create(&A.tx_tid, NULL, tx_thread, &A);
+    if (A.do_rx) { pthread_create(&A.rx_tid, NULL, rx_thread, &A); set_realtime(A.rx_tid, 10); }
+    if (A.do_tx) { pthread_create(&A.tx_tid, NULL, tx_thread, &A); set_realtime(A.tx_tid,  5); }
 
     while (A.running) {
-        lws_service(A.lws, 50);
+        int timeout_ms = (A.do_rx && ring_has_data(&A.rx_ring)) ? 0 : 50;
+        lws_service(A.lws, timeout_ms);
 
         if (A.do_rx) {
             struct lws *wsi = (struct lws *)atomic_load_explicit(&A.wsi_rx, memory_order_acquire);
@@ -611,12 +615,10 @@ int main(int argc, char **argv)
                 lws_callback_on_writable(wsi);
         }
 
-        if (A.do_tx && atomic_load_explicit(&A.tx_flow_paused, memory_order_acquire)) {
+        if (A.do_tx && !atomic_load_explicit(&A.tx_push_pending, memory_order_acquire)) {
             struct lws *wsi_tx = (struct lws *)atomic_load_explicit(&A.wsi_tx, memory_order_acquire);
-            if (wsi_tx && ring_write_begin(&A.tx_ring) != NULL) {
-                atomic_store_explicit(&A.tx_flow_paused, false, memory_order_release);
+            if (wsi_tx)
                 lws_rx_flow_control(wsi_tx, 1);
-            }
         }
 
         if (A.stats) show_stats();
@@ -631,7 +633,7 @@ int main(int argc, char **argv)
     if (A.tx_buf) iio_buffer_destroy(A.tx_buf);
     iio_context_destroy(A.iio);
     if (A.do_rx) ring_destroy(&A.rx_ring);
-    if (A.do_tx) ring_destroy(&A.tx_ring);
+    if (A.do_tx) sem_destroy(&A.tx_push_sem);
 
     return 0;
 }
