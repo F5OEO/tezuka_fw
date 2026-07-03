@@ -253,10 +253,10 @@ jobs:
         id: kernel-archive
         if: steps.kernel-cache.outputs.cache-hit != 'true'
         run: |
-          LINUX_DIR=$(ls -d "${OUTPUT_DIR}/build/linux-"* 2>/dev/null || true)
-          if [ -n "$LINUX_DIR" ]; then
+          set -- "${OUTPUT_DIR}"/build/linux-*
+          if [ -d "$1" ] && [ "${1##*/}" != "linux-*" ]; then
             tar -czf /tmp/kernel-cache.tar.gz \
-              -C "$(dirname "$LINUX_DIR")" "$(basename "$LINUX_DIR")"
+              -C "$(dirname "$1")" "$(basename "$1")"
             echo "archived=true" >> "$GITHUB_OUTPUT"
           else
             echo "archived=false" >> "$GITHUB_OUTPUT"
