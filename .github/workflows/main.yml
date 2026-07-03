@@ -168,7 +168,7 @@ jobs:
         uses: actions/cache/restore@v5
         with:
           path: ${{ env.OUTPUT_DIR }}
-          key: output-${{ matrix.board }}-${{ hashFiles('package/**/*.mk', 'package/**/*.hash', 'buildroot.version', 'patches/buildroot/**', format('configs/{0}', matrix.defconfig), 'board/tezuka/**/kernel/**/*') }}
+          key: output-${{ matrix.board }}-${{ hashFiles('package/**/*.mk', 'package/**/*.hash', 'buildroot.version', 'patches/buildroot/**', format('configs/{0}', matrix.defconfig)) }}
 
       # uboot-env-hook.mk writes this in the source tree at U-Boot
       # extract time; with output/ cached, extract is skipped and the
@@ -193,6 +193,30 @@ jobs:
 
       - name: Build U-Boot
         run: make -C buildroot O="${OUTPUT_DIR}" uboot
+
+      # Kernel build dir cache (~500MB vs 3GB full output). Small enough for
+      # multi-board: 12×~200MB (compressed) ≈ 2.4GB, fits in 10GB limit.
+      # Key includes kernel config files so CMA/etc changes bust only this
+      # cache, leaving the main output cache intact (uboot/rootfs stay hot).
+      - name: Restore kernel build cache
+        id: kernel-cache
+        uses: actions/cache/restore@v5
+        with:
+          path: /tmp/kernel-cache.tar.gz
+          key: kernel-${{ matrix.board }}-${{ hashFiles('board/tezuka/**/kernel/**/*', 'buildroot.version', format('configs/{0}', matrix.defconfig)) }}
+
+      - name: Extract kernel build cache
+        if: steps.kernel-cache.outputs.cache-hit == 'true'
+        run: |
+          mkdir -p "${OUTPUT_DIR}/build"
+          tar -xzf /tmp/kernel-cache.tar.gz -C "${OUTPUT_DIR}/build"
+
+      # Kernel cache miss on single-board: main output cache may have restored
+      # old build/linux-* with stale stamps, tricking Buildroot into skipping.
+      # Nuke it so Buildroot always sees a clean state when kernel config changed.
+      - name: Remove stale kernel stamps
+        if: steps.kernel-cache.outputs.cache-hit != 'true'
+        run: rm -rf "${OUTPUT_DIR}"/build/linux-*
 
       - name: Build kernel
         run: make -C buildroot O="${OUTPUT_DIR}" linux
@@ -219,6 +243,26 @@ jobs:
         with:
           path: ${{ env.OUTPUT_DIR }}
           key: ${{ steps.output-cache.outputs.cache-primary-key }}
+
+      - name: Archive kernel build for caching
+        id: kernel-archive
+        if: steps.kernel-cache.outputs.cache-hit != 'true'
+        run: |
+          LINUX_DIR=$(ls -d "${OUTPUT_DIR}/build/linux-"* 2>/dev/null || true)
+          if [ -n "$LINUX_DIR" ]; then
+            tar -czf /tmp/kernel-cache.tar.gz \
+              -C "$(dirname "$LINUX_DIR")" "$(basename "$LINUX_DIR")"
+            echo "archived=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "archived=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Save kernel build cache
+        if: steps.kernel-archive.outputs.archived == 'true'
+        uses: actions/cache/save@v5
+        with:
+          path: /tmp/kernel-cache.tar.gz
+          key: ${{ steps.kernel-cache.outputs.cache-primary-key }}
 
       - name: Save ccache
         if: steps.ccache-cache.outputs.cache-hit != 'true'
@@ -302,6 +346,7 @@ jobs:
             echo "| ccache              | ${{ steps.ccache-cache.outputs.cache-hit || 'miss' }} |"
             echo "| Buildroot tree      | ${{ steps.br-cache.outputs.cache-hit || 'miss' }} |"
             echo "| Buildroot output    | ${{ steps.output-cache.outputs.cache-hit || 'miss' }} |"
+            echo "| Kernel build        | ${{ steps.kernel-cache.outputs.cache-hit || 'miss' }} |
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload artifact
