@@ -351,7 +351,7 @@ jobs:
             echo "| ccache              | ${{ steps.ccache-cache.outputs.cache-hit || 'miss' }} |"
             echo "| Buildroot tree      | ${{ steps.br-cache.outputs.cache-hit || 'miss' }} |"
             echo "| Buildroot output    | ${{ steps.output-cache.outputs.cache-hit || 'miss' }} |"
-            echo "| Kernel build        | ${{ steps.kernel-cache.outputs.cache-hit || 'miss' }} |
+            echo "| Kernel build        | ${{ steps.kernel-cache.outputs.cache-hit || 'miss' }} |"
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload artifact
