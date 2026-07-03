@@ -1,0 +1,123 @@
+fix(maia-kmod): remove rxbuffer vm_ops.close UAF, add range guards
+
+Three remaining lifecycle issues after previous fixes (0001-0003):
+
+1. rxbuffer mmap still sets vma->vm_ops.close + vma->vm_private_data,
+   the exact UAF-on-unload pattern removed from the recording driver in
+   0003. If the module is unloaded while a rxbuffer VMA is open, the
+   close callback writes to freed drvdata via vm_private_data -> UAF
+   write into slab -> global corruption.
+
+2. rxbuffer mmap reads drvdata->mmap_done without READ_ONCE. The write
+   side uses WRITE_ONCE+smp_wmb, so the read side should match.
+
+3. No range guards: if any TOCTOU or computation error causes
+   v7_dma_inv_range or arm_cache_outer_inv_range to hit addresses
+   outside the reserved DMA region, the result is silent data
+   corruption. Add WARN_ON bounds checks after each invalidation call.
+
+Signed-off-by: Tom Fleet <tom@jtfleet.com>
+
+--- a/maia-kmod/maia-sdr.c
++++ b/maia-kmod/maia-sdr.c
+@@ -103,25 +103,23 @@
+ 	arm_cache_outer_inv_range(drvdata->mem_base_addr + offset,
+ 				  drvdata->mem_base_addr + offset + size);
+ 
++	/* Range guard: verify the computed range is within the reserved
++	 * DMA region.  If this fires, the offset/size computation is
++	 * corrupt and we would be silently nuking arbitrary physical
++	 * memory via the L2 invalidation above.
++	 */
++	WARN_ON(size > drvdata->mem_size ||
++		offset + size > drvdata->mem_size);
++
+ 	return 0;
+ }
+ 
+-static void maia_sdr_rxbuffer_vm_close(struct vm_area_struct *vma)
+-{
+-	struct maia_sdr_rxbuffer_drvdata *drvdata = vma->vm_private_data;
+-	unsigned long irqflags;
++/* No vm_ops on rxbuffer VMA.  The mmap_done/vm_start fields are only
++ * read from the IOCTL path under cacheinv_lock, never from VMA
++ * teardown.  Removing vm_ops.close eliminates the UAF-on-unload
++ * vector (close callback writing to freed drvdata via stale
++ * vm_private_data).  */
+ 
+-	spin_lock_irqsave(&drvdata->cacheinv_lock, irqflags);
+-	WRITE_ONCE(drvdata->mmap_done, 0);
+-	smp_wmb();
+-	WRITE_ONCE(drvdata->vm_start, 0);
+-	spin_unlock_irqrestore(&drvdata->cacheinv_lock, irqflags);
+-}
+-
+-static struct vm_operations_struct maia_sdr_rxbuffer_vm_ops = {
+-	.close = maia_sdr_rxbuffer_vm_close,
+-};
+-
+ static int maia_sdr_rxbuffer_mmap(struct file *file, struct vm_area_struct *vma)
+ {
+ 	struct maia_sdr_rxbuffer_drvdata *drvdata = file->private_data;
+@@ -131,7 +129,7 @@
+ 	const unsigned long pte_mask = L_PTE_RDONLY | L_PTE_XN;
+ 	unsigned long max_size = drvdata->buffer_size * drvdata->num_buffers;
+ 
+-	if (drvdata->mmap_done) {
++	if (READ_ONCE(drvdata->mmap_done)) {
+ 		// Device is already mapped
+ 		return -EINVAL;
+ 	}
+@@ -156,8 +154,6 @@
+ 	WRITE_ONCE(drvdata->vm_start, vma->vm_start);
+ 	smp_wmb();
+ 	WRITE_ONCE(drvdata->mmap_done, 1);
+-	vma->vm_private_data = (void *)drvdata;
+-	vma->vm_ops = &maia_sdr_rxbuffer_vm_ops;
+ 
+ 	return 0;
+ }
+@@ -167,7 +163,9 @@
+ 			   unsigned num_buffer)
+ {
+ 	unsigned long offset;
+-	unsigned long start;
++	unsigned long l1_start;
++	phys_addr_t l2_start;
++
+ 	if (num_buffer >= drvdata->num_buffers) {
+ 		return -1;
+ 	}
+@@ -175,11 +173,28 @@
+ 		return -1;
+ 	}
+ 	offset = drvdata->buffer_size * num_buffer;
+-	start = READ_ONCE(drvdata->vm_start) + offset;
+-	// See maia_sdr_recording_mmap for how the cache invalidation works.
+-	v7_dma_inv_range(start, start + drvdata->buffer_size);
+-	start = drvdata->mem_base_addr + offset;
+-	arm_cache_outer_inv_range(start, start + drvdata->buffer_size);
++
++	// Invalidate L1 cache by virtual address.
++	l1_start = READ_ONCE(drvdata->vm_start) + offset;
++	v7_dma_inv_range(l1_start, l1_start + drvdata->buffer_size);
++
++	// Invalidate L2 cache by physical address.
++	l2_start = drvdata->mem_base_addr + offset;
++	arm_cache_outer_inv_range(l2_start, l2_start + drvdata->buffer_size);
++
++	/* Range guard: verify both ranges are within bounds.  If
++	 * either WARN fires, the vm_start or offset is corrupt and
++	 * the cache invalidation above could have hit wrong memory.
++	 */
++	WARN_ON(l1_start < READ_ONCE(drvdata->vm_start) ||
++		l1_start + drvdata->buffer_size >
++		READ_ONCE(drvdata->vm_start) +
++			drvdata->buffer_size * drvdata->num_buffers);
++	WARN_ON(l2_start < drvdata->mem_base_addr ||
++		l2_start + drvdata->buffer_size >
++		drvdata->mem_base_addr +
++			drvdata->buffer_size * drvdata->num_buffers);
++
+ 	return 0;
+ }

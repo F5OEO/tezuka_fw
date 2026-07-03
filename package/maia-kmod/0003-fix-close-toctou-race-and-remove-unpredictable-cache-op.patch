@@ -1,0 +1,139 @@
+fix(maia-kmod): close TOCTOU race in rxbuffer cacheinv, remove
+ UNPREDICTABLE L1 cache op from recording mmap
+
+Two remaining lifecycle issues after the previous stale-VA fix (0002):
+
+1. TOCTOU race in rxbuffer cacheinv: thread checks mmap_done==1, then a
+   racing munmap clears both fields, thread proceeds with stale vm_start
+   -> v7_dma_inv_range on unmapped VA -> UNPREDICTABLE (ARM ARM).
+   Fix with WRITE_ONCE + smp_wmb ordering + cacheinv_lock spinlock:
+   - mmap: vm_start written BEFORE mmap_done (smp_wmb between)
+   - vm_close: mmap_done cleared BEFORE vm_start zeroed (WRITE_ONCE +
+     smp_wmb), protected by cacheinv_lock to serialize against IOCTL
+   - Reader: READ_ONCE on both fields
+
+2. v7_dma_inv_range in recording_mmap operates on VM_IO (device memory)
+   pages where DCIMVAC is UNPREDICTABLE per ARM ARM. Remove it.
+   L2 cache invalidation (by physical address) is safe and retained.
+
+Not included (reverted from original attempt): recording vm_ops close
+callback.  Recording driver has no IOCTL that reads mmap_done/vm_start,
+so lifecycle tracking is unnecessary.  Adding vm_ops on the recording
+VMA was implicated in anon_vma_chain corruption crash (NULL list entry
+in unlink_anon_vmas during exit_mmap of watchconsoletx).
+
+--- a/maia-kmod/maia-sdr.c
++++ b/maia-kmod/maia-sdr.c
+@@ -10,6 +10,7 @@
+ #include <linux/cdev.h>
+ #include <linux/dma-mapping.h>
+ #include <linux/err.h>
++#include <linux/spinlock.h>
+ #include <linux/fs.h>
+ #include <linux/init.h>
+ #include <linux/ioctl.h>
+@@ -41,6 +42,7 @@
+ 
+ struct maia_sdr_rxbuffer_drvdata {
+ 	struct cdev cdev;
++	spinlock_t cacheinv_lock;
+ 	dev_t device_number;
+ 	struct device *device;
+ 	phys_addr_t mem_base_addr;
+@@ -91,13 +93,11 @@
+ 		return ret;
+ 	}
+ 
+-	// Invalidate ARMv7 L1 cache by virtual address range.
+-	//
+-	// The L1 data cache is physically indexed and physically tagged, but
+-	// invalidation is done using virtual addresses, line by line. We use
+-	// the userspace virtual addresses, since the DMA buffer is not mapped
+-	// at all in kernel memory.
+-	v7_dma_inv_range(vma->vm_start, vma->vm_end);
++	/*
++	 * L1 cache invalidation (v7_dma_inv_range) deliberately omitted.
++	 * Pages are mapped via remap_pfn_range with VM_IO (device memory);
++	 * DCIMVAC on those is UNPREDICTABLE per ARM ARM.
++	 */
+ 
+ 	// Invalidate L2 cache by physical address range.
+ 	arm_cache_outer_inv_range(drvdata->mem_base_addr + offset,
+@@ -109,8 +109,13 @@
+ static void maia_sdr_rxbuffer_vm_close(struct vm_area_struct *vma)
+ {
+ 	struct maia_sdr_rxbuffer_drvdata *drvdata = vma->vm_private_data;
+-	drvdata->mmap_done = 0;
+-	drvdata->vm_start = 0;
++	unsigned long irqflags;
++
++	spin_lock_irqsave(&drvdata->cacheinv_lock, irqflags);
++	WRITE_ONCE(drvdata->mmap_done, 0);
++	smp_wmb();
++	WRITE_ONCE(drvdata->vm_start, 0);
++	spin_unlock_irqrestore(&drvdata->cacheinv_lock, irqflags);
+ }
+ 
+ static struct vm_operations_struct maia_sdr_rxbuffer_vm_ops = {
+@@ -148,8 +153,9 @@
+ 	if (ret) {
+ 		return ret;
+ 	}
+-	drvdata->mmap_done = 1;
+-	drvdata->vm_start = vma->vm_start;
++	WRITE_ONCE(drvdata->vm_start, vma->vm_start);
++	smp_wmb();
++	WRITE_ONCE(drvdata->mmap_done, 1);
+ 	vma->vm_private_data = (void *)drvdata;
+ 	vma->vm_ops = &maia_sdr_rxbuffer_vm_ops;
+ 
+@@ -165,11 +171,11 @@
+ 	if (num_buffer >= drvdata->num_buffers) {
+ 		return -1;
+ 	}
+-	if (!drvdata->mmap_done) {
++	if (!READ_ONCE(drvdata->mmap_done)) {
+ 		return -1;
+ 	}
+ 	offset = drvdata->buffer_size * num_buffer;
+-	start = drvdata->vm_start + offset;
++	start = READ_ONCE(drvdata->vm_start) + offset;
+ 	// See maia_sdr_recording_mmap for how the cache invalidation works.
+ 	v7_dma_inv_range(start, start + drvdata->buffer_size);
+ 	start = drvdata->mem_base_addr + offset;
+@@ -183,15 +189,22 @@
+ 	struct maia_sdr_rxbuffer_drvdata *drvdata = file->private_data;
+ 
+ 	switch (cmd) {
+-	case IOCTL_CACHEINV:
+-		if (!drvdata->mmap_done) {
++	case IOCTL_CACHEINV: {
++		unsigned long irqflags;
++		int ret;
++
++		spin_lock_irqsave(&drvdata->cacheinv_lock, irqflags);
++		if (!READ_ONCE(drvdata->mmap_done)) {
++			spin_unlock_irqrestore(&drvdata->cacheinv_lock, irqflags);
+ 			return -EINVAL;
+ 		}
+-		return maia_sdr_rxbuffer_cacheinv(drvdata, arg);
++		ret = maia_sdr_rxbuffer_cacheinv(drvdata, arg);
++		spin_unlock_irqrestore(&drvdata->cacheinv_lock, irqflags);
++		return ret;
++	}
+ 	default:
+ 		return -ENOTTY;
+ 	}
+-	return 0;
+ }
+ 
+ static int maia_sdr_rxbuffer_open(struct inode *inode, struct file *file)
+@@ -411,6 +424,8 @@
+ 	drvdata->mem_base_addr = reserved_mem->base;
+ 	drvdata->num_buffers = reserved_mem->size / drvdata->buffer_size;
+ 
++	spin_lock_init(&drvdata->cacheinv_lock);
++
+ 	cdev_init(&drvdata->cdev, &rxbuffer_fops);
+ 	drvdata->cdev.owner = THIS_MODULE;
+ 	minor = ida_alloc_range(&maia_sdr_device_ida, 0, MAIA_SDR_MINOR_MAX - 1,

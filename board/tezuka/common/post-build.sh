@@ -12,6 +12,8 @@ fi
 
 cp "${BOARD_DIR}/LICENSE.template" "${BINARIES_DIR}/msd/LICENSE.html"
 cp -r "${BOARD_DIR}/msd/"* "${BINARIES_DIR}/msd/"
+# Host Python may lack CA cert bundle; point to system CA store for HTTPS
+SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt \
 python3 "${BOARD_DIR}/../../../Dashboard/bundle.py" "${BINARIES_DIR}/msd/dash/index.html"
 rm -rf "${BINARIES_DIR}/msd/dash/assets"
 LINUX_VERS=$(grep '^BR2_LINUX_KERNEL_VERSION' "${BR2_CONFIG}" | cut -d\" -f 2)
@@ -79,6 +81,7 @@ mkdir -p "${TARGET_DIR}/var/spool/cron/crontabs"
 
 ${INSTALL} -D -m 0644 "${BOARD_DIR}/msd/img/"* "${TARGET_DIR}/root/img/"
 ${INSTALL} -D -m 0644 "${BOARD_DIR}/msd/sweep/"* "${TARGET_DIR}/root/sweep/"
+SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt \
 python3 "${BOARD_DIR}/../../../Dashboard/bundle.py" "${TARGET_DIR}/root/dash/index.html"
 ${INSTALL} -D -m 0644 "${BOARD_DIR}/msd/"*.* "${TARGET_DIR}/root/"
 
