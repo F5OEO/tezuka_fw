@@ -210,6 +210,11 @@ jobs:
         run: |
           mkdir -p "${OUTPUT_DIR}/build"
           tar -xzf /tmp/kernel-cache.tar.gz -C "${OUTPUT_DIR}/build"
+          # Strip install stamps so Buildroot re-runs install-to-images/target.
+          # Main output cache may have restored stale kernel artifacts from
+          # a different config — fresh install overwrites them correctly.
+          rm -f "${OUTPUT_DIR}"/build/linux-*/.stamp_installed
+          rm -f "${OUTPUT_DIR}"/build/linux-*/.stamp_target_installed
 
       # Kernel cache miss on single-board: main output cache may have restored
       # old build/linux-* with stale stamps, tricking Buildroot into skipping.
