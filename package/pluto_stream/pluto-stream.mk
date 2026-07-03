@@ -16,7 +16,7 @@ PLUTO_STREAM_LICENSE_FILES = LICENSE
 
 # Runtime & build dependencies
 # (adjust names to match what is actually available in your Buildroot tree)
-PLUTO_STREAM_DEPENDENCIES = libiio mosquitto libgse ne10
+PLUTO_STREAM_DEPENDENCIES = libiio mosquitto libgse ne10 libwebsockets libopenssl
 
 # ---- Generic-package build steps ------------------------------------------
 
@@ -28,13 +28,18 @@ define PLUTO_STREAM_BUILD_CMDS
 		CXXFLAGS="$(TARGET_CXXFLAGS)" \
 		LDFLAGS="$(TARGET_LDFLAGS)" \
 		all
+	$(MAKE) -C $(@D)/obsctrl \
+		CXX="$(TARGET_CXX)" \
+		CXXFLAGS="$(TARGET_CXXFLAGS)" \
+		LDFLAGS="$(TARGET_LDFLAGS)"
 endef
 
 # Install directly — the upstream Makefile's install target uses an
 # undefined $(PAPR_ORI) variable, so we bypass it entirely.
 define PLUTO_STREAM_INSTALL_TARGET_CMDS
-	$(INSTALL) -D -m 0755 $(@D)/pluto_mqtt_ctrl $(TARGET_DIR)/usr/bin/pluto_mqtt_ctrl
-	$(INSTALL) -D -m 0755 $(@D)/pluto_stream    $(TARGET_DIR)/usr/bin/pluto_stream
+	$(INSTALL) -D -m 0755 $(@D)/pluto_mqtt_ctrl  $(TARGET_DIR)/usr/bin/pluto_mqtt_ctrl
+	$(INSTALL) -D -m 0755 $(@D)/pluto_stream     $(TARGET_DIR)/usr/bin/pluto_stream
+	$(INSTALL) -D -m 0755 $(@D)/obsctrl/obs_stream_control $(TARGET_DIR)/usr/bin/obs_stream_control
 	for s in qo100initdvb.sh gain.sh mute.sh unmute.sh settxmode.sh \
 	         initdvb.sh mqtt_ifconfig.sh mqtt_iptable.sh mqtt_route.sh \
 	         mqtt_reboot.sh mqtt_setcall.sh mqtt_longmynd.sh \
@@ -43,7 +48,10 @@ define PLUTO_STREAM_INSTALL_TARGET_CMDS
 			$(INSTALL) -D -m 0755 $(@D)/$$s $(TARGET_DIR)/root/dvb/$$s; \
 		fi; \
 	done
-	$(INSTALL) -D -m 0755 $(@D)/S96plutostream    $(TARGET_DIR)/etc/init.d/
+	$(INSTALL) -D -m 0755 $(@D)/obsctrl/mqtt_obs_ctrl.sh    $(TARGET_DIR)/root/dvb/mqtt_obs_ctrl.sh
+	$(INSTALL) -D -m 0755 $(@D)/obsctrl/bitrate_strategy.sh $(TARGET_DIR)/root/dvb/bitrate_strategy.sh
+	$(INSTALL) -D -m 0755 $(@D)/S96plutostream $(TARGET_DIR)/etc/init.d/
+	
 endef
 
 $(eval $(generic-package))

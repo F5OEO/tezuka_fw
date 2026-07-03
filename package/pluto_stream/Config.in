@@ -4,6 +4,7 @@ config BR2_PACKAGE_PLUTO_STREAM
 	depends on BR2_ARM_CPU_HAS_NEON
 	select BR2_PACKAGE_LIBIIO
 	select BR2_PACKAGE_MOSQUITTO
+	select BR2_PACKAGE_JQ
 	help
 	  PlutoSDR DVB-S2 streaming and MQTT control applications.
 
