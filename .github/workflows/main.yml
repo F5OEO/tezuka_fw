@@ -355,6 +355,7 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload artifact
+        if: always()
         uses: actions/upload-artifact@v7
         with:
           name: tezuka-${{ matrix.board }}

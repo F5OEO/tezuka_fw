@@ -12,7 +12,9 @@ PLUTO_STREAM_VERSION =tezukadvb
 PLUTO_STREAM_SITE = https://github.com/F5OEO/pluto-ori-ps.git
 PLUTO_STREAM_SITE_METHOD = git
 PLUTO_STREAM_LICENSE = GPL-2.0+
-PLUTO_STREAM_LICENSE_FILES = LICENSE
+# Upstream repo lacks a LICENSE file; omit here so legal-info doesn't hard-fail.
+# License is GPL-2.0+ as noted above.
+# PLUTO_STREAM_LICENSE_FILES = LICENSE
 
 # Runtime & build dependencies
 # (adjust names to match what is actually available in your Buildroot tree)
