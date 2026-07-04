@@ -1,0 +1,50 @@
+{
+  "stage": "interview",
+  "title": "Validate maia-kmod crash fix on nano hardware",
+  "goalSlug": "validate-maia-kmod-crash-fix",
+  "questions": [
+    {
+      "id": "reboot_cycles",
+      "prompt": "How many reboot cycles to call the fix verified?",
+      "description": "The primary test: flash patched firmware, reboot N times, check no free_pgtables panic in kernel log.",
+      "answerMode": "single",
+      "recommendedAnswer": "10 cycles without panic = verified",
+      "recommendedOptionIds": ["5", "10", "20"],
+      "options": [
+        { "id": "5", "label": "5 reboots (quick smoke test)" },
+        { "id": "10", "label": "10 reboots (moderate confidence)" },
+        { "id": "20", "label": "20 reboots (high confidence)" }
+      ],
+      "required": true
+    },
+    {
+      "id": "test_apps",
+      "prompt": "What test programs exercise recording + rxbuffer paths?",
+      "description": "After boot, we need to confirm mmap/cacheinv/close work without crash. What userspace tools do you use (maia-sdr test programs, custom scripts, etc.)?",
+      "answerMode": "text",
+      "recommendedAnswer": "maia-sdr upstream test programs (test_recording, test_rxbuffer) or minimal open/close + ioctl loop",
+      "required": true
+    },
+    {
+      "id": "build_method",
+      "prompt": "Build firmware locally or via CI?",
+      "description": "The patch needs to be baked into a firmware image. Local build is ~30min cold; CI is hands-off.",
+      "answerMode": "single",
+      "recommendedAnswer": "CI (gh workflow run main.yml -f boards=nano) — fast, cached, no local build setup needed",
+      "recommendedOptionIds": ["ci", "local"],
+      "options": [
+        { "id": "ci", "label": "CI — gh workflow run, download artifact" },
+        { "id": "local", "label": "Local — make in buildroot O=output/nano" }
+      ],
+      "required": true
+    },
+    {
+      "id": "notes",
+      "prompt": "Anything else to consider?",
+      "description": "Gotchas, prerequisites, test environment setup, etc.",
+      "answerMode": "text",
+      "recommendedAnswer": "Nano is QSPI-only. Deploy via pluto.frm on MSD volume or dfu-util.",
+      "required": false
+    }
+  ]
+}

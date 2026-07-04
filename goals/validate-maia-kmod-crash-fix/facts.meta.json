@@ -1,0 +1,38 @@
+{
+  "fact-ci-build": {
+    "id": "fact-ci-build",
+    "text": "CI builds nano firmware successfully with the 0003 patch applied.",
+    "recommendedAutomatedVerification": true,
+    "automatedVerification": true
+  },
+  "fact-flash": {
+    "id": "fact-flash",
+    "text": "Firmware deploys via MSD: pluto.frm copied to MSD volume on macOS host, volume ejected. Device becomes accessible over serial after reboot.",
+    "recommendedAutomatedVerification": false,
+    "automatedVerification": false
+  },
+  "fact-reboot-5": {
+    "id": "fact-reboot-5",
+    "text": "5 consecutive reboots complete without free_pgtables panic or kernel oops in dmesg.",
+    "recommendedAutomatedVerification": true,
+    "automatedVerification": true
+  },
+  "fact-soak": {
+    "id": "fact-soak",
+    "text": "Device runs normally (SSH reachable, IIO context serves, no kernel splats) for at least 90 minutes after boot.",
+    "recommendedAutomatedVerification": true,
+    "automatedVerification": true
+  },
+  "fact-recording-mmap": {
+    "id": "fact-recording-mmap",
+    "text": "Recording device node (/dev/maia-sdr-recording) opens, mmaps, and munmaps without crash or kernel warning.",
+    "recommendedAutomatedVerification": true,
+    "automatedVerification": true
+  },
+  "fact-rxbuffer-mmap": {
+    "id": "fact-rxbuffer-mmap",
+    "text": "Rxbuffer device node (/dev/maia-sdr-rxbuffer) opens, mmaps, cacheinv ioctl returns success, munmaps cleanly.",
+    "recommendedAutomatedVerification": true,
+    "automatedVerification": true
+  }
+}

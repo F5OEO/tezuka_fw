@@ -1,0 +1,6 @@
+- CI builds nano firmware with the 0003 patch applied.
+- Firmware deploys via MSD: pluto.frm copied to MSD volume on macOS host, volume ejected. Device accessible over serial after reboot.
+- 5 consecutive reboots without free_pgtables panic or kernel oops in dmesg.
+- Device runs normally (SSH reachable, IIO serves, no kernel splats) for at least 90 minutes.
+- Recording device node opens, mmaps, munmaps without crash or kernel warning.
+- Rxbuffer device node opens, mmaps, cacheinv ioctl returns success, munmaps cleanly.
