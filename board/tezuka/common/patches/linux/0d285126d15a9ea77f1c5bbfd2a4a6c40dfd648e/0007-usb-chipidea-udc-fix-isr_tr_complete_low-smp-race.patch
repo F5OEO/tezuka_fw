@@ -1,0 +1,38 @@
+From: Tom <tom@example.com>
+Date: Sun, 5 Jul 2026 12:30:00 +0000
+Subject: [PATCH] Fix SMP use-after-free in chipidea UDC isr_tr_complete_low
+
+isr_tr_complete_low() releases ci->lock (via spin_unlock(hwep->lock))
+during the USB request completion callback. On SMP systems, another CPU
+can take ci->lock during this window and call _ep_nuke(), which frees
+requests and their TD nodes from the endpoint queue.
+
+When the lock is re-acquired, list_for_each_entry_safe's saved next
+pointer (hwreqtemp) may point to freed memory. Subsequent dereference
+causes slab corruption detected by SLUB_DEBUG, followed by a crash in
+the stack unwind path.
+
+Fix by re-fetching the safe pointer from the list head after each
+callback, ensuring we never iterate into freed entries.
+
+Signed-off-by: Tom <tom@example.com>
+
+diff --git a/drivers/usb/chipidea/udc.c b/drivers/usb/chipidea/udc.c
+index 5f28aac85..4ff9decef 100644
+--- a/drivers/usb/chipidea/udc.c
++++ b/drivers/usb/chipidea/udc.c
+@@ -1283,6 +1283,15 @@ __acquires(hwep->lock)
+ 				hweptemp = hwep->ci->ep0in;
+ 			usb_gadget_giveback_request(&hweptemp->ep, &hwreq->req);
+ 			spin_lock(hwep->lock);
++			/* The endpoint queue may have been modified by another
++			 * CPU during the callback (ci->lock was released above).
++			 * Re-fetch the safe pointer from the list head to avoid
++			 * use-after-free on hwreqtemp.
++			 */
++			if (list_empty(&hwep->qh.queue))
++				break;
++			hwreqtemp = list_first_entry(&hwep->qh.queue,
++					struct ci_hw_req, queue);
+ 		}
+ 	}

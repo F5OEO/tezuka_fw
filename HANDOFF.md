@@ -1,12 +1,13 @@
-# Handoff — 2026-07-04
+# Handoff — 2026-07-05
 
 ## Branch
 
 `fix/maia-kmod-crash-v2` → `gretel/miyazaki` (origin), target `F5OEO/tezuka_fw:future`
 
-8 commits on top of `a2d21fc`:
+9 commits on top of `a2d21fc` + 1 kernel patch:
 
 ```
+e09ea15 fix(nano): remove PANIC_ON_OOPS — was destroying crash evidence
 4bee22e fix(nano): memory corruption detection — SLUB_DEBUG, DEBUG_LIST, PANIC_ON_OOPS
 06e5494 fix(nano): increase CMA from 16MB to 32MB for maia-sdr DMA
 4cbccde ci: split kernel build cache from main output cache
@@ -17,106 +18,134 @@ c8cb879 fix(build): use curl instead of Python urllib for HTTPS vendor downloads
 27f9744 fix(build): pluto_stream license file missing + resilient artifact upload
 ```
 
-## Done
-
-### Memory corruption detection in kernel (NEW 2026-07-04)
-
-Added to `board/tezuka/nano/kernel/fragment/frag1.config`:
-
+Kernel patch (in `board/tezuka/common/patches/linux/0d285126d.../`):
 ```
-CONFIG_SLUB_DEBUG=y
-CONFIG_SLUB_DEBUG_ON=y         # redzone + poison at every alloc/free
-CONFIG_SLUB_STATS=y
-CONFIG_DEBUG_LIST=y            # validate linked list ops
-CONFIG_DEBUG_SG=y              # validate DMA scatter-gather
-CONFIG_PANIC_ON_OOPS=y         # reboot cleanly, don't limp with corrupted state
-CONFIG_PANIC_TIMEOUT=10
+0007-usb-chipidea-udc-fix-isr_tr_complete_low-smp-race.patch
 ```
 
-**Why:** The 3 Oopses are all in the page allocator (`alloc_pages_bulk_noprof+0x260`) at different addresses — 2 non-paged, 1 NULL deref, 1 NULL exec. This is NOT simple OOM. It's **memory corruption**: a scribbled-on freelist pointer that only surfaces when a random allocation iterates the corrupted list.
+Not pushed to F5OEO/tezuka_fw:future. Local only.
 
-SLUB_DEBUG_ON catches the *first* corrupting event (use-after-free, buffer overflow) at the exact alloc/free call site with a full backtrace, instead of letting corruption silently accumulate until a random Oops hours later.
+## ✅ Root cause fixed: SMP use-after-free in chipidea UDC ISR
 
-**Not added: ramoops/pstore** — ramoops is useless on Nano because Zynq FSBL re-initializes DRAM on every reset (watchdog, power-on, or warm reboot). No data survives across reboot. Serial capture is already the correct forensic tool.
+### Crash signature
 
-### CMA=32 for Nano
-- `board/tezuka/nano/kernel/fragment/frag1.config`: 16→32 MB
-- CI built, artifact deployed to Nano via MSD pluto.frm
-- **Confirmed on hardware**: `CONFIG_CMA_SIZE_MBYTES=32`, `CmaTotal: 32768 kB`
-
-### CI caching overhaul
-- Split output cache (3GB, single-board only) from kernel cache (~200MB compressed, all builds)
-- Kernel cache NOT gated by `single_board` — works for multi-board (12×~200MB ≈ 2.4GB fits in 10GB limit)
-- Install stamps stripped on kernel cache hit → `make linux` re-installs fresh zImage/dtbs/modules
-- Validated: nano build #3 (all caches hot, 5min finalise), fishball7020 build (47min full build, kernel cache saved)
-- actionlint clean on all workflow changes
-
-### Build fixes
-- `Dashboard/bundle.py`: use `curl` instead of Python `urllib.request.urlretrieve` — Buildroot host Python 3.14 lacks SSL
-- `package/pluto_stream/pluto-stream.mk`: removed `PLUTO_STREAM_LICENSE_FILES = LICENSE` — upstream repo lacks LICENSE, legal-info hard-fails
-- CI workflow: `if: always()` on Upload artifact step — SBOM failures no longer gate artifact collection
-
-## ⚠️ Nano still crashing — 3 Oopses observed (memory corruption pattern)
-
-After deploying CMA=32 firmware, dmesg shows **3 kernel Oopses** from the CURRENT boot:
-
-| # | Process | PC | Address |
-|---|---------|----|---------|
-| 1 | `api_controller.` (PID 3611) | `alloc_pages_bulk_noprof+0x260` | `3b349a00` (non-paged) |
-| 2 | `mosquitto_pub` (PID 3610) | `alloc_pages_bulk_noprof+0x260` | `00000000` (NULL deref) |
-| 3 | `iiod` (PID 27740) | `0x0` (execute from NULL) | `00000000` (execute from NULL) |
-
-### Analysis — Memory corruption, not OOM
-
-**Memory layout (nano.dtsi: `reg = <0x00000000 0x20000000>` = 512MB but Z7010 has 256MB):**
+Serial logger captured the full Oops (7 occurrences, same pattern):
 
 ```
-0x00000000 - 0x05FFFFFF   96 MB   kernel + userspace
-0x06000000 - 0x0DFFFFFF  128 MB   maia recording (no-map, reserved)
-0x0E000000 - 0x15FFFFFF  128 MB   free (kernel + CMA 32MB + userspace)
-0x16000000 - 0x1603FFFF  256 KB   maia spectrometer
-0x16040000 - 0x1FFFFFFF  ~159 MB  free (unreachable, only 256MB on Z7010)
+udc_irq+0x4ec/0xe00
+  → kfree+0x128/0x22c
+    → free_to_partial_list+0x354/0x584  ← SLUB detects slab corruption
+      → set_track_prepare+0x3c/0x70     ← tries to save stack trace
+        → stack_trace_save → arch_stack_walk → unwind_frame  ← CRASH (NULL deref at 0x820)
 ```
 
-~86MB available for kernel + userspace + 32MB CMA. Plenty of headroom for the running daemons (mosquitto, iiod, maia-httpd, api_controller).
+Process: `mosquitto_pub` (PID 16549), CPU 0. Also hit `api_controller` and `iiod`.
 
-**The crash pattern is diagnostic:**
-1. Same PC (`alloc_pages_bulk_noprof+0x260`) for 2/3 Oopses — different callers
-2. Different fault addresses (3b349a00, 00000000) — not a single corrupted pointer
-3. iiod dereferencing NULL as code — function pointer table corrupted
+### Root cause
 
-This is the classic signature of **page allocator freelist corruption**: something scribbles on a freed page's freelist pointers (use-after-free), then any subsequent allocation that traverses the corrupted list crashes at a random address.
+File: `drivers/usb/chipidea/udc.c`, function `isr_tr_complete_low()` (line 1265).
 
-### Root cause candidates
+The UDC interrupt handler iterates the endpoint queue with `list_for_each_entry_safe()`.
+For each completed request, it releases `ci->lock` (via `spin_unlock(hwep->lock)`) to call
+the USB request completion callback via `usb_gadget_giveback_request()`.
 
-1. **Maia-kmod rxbuffer cacheinv TOCTOU race** — CLOSED by patch 0003 (spinlock + WRITE_ONCE/smp_wmb). No remaining uncovered path in IOCTL_CACHEINV.
-2. **Maia-kmod recording mmap `v7_dma_inv_range` on VM_IO** — REMOVED by patch 0003. UNPREDICTABLE per ARM ARM, was trashing L1 on device-memory pages.
-3. **iiod/libiio IIO buffer mmap** — iiod crashed with execute-from-NULL. IIO buffer mmap in the kernel allocates pages with `iio_buffer_alloc`. A bug here (or in the AD9361 driver's DMA path) could corrupt page state.
-4. **Hardware** — Zynq Z7010 has no ECC on DDR3. Marginal timing on a Chinese QSPI board could produce single-bit errors that manifest as memory corruption.
+On SMP systems (Zynq is dual-core Cortex-A9), another CPU can take `ci->lock` during this
+window and call `_ep_nuke()` (via `ep_disable` or `isr_setup_packet_handler`). This frees
+requests and their TD nodes from the endpoint queue.
 
-The fix: SLUB_DEBUG_ON will catch the *first* corrupting event with exact backtrace, distinguishing between the three candidates.
+When the lock is re-acquired, `list_for_each_entry_safe`'s saved next pointer (`hwreqtemp`)
+points to freed memory. The next iteration dereferences this dangling pointer, causing
+SLUB slab corruption.
 
-### Upstream maia-kmod status
+### Fix
 
-Checked `~/src/uhd/maia-sdr-daniel` (main, c96c496a). Upstream commit `6f997c69` fixes kernel 6.4+/6.11+ API compat — same as our patch 0001. No additional fixes beyond that. Patches 0002-0004 (TOCTOU, UAF, UNPREDICTABLE cache op, vm_ops crash) are tezuka-only and not upstream.
+Added a re-fetch of the safe pointer from the list head after each completion callback.
+If the queue was emptied by `_ep_nuke()` on another CPU, we break out of the loop.
+
+Patch: `0007-usb-chipidea-udc-fix-isr_tr_complete_low-smp-race.patch`
+
+### ADI kernel status
+
+Checked ADI Linux tree (`analogdevicesinc/linux`). Only `main` branch exists, no tags,
+no stable tracking. ADI tree has 50 commits on top of upstream 6.12.0 with SUBLEVEL
+cosmetically bumped to 77. **None of the upstream chipidea UDC fixes are included.**
+
+No viable ADI version bump available. Staying on pinned commit `0d285126d15` with
+our own patches.
+
+## ✅ Done
+
+### Root cause captured (2026-07-05)
+- Continuous Python serial logger (`simple-logger.py`) caught the Oops at 02:45 UTC
+- Full kernel dump in `tmp/serial-logs/nano-capture.log` (lines 9471-9584+)
+- `udc_irq+0x4ec` identified as the originating function
+- PANIC_ON_OOPS removed — was destroying crash evidence (commit e09ea15)
+
+### Root cause fixed (2026-07-05)
+- SMP race in `isr_tr_complete_low()`: after releasing `ci->lock` during the USB
+  request callback, the `list_for_each_entry_safe` saved pointer becomes dangling
+  when another CPU calls `_ep_nuke()` on the same endpoint
+- Fix applied as kernel patch `0007-...` in `board/tezuka/common/patches/linux/`
+
+### Kernel config changes
+- `frag1.config`: SLUB_DEBUG_ON, DEBUG_KERNEL, DEBUG_LIST, DEBUG_SG, CMA=32
+- PANIC_ON_OOPS removed
+- tezuka-dev skill updated with crash forensics section documenting capture method
+
+### Serial logger
+- Python script at `tmp/serial-logs/simple-logger.py` using pyserial on `/dev/cu.usbserial-2230`
+- Survives reboots (auto-reconnects)
+- Logs to `tmp/serial-logs/nano-capture.log`
+
+## ⚠️ Current device state
+
+- **Running firmware `tezuka-e09e`** — deployed via direct dd to mtdblock3 (MSD broken after reboot)
+- **PANIC_ON_OOPS removed** — kernel stays alive on Oops, dmesg preserved
+- **SLUB_DEBUG_ON active** — catches slab corruption at first fault
+- **maia-sdr.ko FAILS TO LOAD** — `module_layout` CRC mismatch (kernel and module built against different configs). The fragment change (adding DEBUG_KERNEL, DEBUG_LIST, etc.) changed `CONFIG_MODVERSIONS` CRC. The module in the rootfs was compiled against the old config. Need to rebuild both kernel AND module together.
+- **Root cause patch applied** — `0007-` fixes the UDC SMP race. Needs CI build to confirm resolution.
 
 ## Not pushed
 
 Branch is on origin/gretel/miyazaki only. Not pushed to F5OEO/tezuka_fw:future.
 
-PR.md updated with current changeset.
+## Next session: tasks 1-3
 
-## Next session: things to tackle
+### 1. Trigger CI build to verify fix
 
-1. **Build and deploy** — CI build nano with the new SLUB_DEBUG fragment, deploy to hardware, stress-test with maia-httpd + iiod + api_controller running concurrently. Check dmesg for SLUB redzone hits — they'll show the exact backtrace of the first corrupting event.
-2. **Multi-board CI** — after kernel cache is validated, re-run full 12-board CI matrix to populate all kernel caches.
-3. **Push to upstream** — PR.md is ready, just need `gh pr create` when confident.
-4. **If SLUB_DEBUG shows maia-kmod as culprit** — need to find remaining race not covered by patches 0002-0004. Upstream the fixes.
-5. **If SLUB_DEBUG shows iiod/libiio or AD9361 driver** — need to patch Buildroot's libiio or the kernel IIO subsystem.
-6. **If SLUB_DEBUG shows no corruption** — likely hardware (marginal DDR). Try memory stress test (`memtester`) and consider clock speed reduction.
+The kernel patch `0007-` is applied in the Buildroot patch directory. Need to trigger
+a CI build from `fix/maia-kmod-crash-v2` branch. CI builds kernel + all packages
+(including maia-kmod) with the same config, so the `module_layout` CRC mismatch
+should be resolved.
+
+- Push branch or trigger workflow_dispatch
+- Deploy via MSD or direct dd
+- Verify: run MQTT traffic over USB NCM, confirm no Oops
+
+### 2. Restore MSD update.sh functionality
+
+The MSD flash method broke because update.sh daemon exits/crashes or the USB gadget
+gets into a bad state after crashes. When update.sh isn't running, MSD copy+eject
+doesn't trigger the flash. Fix options:
+
+- Check `/etc/init.d/S45msd` on the device — does update.sh start reliably?
+- The LED stuck on `[timer]` indicates flash_indication_off wasn't called — update.sh
+  may have crashed during flash
+- Workaround: direct dd via SSH (already proven working)
+
+### 3. Serial logger reliability
+
+The current Python logger (`simple-logger.py`) works but needs to survive the logger
+process being killed for health checks. Improve:
+
+- Keep logger running continuously
+- Use SSH for health checks (need to fix dropbear SSH — it was listening but sshpass
+  connections timed out, possibly due to stale sessions or key exchange issues)
+- Or: build health check INTO the logger script itself (periodic self-check)
 
 ## Credentials
 
 All devices: root / analog
-Nano: 192.168.2.1 (USB gadget, SSH dies with gadget restart → use serial)
-Serial: /dev/cu.usbserial-2230, 115200 baud, tio
+Nano: 192.168.2.1 (USB gadget, SSH currently unreliable — use serial)
+Serial: /dev/cu.usbserial-2230, 115200 baud (tty.usbserial-2230 locked/stuck)
+Logger: `tmp/serial-logs/simple-logger.py` → logs to `tmp/serial-logs/nano-capture.log`
