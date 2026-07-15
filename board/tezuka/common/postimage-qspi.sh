@@ -29,6 +29,7 @@ fi
 # pluto.itb: FIT image bundling kernel + rootfs + bitstream + DTB
 QSPIDIR="$BIN_DIR/flash"
 SDIMGDIR="$BIN_DIR/sdimg"
+JTAGDIR="$BIN_DIR/jtag"
 
 echo "generating FIT image (pluto.itb)"
 cp "$BOARD_DIR/plutomaia.its" "$BIN_DIR/plutomaia.its"
@@ -61,3 +62,7 @@ cp "$BIN_DIR/uboot-env.bin" "$BIN_DIR/uboot-env.bin.tmp"
 mv "$BIN_DIR/uboot-env.bin.tmp" "$BIN_DIR/uboot-env.dfu"
 
 cp "$BIN_DIR/boot.dfu" "$BIN_DIR/boot.frm" "$BIN_DIR/pluto.dfu" "$BIN_DIR/pluto.frm" $QSPIDIR
+
+# JTAG - FIXME arm-linux is fixed path
+"$HOST_DIR/bin/arm-linux-strip" "$BIN_DIR/u-boot.elf"
+cp "$BIN_DIR/u-boot.elf" "$JTAGDIR"
