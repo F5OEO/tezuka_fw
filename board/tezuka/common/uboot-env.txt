@@ -102,7 +102,7 @@ dfu_mmc_info=set dfu_alt_info ${kernel_image} fat 0 1\\;${devicetree_image} fat 
 dfu_mmc=run dfu_mmc_info && dfu 0 mmc 0
 dfu_ram=echo Entering DFU RAM mode ... && run dfu_ram_info && dfu 0 ram 0
 dfu_ram_info=set dfu_alt_info dummy.dfu ram 0 0\\;firmware.dfu ram ${fit_load_address} 0x1E00000
-dfu_sf=gpio set 0;set stdout serial@e0000000;echo Entering DFU SF mode ... && run dfu_sf_info && dfu 0 sf 0:0:40000000:0 && if test -n ${dfu_alt_num} && test ${dfu_alt_num} = 1; then set fit_size ${filesize} && set dfu_alt_num && env save; fi;gpio clear 0;
+dfu_sf=run dfu_led;gpio set 0;set stdout serial;echo Entering DFU SF mode ... && run dfu_sf_info && dfu 0 sf 0:0:40000000:0 && if test -n ${dfu_alt_num} && test ${dfu_alt_num} = 1; then set fit_size ${filesize} && set dfu_alt_num && env save; fi;gpio clear 0;
 dfu_sf_info=set dfu_alt_info boot.dfu raw 0x0 0x100000\\;firmware.dfu raw 0x200000 0x1E00000\\;uboot-extra-env.dfu raw 0xFF000 0x1000\\;uboot-env.dfu raw 0x100000 0x20000\\;spare.dfu raw 0x120000 0xE0000
 extraenv_load_address=0x207E000
 fdt_high=0x20000000
@@ -158,6 +158,9 @@ soft_reboot_cause=itest *f8000258 == 480003 && run clear_reset_cause && run dfu_
 		itest *f8000258 == 480006 && run clear_reset_cause && run qspiboot_verbose;  \
 		itest *f8000258 == 480002 && run clear_reset_cause && exit;
 
+
+my_led=15
+dfu_led=gpio set ${my_led}; sleep 1; gpio clear ${my_led}; sleep 0.5; gpio set ${my_led}; sleep 0.5; gpio clear ${my_led}; sleep 0.5; gpio set ${my_led};gpio clear ${my_led};
 dfu_button=gpio input 14 && run dfu_sf;
 
 preboot=run dfu_button; run soft_reboot_cause; adi_hwref; run preboot_main ; adi_hwref;
@@ -191,13 +194,13 @@ qspiboot_verbose=\
   && bootm ${fit_load_address}#${fit_config} || echo BOOT failed entering DFU mode && run dfu_sf
 
 qspiboot_silent=\
-  set stdout serial@e0000000 && sf probe; \
+  set stdout serial && sf probe; \
   echo Booting silently; \
   set stdout nulldev; \
   run read_sf; run adi_loadvals; run qspiboot_extraenv; \
   run pl_init; \
   setenv bootargs console=ttyPS0,115200 maxcpus=${maxcpus} rootfstype=ramfs root=/dev/ram0 rw quiet loglevel=4 clk_ignore_unused cpuidle.off=1 uio_pdrv_genirq.of_id=uio_pdrv_genirq UBOOT_MODEBOOT=$modeboot UBOOT_VERSION='\"'${uboot-version}'\"' \
-  && bootm ${fit_load_address}#${fit_config} || set stdout serial@e0000000;
+  && bootm ${fit_load_address}#${fit_config} || set stdout serial;
 
 ramboot_verbose=\
   adi_hwref; \
