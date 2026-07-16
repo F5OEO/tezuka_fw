@@ -40,7 +40,7 @@ adi_config_gpio_by_refclk=\
   fi;
 
 adi_config_rf_mode=\
-  if test -n "${mode}" && test ! "${mode}" = "1r1t" && test ! "${mode}" = "2r2t"; then \
+  if test -z "${mode}" || test ! "${mode}" = "1r1t" && test ! "${mode}" = "2r2t"; then \
     setenv mode 1r1t; \
     saveenv; \
   fi;
@@ -103,7 +103,7 @@ dfu_mmc=run dfu_mmc_info && dfu 0 mmc 0
 dfu_ram=echo Entering DFU RAM mode ... && run dfu_ram_info && dfu 0 ram 0
 dfu_ram_info=set dfu_alt_info dummy.dfu ram 0 0\\;firmware.dfu ram ${fit_load_address} 0x1E00000
 dfu_sf=gpio set 0;set stdout serial@e0000000;echo Entering DFU SF mode ... && run dfu_sf_info && dfu 0 sf 0:0:40000000:0 && if test -n ${dfu_alt_num} && test ${dfu_alt_num} = 1; then set fit_size ${filesize} && set dfu_alt_num && env save; fi;gpio clear 0;
-dfu_sf_info=set dfu_alt_info boot.dfu raw 0x0 0x100000\\;firmware.dfu raw 0x200000 0x0E00000\\;uboot-extra-env.dfu raw 0xFF000 0x1000\\;uboot-env.dfu raw 0x100000 0x20000\\;spare.dfu raw 0x120000 0xE0000
+dfu_sf_info=set dfu_alt_info boot.dfu raw 0x0 0x100000\\;firmware.dfu raw 0x200000 0x1E00000\\;uboot-extra-env.dfu raw 0xFF000 0x1000\\;uboot-env.dfu raw 0x100000 0x20000\\;spare.dfu raw 0x120000 0xE0000
 extraenv_load_address=0x207E000
 fdt_high=0x20000000
 fit_config=config@0
@@ -114,7 +114,7 @@ importbootenv=echo Importing environment from SD ...; env import -t ${loadbooten
 initrd_high=0x20000000
 ipaddr=192.168.2.1
 ipaddr_host=192.168.2.10
-jtagboot=env default -a;sf probe && sf protect unlock 0 100000 && run dfu_sf;
+jtagboot=env default -a;sf probe && sf protect unlock 0 100000 ; run dfu_sf; run jtagboot;
 kernel_image=uImage
 loadbit_addr=0x100000
 loadbootenv_addr=0x2000000
@@ -135,24 +135,32 @@ netmask=255.255.255.0
 
 preboot_main=\
   run banner; \
-  if test $modeboot = sdboot; then \
+  if test "${modeboot}" = "sdboot"; then \
     if env run sd_uEnvtxt_existence_test; then \
       if env run loadbootenv; then \
           env run importbootenv; \
       fi; \
     fi; \
-  elif test $modeboot = qspiboot; then \
+  elif test "${modeboot}" = "qspiboot" ; then \
     if env run qspiboot_bootenv; then \
         env import -t ${loadbootenv_addr} 0x20000; \
     fi; \
-  elif test $modeboot = usbboot; then \
+  elif test "${modeboot}" = "usbboot" ; then \
     if env run loadbootenv_usb; then \
         env run importbootenv; \
     fi; \
+  elif test "${modeboot}" = "jtagboot" ; then \
+    run jtagboot; \
   fi;
 
+soft_reboot_cause=itest *f8000258 == 480003 && run clear_reset_cause && run dfu_sf; \
+		itest *f8000258 == 480007 && run clear_reset_cause && run ramboot_verbose;  \
+		itest *f8000258 == 480006 && run clear_reset_cause && run qspiboot_verbose;  \
+		itest *f8000258 == 480002 && run clear_reset_cause && exit;
 
-preboot=adi_hwref; run preboot_main ; adi_hwref;
+dfu_button=gpio input 14 && run dfu_sf;
+
+preboot=run dfu_button; run soft_reboot_cause; adi_hwref; run preboot_main ; adi_hwref;
 
 pl_init=\
   echo "Initializing PL infrastructure..."; \
@@ -196,6 +204,7 @@ ramboot_verbose=\
   echo Copying Linux from DFU to RAM... && run dfu_ram;if run adi_loadvals; then \
     echo Loaded AD936x refclk frequency and model into devicetree; \
   fi; \
+  run pl_init; \
   setenv bootargs console=ttyPS0,115200 maxcpus=${maxcpus} rootfstype=ramfs root=/dev/ram0 rw earlyprintk clk_ignore_unused cpuidle.off=1 uio_pdrv_genirq.of_id=uio_pdrv_genirq UBOOT_MODEBOOT=$modeboot UBOOT_VERSION='\"'${uboot-version}'\"' \
   && bootm ${fit_load_address}#${fit_config}
 
