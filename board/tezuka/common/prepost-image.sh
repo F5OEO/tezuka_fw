@@ -49,5 +49,5 @@ mkdir -p "$QSPIDIR"
 SDIMGDIR="$BIN_DIR/sdimg"
 mkdir -p "$SDIMGDIR"
 
-JTAGDIR="$BIN_DIR/jtag"
+JTAGDIR="$QSPIDIR/jtag"
 mkdir -p "$JTAGDIR"
