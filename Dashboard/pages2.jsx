@@ -209,14 +209,19 @@ function DATV({ d, callsign }) {
   return (
     <div className="page">
       <div className="datv-head">
-        <div className="datv-title">
-          <h1>DATV Controller</h1>
-          <span className="datv-sub mono">{call} · {modeLabels[mode] || mode}{isDvbs2 ? ' · ' + modu.toUpperCase() : ''}</span>
+        <div className="rf-panel tx" style={{ minWidth: 160 }}>
+          <div className="rf-panel-head"><span className="rf-tag tx">TX</span>Transmit</div>
+          <div className="bigstat-grid">
+            <div className={`bigstat switchable${onAir ? ' active' : ''}`}
+              style={{'--ac': 'var(--c-pink)'}}
+              onClick={() => { const v = !onAir; setOnAir(v); pub('tx/mute', v ? '0' : '1'); }}>
+              <div className="bigstat-label"><Icon name="power" size={13} />PTT</div>
+              <div className="bigstat-val mono">{onAir ? 'ON AIR' : 'STANDBY'}</div>
+            </div>
+          </div>
         </div>
-        <div className={`onair-box ${onAir ? 'live' : ''}`}>
-          <div className="onair-lamp"><span /></div>
-          <div className="onair-text"><span>{onAir ? 'ON AIR' : 'STANDBY'}</span><small className="mono">PTT</small></div>
-          <Toggle on={onAir} onChange={(v) => { setOnAir(v); pub('tx/mute', v ? '0' : '1'); }} labels={['TX OFF', 'TX ON']} />
+        <div className="datv-title">
+          <span className="datv-sub mono">{call} · {modeLabels[mode] || mode}{isDvbs2 ? ' · ' + modu.toUpperCase() : ''}</span>
         </div>
       </div>
 
@@ -238,8 +243,13 @@ function DATV({ d, callsign }) {
               <Select value={mode} onChange={(v) => { setMode(v); pub('tx/stream/mode', v); }} options={modeOpts} />
             </Field>
             {hasSr && (
-              <Field label="Symbol rate" hint="25 000 – 4 000 000 Bd">
-                <TextInput value={sr} onChange={(v) => { const n = parseInt(v); if (!isNaN(n)) { setSr(n); pub('tx/dvbs2/sr', n); } }} suffix="Bd" />
+              <Field label="Symbol rate" hint="25 – 4 000 kS/s">
+                <div style={{ display: 'flex', gap: 6 }}>
+                  <Select value={[125000,250000,333000,500000,1000000].includes(sr) ? sr : 'custom'}
+                    onChange={(v) => { if (v === 'custom') return; const n = parseInt(v); setSr(n); pub('tx/dvbs2/sr', n); }}
+                    options={[{v:125000,l:'125 kS'},{v:250000,l:'250 kS'},{v:333000,l:'333 kS'},{v:500000,l:'500 kS'},{v:1000000,l:'1 MS'},{v:'custom',l:'Custom'}]} />
+                  <TextInput value={(sr/1000).toFixed(sr%1000===0?0:3)} onChange={(v) => { const n = Math.round(parseFloat(v)*1000); if (!isNaN(n) && n>0) { setSr(n); pub('tx/dvbs2/sr', n); } }} suffix="kS" />
+                </div>
               </Field>
             )}
             {isDvbs2 && <>

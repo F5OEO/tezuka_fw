@@ -81,12 +81,12 @@ function Sidebar({ route, setRoute, collapsed, labels, operator }) {
 
 const TITLES = { dashboard: "Dashboard", spectrum: "Spectrum", datv: "DATV Controller", obs: "OBS Encoder", transverter: "Transverter", iqtape: "IQ Tape", siggen: "Signal generator", radio: "Radio", calibrate: "Calibrate", analysis: "Analysis", arch: "Architecture", versions: "Versions & system", network: "Network", diagnostic: "Diagnostic", kalibrate: "Kalibrate from RF", performance: "Performance", gpio: "GPIO", persistent: "Persistent storage", gps: "GPS", reboot: "Reboot", operator: "Operator", docs: "Documentation" };
 
-function Topbar({ onMenu, route, mqtt }) {
+function Topbar({ onMenu, route, mqtt, ver }) {
   return (
     <header className="topbar">
       <button className="icon-btn" onClick={onMenu}><Icon name="menu" size={20} /></button>
       <div className="crumb"><span className="dim">Tezuka</span><span className="sep">/</span><b>{TITLES[route]}</b></div>
-      <div className="topbar-title">Tezuka Dashboard</div>
+      <div className="topbar-title">Tezuka<span className="topbar-sub">{ver.model}</span></div>
       <div className="top-actions">
         <span className={`mqtt-chip ${mqtt ? "up" : ""}`}><i />MQTT</span>
         <button className="icon-btn"><Icon name="bell" size={18} /></button>
@@ -163,7 +163,7 @@ function App() {
     <div className="app" data-density={t.density}>
       <Sidebar route={route} setRoute={(r) => setRoute(r)} collapsed={collapsed} labels={t.labels} operator={op} />
       <div className="main">
-        <Topbar onMenu={() => setCollapsed((c) => !c)} route={route} mqtt={d.mqtt} />
+        <Topbar onMenu={() => setCollapsed((c) => !c)} route={route} mqtt={d.mqtt} ver={ver} />
         <div className="scroll" key={route}>{page()}</div>
       </div>
 

@@ -120,7 +120,8 @@ body {
 .search { flex: 1; max-width: 420px; margin: 0 auto; display: flex; align-items: center; gap: 10px; background: var(--inset); border: 1px solid var(--border-soft); border-radius: 10px; padding: 0 14px; height: 40px; color: var(--dim-2); }
 .search input { flex: 1; background: none; border: none; outline: none; color: var(--text); font-family: inherit; font-size: 13.5px; }
 .search input::placeholder { color: var(--dim-2); }
-.topbar-title { flex: 1; text-align: center; font-size: 15px; font-weight: 600; letter-spacing: 0.02em; color: var(--text); }
+.topbar-title { flex: 1; text-align: center; font-size: 15px; font-weight: 600; letter-spacing: 0.02em; color: var(--text); display: flex; align-items: center; justify-content: center; gap: 8px; }
+.topbar-sub { font-size: 11px; font-weight: 600; color: var(--accent); letter-spacing: 0.03em; font-family: var(--font-mono); }
 .top-actions { display: flex; align-items: center; gap: 4px; }
 .mqtt-chip { display: flex; align-items: center; gap: 7px; font-size: 11.5px; font-weight: 600; letter-spacing: 0.04em; color: var(--dim-2); padding: 6px 11px; border-radius: 20px; border: 1px solid var(--border-soft); margin-right: 6px; }
 .mqtt-chip i { width: 7px; height: 7px; border-radius: 50%; background: var(--dim-2); }
