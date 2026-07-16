@@ -1,0 +1,125 @@
+maia-kmod: serialize rxbuffer mmap/close/cacheinv with a spinlock
+
+0002 added mmap_done/vm_start checks around the cache-invalidation
+path, but the check and the use are still not atomic with respect to
+a concurrent munmap() on another CPU (this is SMP): a core running
+IOCTL_CACHEINV can pass its mmap_done check, then be raced by
+maia_sdr_rxbuffer_vm_close() on another core clearing mmap_done and
+vm_start before (or while) vm_start is read and used to compute the
+virtual address passed to v7_dma_inv_range()/arm_cache_outer_inv_range().
+Cache maintenance by MVA on a stale or just-unmapped virtual address is
+UNPREDICTABLE per the ARMv7 architecture reference manual, and this is
+consistent with the memory corruption observed under real traffic
+(random-looking oopses in unrelated allocator/DMA code, preempt_count
+corruption cascading through the whole system).
+
+Fix: add a spinlock to maia_sdr_rxbuffer_drvdata and hold it across the
+entire check-then-use sequence in the cache-invalidation path, and
+across the mmap_done/vm_start updates in mmap() and vm_close(). Since
+v7_dma_inv_range()/arm_cache_outer_inv_range() are non-sleeping cache
+maintenance operations, it's safe to hold a spinlock across them. This
+makes vm_close() (called from munmap(), which can run concurrently on
+another core) block until any in-flight cache invalidation completes,
+instead of tearing down the mapping underneath it.
+
+--- a/maia-kmod/maia-sdr.c
++++ b/maia-kmod/maia-sdr.c
+@@ -18,6 +18,7 @@
+ #include <linux/of_device.h>
+ #include <linux/of_reserved_mem.h>
+ #include <linux/platform_device.h>
++#include <linux/spinlock.h>
+ 
+ #define DRIVER_NAME "maia-sdr"
+ 
+@@ -48,6 +49,7 @@
+ 	unsigned int num_buffers;
+ 	int mmap_done;
+ 	unsigned long vm_start;
++	spinlock_t lock;
+ };
+ 
+ // Defined in arch/arm/mm/cache-v7.S
+@@ -109,8 +111,12 @@
+ static void maia_sdr_rxbuffer_vm_close(struct vm_area_struct *vma)
+ {
+ 	struct maia_sdr_rxbuffer_drvdata *drvdata = vma->vm_private_data;
++	unsigned long flags;
++
++	spin_lock_irqsave(&drvdata->lock, flags);
+ 	drvdata->mmap_done = 0;
+ 	drvdata->vm_start = 0;
++	spin_unlock_irqrestore(&drvdata->lock, flags);
+ }
+ 
+ static struct vm_operations_struct maia_sdr_rxbuffer_vm_ops = {
+@@ -125,11 +131,15 @@
+ 	int ret;
+ 	const unsigned long pte_mask = L_PTE_RDONLY | L_PTE_XN;
+ 	unsigned long max_size = drvdata->buffer_size * drvdata->num_buffers;
++	unsigned long flags;
+ 
++	spin_lock_irqsave(&drvdata->lock, flags);
+ 	if (drvdata->mmap_done) {
+ 		// Device is already mapped
++		spin_unlock_irqrestore(&drvdata->lock, flags);
+ 		return -EINVAL;
+ 	}
++	spin_unlock_irqrestore(&drvdata->lock, flags);
+ 
+ 	if ((pgprot_val(vma->vm_page_prot) & pte_mask) != pte_mask) {
+ 		// The pages can only be mapped in read-only no-execute mode
+@@ -148,8 +158,10 @@
+ 	if (ret) {
+ 		return ret;
+ 	}
++	spin_lock_irqsave(&drvdata->lock, flags);
+ 	drvdata->mmap_done = 1;
+ 	drvdata->vm_start = vma->vm_start;
++	spin_unlock_irqrestore(&drvdata->lock, flags);
+ 	vma->vm_private_data = (void *)drvdata;
+ 	vma->vm_ops = &maia_sdr_rxbuffer_vm_ops;
+ 
+@@ -157,16 +169,21 @@
+ }
+ 
+ static int
+-maia_sdr_rxbuffer_cacheinv(const struct maia_sdr_rxbuffer_drvdata *drvdata,
++maia_sdr_rxbuffer_cacheinv(struct maia_sdr_rxbuffer_drvdata *drvdata,
+ 			   unsigned num_buffer)
+ {
+ 	unsigned long offset;
+ 	unsigned long start;
++	unsigned long flags;
++	int ret = 0;
++
+ 	if (num_buffer >= drvdata->num_buffers) {
+ 		return -1;
+ 	}
++	spin_lock_irqsave(&drvdata->lock, flags);
+ 	if (!drvdata->mmap_done) {
+-		return -1;
++		ret = -1;
++		goto out_unlock;
+ 	}
+ 	offset = drvdata->buffer_size * num_buffer;
+ 	start = drvdata->vm_start + offset;
+@@ -174,7 +191,9 @@
+ 	v7_dma_inv_range(start, start + drvdata->buffer_size);
+ 	start = drvdata->mem_base_addr + offset;
+ 	arm_cache_outer_inv_range(start, start + drvdata->buffer_size);
+-	return 0;
++out_unlock:
++	spin_unlock_irqrestore(&drvdata->lock, flags);
++	return ret;
+ }
+ 
+ static long maia_sdr_rxbuffer_ioctl(struct file *file, unsigned int cmd,
+@@ -381,6 +400,7 @@
+ 	if (IS_ERR_OR_NULL(drvdata)) {
+ 		return -ENOMEM;
+ 	}
++	spin_lock_init(&drvdata->lock);
+ 
+ 	ret = of_property_read_u32(pdev->dev.of_node, "buffer-size",
+ 				   &buffer_size);
