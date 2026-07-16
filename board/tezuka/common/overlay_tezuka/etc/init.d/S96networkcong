@@ -1,0 +1,47 @@
+#!/bin/sh
+
+start() {
+	# Default qdisc for interfaces created after this point
+	echo "fq" > /proc/sys/net/core/default_qdisc
+
+	# TCP congestion control + send buffer tuning
+	sysctl -qw net.ipv4.tcp_congestion_control=bbr
+	sysctl -qw net.core.wmem_default=4194304
+	sysctl -qw net.core.wmem_max=4194304
+	sysctl -qw net.ipv4.tcp_wmem="4096 1048576 4194304"
+	echo 5000 > /proc/sys/net/core/netdev_max_backlog
+
+	# Apply FQ explicitly to eth0 (default_qdisc above only covers new interfaces)
+	ethtool -K eth0 tx on sg on gso on gro on 2>/dev/null
+	tc qdisc replace dev eth0 root fq 2>/dev/null
+}
+
+stop() {
+
+	echo "Stopping"
+}
+
+restart() {
+	stop
+	start
+}
+
+# start/stop/restart
+case "$1" in
+  start)
+	start
+	;;
+  stop)
+	stop
+	;;
+  restart)
+	restart
+	;;
+  *)
+	echo "Usage: $0 {start|stop|restart}"
+	exit 1
+esac
+
+exit $?
+
+
