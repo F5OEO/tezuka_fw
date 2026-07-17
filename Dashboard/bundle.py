@@ -56,10 +56,13 @@ SOURCES = [
 def fetch_vendor(rel, url):
     path = os.path.join(HERE, rel)
     if not os.path.exists(path):
-        import urllib.request
         os.makedirs(os.path.dirname(path), exist_ok=True)
         print(f'[bundle] downloading {rel}...', file=sys.stderr)
-        urllib.request.urlretrieve(url, path)
+        
+        # Use a pure system call to curl
+        # -L follows redirects, -s silences progress bars (but keeps errors on failure)
+        subprocess.run(['curl', '-L', '-s', '-f', '-o', path, url], check=True)
+        
     return open(path, encoding='utf-8').read()
 
 def read(rel):
