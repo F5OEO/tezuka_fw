@@ -44,8 +44,8 @@ unreachable when modeboot is null, so it must happen earlier.
 ---
  cmd/Kconfig     |  11 +++
  cmd/Makefile    |   1 +
- cmd/adi_hwref.c | 297 ++++++++++++++++++++++++++++++++++++++++++++++++
- 3 files changed, 309 insertions(+)
+ cmd/adi_hwref.c | 321 ++++++++++++++++++++++++++++++++++++++++++++++++++++++
+ 3 files changed, 333 insertions(+)
  create mode 100644 cmd/adi_hwref.c
 
 diff --git a/cmd/Kconfig b/cmd/Kconfig
@@ -87,7 +87,7 @@ new file mode 100644
 index 00000000..d0050d8b
 --- /dev/null
 +++ b/cmd/adi_hwref.c
-@@ -0,0 +1,296 @@
+@@ -0,0 +1,320 @@
 +// SPDX-License-Identifier: GPL-2.0+
 +/*
 + * cmd/adi_hwref.c - Analog Devices board HW revision detection
@@ -171,6 +171,7 @@ index 00000000..d0050d8b
 +#define XADC_CMD_WRITE(addr, v)	(((u32)0x02 << 26) | \
 +				 (((addr) & 0x3FF) << 16) | \
 +				 ((v) & 0xFFFF))
++#define XADC_CMD_NOP		((u32)0x00 << 26)
 +
 +/* DRP register addresses (XADC internal registers)
 + * See: UG480 - 7 Series XADC Dual 12-Bit 1 MSPS ADC User Guide
@@ -210,6 +211,16 @@ index 00000000..d0050d8b
 +
 +/*
 + * Read a single XADC DRP register via the PS-XADC command FIFO.
++ *
++ * The PS-XADC command pipe is one stage deep: the result of a READ
++ * command only appears in the data FIFO after a following command
++ * (NOP) pushes it out, so the first response word is always the
++ * result of whatever command preceded this call (0 on a cold XADC,
++ * since nothing has been issued yet) - not the register requested
++ * here. This mirrors the Linux xilinx-xadc driver's
++ * xadc_zynq_read_adc_reg(), which issues READ+NOP and reads two
++ * DFIFO words, discarding the first.
++ *
 + * Returns the 16-bit result or negative on timeout.
 + */
 +static int xadc_drp_read(u32 drp_addr)
@@ -225,10 +236,23 @@ index 00000000..d0050d8b
 +		(void)xadc_read(XADC_RDFIFO);
 +	}
 +
-+	/* Issue read command */
++	/* Issue read command, then a NOP to pump the result out */
 +	xadc_write(XADC_CMDFIFO, XADC_CMD_READ(drp_addr));
++	xadc_write(XADC_CMDFIFO, XADC_CMD_NOP);
 +
-+	/* Wait for data in the read FIFO */
++	/* Discard the dummy response to whatever command preceded this one */
++	for (timeout = 0; timeout < 10000; timeout++) {
++		msts = xadc_read(XADC_MSTS);
++		if (!(msts & XADC_MSTS_DFIFOE)) {
++			(void)xadc_read(XADC_RDFIFO);
++			break;
++		}
++		udelay(1);
++	}
++	if (timeout == 10000)
++		return -1;
++
++	/* Wait for the real response to the READ command */
 +	for (timeout = 0; timeout < 10000; timeout++) {
 +		msts = xadc_read(XADC_MSTS);
 +		if (!(msts & XADC_MSTS_DFIFOE))
