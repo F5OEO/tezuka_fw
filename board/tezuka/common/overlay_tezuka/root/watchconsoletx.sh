@@ -119,18 +119,22 @@ echo out > /sys/class/gpio/gpio906/direction
 
 pttoff
 
+# Initialize the history variable before starting the loop
+LAST_COUNT=$(grep "7c42" /proc/interrupts | awk '{print $2 + $3}')
+
 check_tx_flux() {
-    A=$(grep "7c42" /proc/interrupts | awk '{print $2}')
-    sleep 1
-    B=$(grep "7c42" /proc/interrupts | awk '{print $2}')
-    DELTA=$((B - A))
+  # Get the current absolute count immediately
+    CURRENT_COUNT=$(grep "7c42" /proc/interrupts | awk '{print $2 + $3}')
+    
+    # Compare it directly to the previous loop's count
+    DELTA=$((CURRENT_COUNT - LAST_COUNT))
+    
+    # Save the current count as history for the NEXT loop execution
+    LAST_COUNT=$CURRENT_COUNT
 
     if [ "$DELTA" -gt 0 ]; then
-
-        #echo "SdrConsole PTT ON"
         ptton
     else
-        #echo "SdrConsole PTT OFF"
         pttoff
     fi
 }
@@ -143,6 +147,7 @@ loop()
 while :
 do
         check_tx_flux
+        sleep 1
 done
 }
 
