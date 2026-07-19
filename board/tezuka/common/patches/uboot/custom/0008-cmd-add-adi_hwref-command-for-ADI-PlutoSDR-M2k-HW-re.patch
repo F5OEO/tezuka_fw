@@ -28,6 +28,24 @@ and caused bootcmd to silently do nothing.
 If modeboot is already set (e.g. from saved env or uEnv.txt), the
 SLCR value is not applied, preserving any explicit override.
 
+v2: the initial port used raw guesses at the PS-XADC register
+protocol and got three things wrong compared to the genuine
+analogdevicesinc/u-boot-xlnx (pluto branch) implementation
+(cmd/version.c: do_xadc()/do_adi_hw_version(), confirmed against the
+actual source):
+ - never unlocked the Device Config (DevCfg/PCAP) block, which gates
+   the XADC PS interface (XAdcPs_CfgInitialize() always does this)
+ - never reset the XADC hard macro out of its power-on state
+ - read the PS-XADC command FIFO with a single READ command; the
+   pipe is one stage deep and needs a following NOP to pump the
+   result out (confirmed against the mainline Linux xilinx-xadc
+   driver's xadc_zynq_read_adc_reg())
+ - never switched the sequencer to single-channel mode targeting
+   VPVN, instead relying on whatever the default sequencer produced
+ - used a different (invented) code-to-revision mapping instead of
+   the genuine per-mille/nearest-100 banding algorithm
+All five are corrected in this version.
+
 Signed-off-by: User <user@example.com>
 ---
 
@@ -44,8 +62,8 @@ unreachable when modeboot is null, so it must happen earlier.
 ---
  cmd/Kconfig     |  11 +++
  cmd/Makefile    |   1 +
- cmd/adi_hwref.c | 321 ++++++++++++++++++++++++++++++++++++++++++++++++++++++
- 3 files changed, 333 insertions(+)
+ cmd/adi_hwref.c | 404 ++++++++++++++++++++++++++++++++++++++++++++++++++++++
+ 3 files changed, 416 insertions(+)
  create mode 100644 cmd/adi_hwref.c
 
 diff --git a/cmd/Kconfig b/cmd/Kconfig
@@ -87,7 +105,7 @@ new file mode 100644
 index 00000000..d0050d8b
 --- /dev/null
 +++ b/cmd/adi_hwref.c
-@@ -0,0 +1,320 @@
+@@ -0,0 +1,404 @@
 +// SPDX-License-Identifier: GPL-2.0+
 +/*
 + * cmd/adi_hwref.c - Analog Devices board HW revision detection
@@ -102,7 +120,9 @@ index 00000000..d0050d8b
 + * U-Boot fork but absent from modern mainline U-Boot.
 + *
 + * Ported from analogdevicesinc/u-boot-xlnx (pluto branch)
-+ * board/xilinx/zynq/cmds.c to modern U-Boot cmd/ layout.
++ * cmd/version.c (do_xadc / do_adi_hw_version) to modern U-Boot
++ * cmd/ layout, using raw PS-XADC register access instead of the
++ * XAdcPs BSP driver.
 + *
 + * Copyright (C) 2016-2026 Analog Devices, Inc.
 + */
@@ -126,6 +146,19 @@ index 00000000..d0050d8b
 +#define ZYNQ_BM_NOR		0x2
 +#define ZYNQ_BM_NAND		0x4
 +#define ZYNQ_BM_SD		0x5
++
++/* ------------------------------------------------------------------ */
++/* Zynq Device Config (DevCfg/PCAP) unlock register                   */
++/* See: Zynq-7000 TRM, Chapter 6 - Device Configuration Interface     */
++/* The XADC PS interface lives in the same register block and several */
++/* of its control bits are gated by this lock - the genuine ADI       */
++/* driver (XAdcPs_CfgInitialize) always writes this before touching   */
++/* the XADC config register.                                         */
++/* ------------------------------------------------------------------ */
++
++#define XDCFG_BASE		0xF8007000
++#define XDCFG_UNLOCK_OFFSET	0x034
++#define XDCFG_UNLOCK_VALUE	0x757BDF0D
 +
 +/* ------------------------------------------------------------------ */
 +/* Zynq XADC (PS-XADC) register definitions                          */
@@ -185,15 +218,15 @@ index 00000000..d0050d8b
 +#define XADC_REG_VBRAM		0x06	/* VBRAM supply sensor               */
 +#define XADC_REG_VAUX_BASE	0x10	/* VAUX[0]..VAUX[15] = 0x10..0x1F   */
 +
-+/* Configuration register 0 (inside XADC DRP) */
++/* Configuration register 0 (inside XADC DRP) - channel select */
 +#define XADC_DRP_CFG0		0x40
-+/* Configuration register 1 */
++#define XADC_CFG0_CHANNEL_MASK	0x001F
++
++/* Configuration register 1 (inside XADC DRP) - sequencer mode */
 +#define XADC_DRP_CFG1		0x41
-+/* Configuration register 2 */
-+#define XADC_DRP_CFG2		0x42
-+/* Sequence registers */
-+#define XADC_DRP_SEQ_SEL0	0x48
-+#define XADC_DRP_SEQ_SEL1	0x49
++#define XADC_CFG1_SEQ_SHIFT	12
++#define XADC_CFG1_SEQ_MASK	(0xF << 12)
++#define XADC_SEQ_MODE_SINGCHAN	3	/* Single channel / sequencer off */
 +
 +/* ------------------------------------------------------------------ */
 +/* Helpers                                                            */
@@ -210,14 +243,33 @@ index 00000000..d0050d8b
 +}
 +
 +/*
++ * Wait for one response word in the data FIFO and return it, or -1 on
++ * timeout. Used after both READ and WRITE commands - the PS-XADC
++ * command pipe produces exactly one DFIFO word per command issued.
++ */
++static int xadc_wait_dfifo(void)
++{
++	u32 msts;
++	int timeout;
++
++	for (timeout = 0; timeout < 10000; timeout++) {
++		msts = xadc_read(XADC_MSTS);
++		if (!(msts & XADC_MSTS_DFIFOE))
++			return xadc_read(XADC_RDFIFO) & 0xFFFF;
++		udelay(1);
++	}
++
++	return -1;
++}
++
++/*
 + * Read a single XADC DRP register via the PS-XADC command FIFO.
 + *
 + * The PS-XADC command pipe is one stage deep: the result of a READ
 + * command only appears in the data FIFO after a following command
 + * (NOP) pushes it out, so the first response word is always the
-+ * result of whatever command preceded this call (0 on a cold XADC,
-+ * since nothing has been issued yet) - not the register requested
-+ * here. This mirrors the Linux xilinx-xadc driver's
++ * result of whatever command preceded this call - not the register
++ * requested here. This mirrors the Linux xilinx-xadc driver's
 + * xadc_zynq_read_adc_reg(), which issues READ+NOP and reads two
 + * DFIFO words, discarding the first.
 + *
@@ -241,50 +293,46 @@ index 00000000..d0050d8b
 +	xadc_write(XADC_CMDFIFO, XADC_CMD_NOP);
 +
 +	/* Discard the dummy response to whatever command preceded this one */
-+	for (timeout = 0; timeout < 10000; timeout++) {
-+		msts = xadc_read(XADC_MSTS);
-+		if (!(msts & XADC_MSTS_DFIFOE)) {
-+			(void)xadc_read(XADC_RDFIFO);
-+			break;
-+		}
-+		udelay(1);
-+	}
-+	if (timeout == 10000)
++	if (xadc_wait_dfifo() < 0)
 +		return -1;
 +
 +	/* Wait for the real response to the READ command */
-+	for (timeout = 0; timeout < 10000; timeout++) {
-+		msts = xadc_read(XADC_MSTS);
-+		if (!(msts & XADC_MSTS_DFIFOE))
-+			return xadc_read(XADC_RDFIFO) & 0xFFFF;
-+		udelay(1);
-+	}
++	return xadc_wait_dfifo();
++}
 +
-+	return -1;
++/*
++ * Write a single XADC DRP register via the PS-XADC command FIFO.
++ * Like reads, a WRITE command also produces one DFIFO response word
++ * that must be drained.
++ */
++static int xadc_drp_write(u32 drp_addr, u32 val)
++{
++	xadc_write(XADC_CMDFIFO, XADC_CMD_WRITE(drp_addr, val));
++	return xadc_wait_dfifo();
 +}
 +
 +/*
 + * Map a 12-bit ADC code (0..4095) to a HW revision index (0..9).
 + *
-+ * The PlutoSDR/M2k boards use a resistor divider that produces a
-+ * voltage unique to each HW revision. The XADC returns a 16-bit
-+ * value but only the upper 12 bits are significant (left-justified,
-+ * so we shift right by 4). The mapping thresholds below divide the
-+ * 0-1V unipolar range into 10 equal bands.
-+ *
-+ * Adjust the thresholds to match your board's resistor-divider
-+ * network and XADC reference voltage (typically 1.0 V unipolar on
-+ * Vp/Vn with internal reference).
++ * Matches the genuine ADI driver (do_adi_hw_version() in
++ * analogdevicesinc/u-boot-xlnx, pluto branch, cmd/version.c): the
++ * code is scaled to a 0-1000 range (assuming a 1.0V unipolar
++ * reference) and matched against 100-wide bands centered on each
++ * multiple of 100 (i.e. 1.0V/10 per revision step). A reading that
++ * doesn't fall within +/-50 of any expected step - including a
++ * reading near 0 - resolves to revision 0 (PlutoSDR Rev.A).
 + */
 +static int xadc_code_to_hwref(int code12)
 +{
-+	/* 10 equal bands across 0..4095 -> each band is ~410 codes */
-+	int idx = code12 / 410;
++	int val = (code12 * 1000) / 0xFFF;
++	int i;
 +
-+	if (idx > 9)
-+		idx = 9;
++	for (i = 100; i <= 1000; i += 100) {
++		if (val >= (i - 50) && val < (i + 50))
++			return i / 100;
++	}
 +
-+	return idx;
++	return 0;
 +}
 +
 +/* ------------------------------------------------------------------ */
@@ -353,6 +401,31 @@ index 00000000..d0050d8b
 +	/* Detect boot mode and set modeboot if not already set */
 +	adi_set_modeboot();
 +
++	/*
++	 * Unlock the Device Config (DevCfg/PCAP) block before touching
++	 * the XADC interface. The XADC PS registers live in the same
++	 * hardware block and several of its control bits are gated by
++	 * this lock - the genuine ADI driver (XAdcPs_CfgInitialize())
++	 * always writes this magic value first. FSBL typically performs
++	 * this same unlock while loading the bitstream via PCAP, but
++	 * that isn't guaranteed on every boot path (e.g. JTAG boot with
++	 * no FSBL run), so do it unconditionally here too.
++	 */
++	writel(XDCFG_UNLOCK_VALUE,
++	       (void __iomem *)(uintptr_t)(XDCFG_BASE + XDCFG_UNLOCK_OFFSET));
++
++	/*
++	 * Pulse the XADC hard macro's reset before enabling it. U-Boot
++	 * runs immediately after FSBL and nothing else brings the XADC
++	 * out of its power-on state first, so without this reset pulse
++	 * the ADC has never converted anything and every DRP register
++	 * (including VPVN) reads back as 0 - which is why hwref always
++	 * came out as 0 (PlutoSDR Rev.A) regardless of the actual board.
++	 * Mirrors the Linux xilinx-xadc driver's xadc_zynq_setup().
++	 */
++	xadc_write(XADC_MCTL, BIT(4));
++	xadc_write(XADC_MCTL, 0);
++
 +	/* Enable the PS-XADC interface */
 +	cfg_save = xadc_read(XADC_CFG);
 +	xadc_write(XADC_CFG, XADC_CFG_ENABLE |
@@ -360,8 +433,37 @@ index 00000000..d0050d8b
 +			      XADC_CFG_TCKRATE_DIV(0x1F) |
 +			      XADC_CFG_IGAP(0x14));
 +
-+	/* Short settling delay */
 +	udelay(100);
++
++	/*
++	 * Force single-channel mode targeting VPVN. The default
++	 * sequencer mode (the only mode our earlier fixes left in
++	 * place) doesn't reliably/promptly refresh the VPVN result
++	 * register with a properly-acquired external-input reading.
++	 * The genuine driver always explicitly switches to single
++	 * channel mode before reading Vp/Vn (XAdcPs_SetSequencerMode()
++	 * + XAdcPs_SetSingleChParams() in cmd/version.c do_xadc()).
++	 */
++	xadc_drp_write(XADC_DRP_CFG1,
++		       XADC_SEQ_MODE_SINGCHAN << XADC_CFG1_SEQ_SHIFT);
++	xadc_drp_write(XADC_DRP_CFG0, XADC_REG_VPVN & XADC_CFG0_CHANNEL_MASK);
++
++	/*
++	 * Settling delay: after switching mode/channel the XADC needs
++	 * to complete at least one full acquisition + conversion cycle
++	 * before VPVN holds a genuine reading. 2ms gives comfortable
++	 * margin at the configured (slow) TCKRATE_DIV.
++	 */
++	udelay(2000);
++
++	/*
++	 * Throwaway read: discard whatever conversion was in flight
++	 * when the mode/channel switch took effect, keep only the
++	 * following one. Mirrors the genuine driver's two-pass
++	 * SetSingleChParams/SetSequencerMode/GetAdcData loop.
++	 */
++	(void)xadc_drp_read(XADC_REG_VPVN);
++	udelay(2000);
 +
 +	/* Read Vp/Vn channel (dedicated analog input) */
 +	raw = xadc_drp_read(XADC_REG_VPVN);
