@@ -5,8 +5,8 @@ on:
   # zips. SemVer pattern (v-prefixed) triggers the release pipeline.
   push:
     tags:
-      - "v[0-9]+.[0-9]+.[0-9]+"
-      - "v[0-9]+.[0-9]+.[0-9]+-*"
+      - "v[0-9]*.[0-9]*.[0-9]*"
+      - "v[0-9]*.[0-9]*.[0-9]*-*"
   # Manual dispatch for smoke testing. The release job is skipped for
   # dispatch runs; only artifacts are produced.
   workflow_dispatch:
