@@ -1,0 +1,39 @@
+#!/bin/sh
+# OpenRF MaiaSource board-side services: the real-time IQ bridge (iio_ws_proxy) + RSSI/temp
+# telemetry. Runs after S60maia-httpd (AD9361/DDC up) and S50mosquitto (broker up).
+#
+# The DDC routing register (0x790200BC) is deliberately NOT set here -- it stays a runtime
+# toggle, default OFF, so ordinary libiio clients (SDR++/SDR#/GNU Radio) streaming
+# cf-ad9361-lpc get full-rate wideband IQ. OpenRF turns routing on/off around its session.
+#
+# The proxy runs with lazy device hold (-L): it owns cf-ad9361-lpc only while an OpenRF WS
+# client is connected, so the device is free for ordinary libiio clients when OpenRF is idle.
+#   -R rx-only   -c CS12 pack   -1 RX1-only (clean 4-byte I/Q)   -L lazy hold
+
+PROXY=/usr/bin/iio_ws_proxy
+TELEM=/usr/bin/telem_pub.sh
+
+case "$1" in
+  start)
+    printf "Starting OpenRF services: "
+    [ -x "$PROXY" ] && start-stop-daemon -S -b -q -m -p /var/run/iio_ws_proxy.pid -x "$PROXY" -- -R -c -1 -L
+    [ -x "$TELEM" ] && start-stop-daemon -S -b -q -m -p /var/run/telem_pub.pid    -x "$TELEM"
+    echo "OK"
+    ;;
+  stop)
+    printf "Stopping OpenRF services: "
+    start-stop-daemon -K -q -p /var/run/telem_pub.pid     2>/dev/null
+    start-stop-daemon -K -q -p /var/run/iio_ws_proxy.pid  2>/dev/null
+    echo "OK"
+    ;;
+  restart|reload)
+    "$0" stop
+    sleep 1
+    "$0" start
+    ;;
+  *)
+    echo "Usage: $0 {start|stop|restart}"
+    exit 1
+esac
+
+exit 0
