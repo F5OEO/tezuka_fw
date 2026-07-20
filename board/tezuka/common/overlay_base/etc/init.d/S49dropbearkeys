@@ -1,0 +1,35 @@
+#!/bin/sh
+# Restore persisted Dropbear host keys before dropbear (S50) starts,
+# and save the current keys back to persistent storage on shutdown/
+# reboot - so the host key identity survives without the user having
+# to remember to run device_persistent_keys by hand every time.
+#
+# /etc/dropbear is wiped at build time and lives on the ephemeral
+# ramdisk rootfs, so dropbear's own "-R" flag regenerates every host
+# key (rsa/ecdsa/ed25519) from scratch on every boot unless restored
+# from the persistent /mnt/jffs2 partition first.
+#
+# rcK stops init scripts in reverse order, so this runs (and saves
+# the keys dropbear was actually using) after S50dropbear has already
+# been stopped, but before S20jffs2 - so /mnt/jffs2 is still mounted.
+
+start() {
+    if [ -d /mnt/jffs2/etc/dropbear ]; then
+        mkdir -p /etc/dropbear
+        cp -a /mnt/jffs2/etc/dropbear/dropbear_*_host_key /etc/dropbear/ 2>/dev/null
+    fi
+}
+
+stop() {
+    grep -q mtd2 /proc/mounts && /usr/sbin/device_persistent_keys >/dev/null 2>&1
+}
+
+case "$1" in
+    start)   start ;;
+    stop)    stop ;;
+    restart) start ;;
+    *)
+        echo "Usage: $0 {start|stop|restart}"
+        exit 1
+        ;;
+esac

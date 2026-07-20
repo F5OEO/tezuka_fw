@@ -8,14 +8,22 @@ cat /proc/mounts | grep -q mtd2 || (echo "Filesystem not mounted use device_form
 
 #dropbearkey -t rsa -f /etc/dropbear/dropbear_rsa_host_key
 [[ ! -f ${KEYFILE} ]] && dropbearkey -t ecdsa -f ${KEYFILE}
-install -D /etc/dropbear/dropbear_* -t /mnt/jffs2/etc/dropbear
+
+# Only write to JFFS2 if the files actually changed since the last
+# persist - avoids wearing the flash on every reboot when the keys
+# were just restored from there in the first place (see S49dropbearkeys).
 cd /etc/dropbear
-md5sum dropbear_* /etc/dropbear/ 2>/dev/null > /mnt/jffs2/etc/dropbear/keys.md5
+if ! md5sum -c /mnt/jffs2/etc/dropbear/keys.md5 >/dev/null 2>&1; then
+	install -D /etc/dropbear/dropbear_* -t /mnt/jffs2/etc/dropbear
+	md5sum dropbear_* > /mnt/jffs2/etc/dropbear/keys.md5
+fi
 
 if [ -f ${IDFILE} ]; then
- install -D ${IDFILE} -t /mnt/jffs2/root/.ssh
  cd /root/.ssh
- md5sum authorized_keys 2>/dev/null > /mnt/jffs2/root/.ssh/keys.md5
+ if ! md5sum -c /mnt/jffs2/root/.ssh/keys.md5 >/dev/null 2>&1; then
+	install -D ${IDFILE} -t /mnt/jffs2/root/.ssh
+	md5sum authorized_keys > /mnt/jffs2/root/.ssh/keys.md5
+ fi
 fi
 
 sync
