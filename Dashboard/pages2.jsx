@@ -158,15 +158,31 @@ function DATV({ d, callsign }) {
   useE2(() => { if (dv['tx/dvbs2/tssourceaddress'] != null) setTsAddr(dv['tx/dvbs2/tssourceaddress']); },           [dv['tx/dvbs2/tssourceaddress']]);
 
   const isDvbs2 = mode === 'dvbs2-ts' || mode === 'dvbs2-gse';
-  const hasSr = isDvbs2 || mode === 'dvbs';
+  const hasStream = isDvbs2 || mode === 'dvbs';
+  const hasSr = hasStream;
 
   const fecNum = (s) => { if (s === 'auto') return 0.5; const [a, b] = s.split('/'); return parseFloat(a) / parseFloat(b); };
   const moduBits = { qpsk: 2, '8psk': 3, '16apsk': 4, '32apsk': 5 };
+  // DVB-S2 MODCOD table (ETSI EN 302 307, Table 12) — valid FEC rates per constellation
+  const fecByModu = {
+    qpsk: ['1/4', '1/3', '2/5', '1/2', '3/5', '2/3', '3/4', '4/5', '5/6', '8/9', '9/10'],
+    '8psk': ['3/5', '2/3', '3/4', '5/6', '8/9', '9/10'],
+    '16apsk': ['2/3', '3/4', '4/5', '5/6', '8/9', '9/10'],
+    '32apsk': ['3/4', '4/5', '5/6', '8/9', '9/10'],
+  };
+  const fecOpts = fecByModu[modu] || fecByModu.qpsk;
+  // End-to-end (framing + encapsulation) efficiency at full buffer, from the
+  // DVB-S2 implementation guideline (DVB BlueBook A171-1, Table 11): GSE
+  // (direct IP, no MPE) is much more efficient than MPEG/MPE-over-TS, and
+  // short frames carry slightly more relative overhead than normal frames.
+  const encapFactor = mode === 'dvbs2-gse'
+    ? (frame === 'short' ? 0.96 : 0.97)
+    : (frame === 'short' ? 0.87 : 0.88);
   const netBitrateKbps = dv['tx/dvbs2/ts/bitrate']
     ? Math.round(parseFloat(dv['tx/dvbs2/ts/bitrate']) / 1000)
-    : Math.round(sr * (moduBits[modu] || 2) * fecNum(fec) * 0.88 / 1000);
+    : Math.round(sr * (moduBits[modu] || 2) * fecNum(fec) * encapFactor / 1000);
   const netBitrateReal = !!dv['tx/dvbs2/ts/bitrate'];
-  const tsBitrateStr = isDvbs2 ? netBitrateKbps + ' Kb/s' + (netBitrateReal ? '' : ' (est.)') : '—';
+  const tsBitrateStr = hasStream ? netBitrateKbps + ' Kb/s' + (netBitrateReal ? '' : ' (est.)') : '—';
   const queue = dv['tx/dvbs2/queue'] ? parseInt(dv['tx/dvbs2/queue']) : 0;
   const queueWarn = queue > 100;
 
@@ -174,13 +190,13 @@ function DATV({ d, callsign }) {
   useE2(() => {
     const obsIp   = localStorage.getItem('datv_obs_ip')   || '';
     const obsPass = localStorage.getItem('datv_obs_pass') || '';
-    if (!obsIp || !isDvbs2) return;
+    if (!obsIp || !hasStream) return;
     const tsAddrVal = dv['tx/dvbs2/tssourceaddress'] || '';
     const msg = { bitrate: netBitrateKbps, host: obsIp, mode: 'record', format: 'mpegts' };
     if (obsPass)    msg.password = obsPass;
     if (tsAddrVal)  msg.url = `udp://${tsAddrVal}?pkt_size=1316&bitrate=${netBitrateKbps * 1000}`;
     d.publish('encoder/auto_bitrate', JSON.stringify(msg));
-  }, [netBitrateKbps]);
+  }, [netBitrateKbps, hasStream]);
 
   // Re-publish all DVB-S2 parameters when leaving passthrough mode
   const prevModeRef = React.useRef(mode);
@@ -240,7 +256,17 @@ function DATV({ d, callsign }) {
                 onChange={(v) => { setGain(v); pub('tx/gain', v); }} unit=" dB" fmt={(v) => v.toFixed(2)} />
             </Field>
             <Field label="Stream mode">
-              <Select value={mode} onChange={(v) => { setMode(v); pub('tx/stream/mode', v); }} options={modeOpts} />
+              <Select value={mode} onChange={(v) => {
+                setMode(v); pub('tx/stream/mode', v);
+                // Current FEC may not be valid in the new mode (DVB-S Viterbi
+                // rates vs DVB-S2 MODCOD rates) — fall back to a safe default
+                const dvbsRates = ['1/2', '2/3', '3/4', '5/6', '7/8'];
+                if (v === 'dvbs' && !dvbsRates.includes(fec)) {
+                  setFec('3/4'); pub('tx/dvbs2/fecmode', 'fixed'); pub('tx/dvbs2/fec', '3/4');
+                } else if (v !== 'dvbs' && fec !== 'auto' && !(fecByModu[modu] || fecByModu.qpsk).includes(fec)) {
+                  setFec('auto'); pub('tx/dvbs2/fecmode', 'variable');
+                }
+              }} options={modeOpts} />
             </Field>
             {hasSr && (
               <Field label="Symbol rate" hint="25 – 4 000 kS/s">
@@ -254,15 +280,27 @@ function DATV({ d, callsign }) {
             )}
             {isDvbs2 && <>
               <Field label="Constellation">
-                <Select value={modu} onChange={(v) => { setModu(v); pub('tx/dvbs2/constel', v); }} options={['qpsk', '8psk', '16apsk', '32apsk']} />
+                <Select value={modu} onChange={(v) => {
+                  setModu(v); pub('tx/dvbs2/constel', v);
+                  // Current FEC may not be valid for the new constellation (MODCOD table) — fall back to 'auto'
+                  if (fec !== 'auto' && !(fecByModu[v] || fecByModu.qpsk).includes(fec)) {
+                    setFec('auto'); pub('tx/dvbs2/fecmode', 'variable');
+                  }
+                }} options={['qpsk', '8psk', '16apsk', '32apsk']} />
               </Field>
+            </>}
+            {(isDvbs2 || mode === 'dvbs') && (
               <Field label="FEC">
                 <Select value={fec} onChange={(v) => {
                   setFec(v);
                   if (v === 'auto') { pub('tx/dvbs2/fecmode', 'variable'); }
                   else { pub('tx/dvbs2/fecmode', 'fixed'); pub('tx/dvbs2/fec', v); }
-                }} options={[{ v: 'auto', l: 'Auto' }, '1/4', '1/3', '2/5', '3/5', '4/5', '5/6', '8/9', '9/10']} />
+                }} options={mode === 'dvbs'
+                  ? ['1/2', '2/3', '3/4', '5/6', '7/8']
+                  : [{ v: 'auto', l: 'Auto' }, ...fecOpts]} />
               </Field>
+            )}
+            {isDvbs2 && <>
               <Field label="Pilots">
                 <Select value={pilots} onChange={(v) => { setPilots(v); pub('tx/dvbs2/pilots', v); }} options={[{ v: '0', l: 'Off' }, { v: '1', l: 'On' }]} />
               </Field>
@@ -277,7 +315,7 @@ function DATV({ d, callsign }) {
         </Card>
 
         <div className="span-5 tile-stack">
-          {isDvbs2 && (
+          {hasStream && (
             <Card title="TS source">
               <Field label="Input mode">
                 <Select value={tsSource}
@@ -340,16 +378,23 @@ function DATVObs({ d, callsign }) {
 
   const mode = dv['tx/stream/mode'] || '';
   const isDvbs2 = mode === 'dvbs2-ts' || mode === 'dvbs2-gse';
+  const hasStream = isDvbs2 || mode === 'dvbs';
   const tsAddr  = dv['tx/dvbs2/tssourceaddress'] || '';
 
   const fecNum = (s) => { if (!s || s === 'auto') return 0.5; const [a, b] = s.split('/'); return parseFloat(a) / parseFloat(b); };
   const moduBits = { qpsk: 2, '8psk': 3, '16apsk': 4, '32apsk': 5 };
-  const sr   = parseInt(dv['tx/dvbs2/sr']) || 250000;
-  const modu = dv['tx/dvbs2/constel'] || 'qpsk';
-  const fec  = dv['tx/dvbs2/fecmode'] === 'variable' ? 'auto' : (dv['tx/dvbs2/fec'] || '2/3');
+  const sr    = parseInt(dv['tx/dvbs2/sr']) || 250000;
+  const modu  = dv['tx/dvbs2/constel'] || 'qpsk';
+  const fec   = dv['tx/dvbs2/fecmode'] === 'variable' ? 'auto' : (dv['tx/dvbs2/fec'] || '2/3');
+  const frame = dv['tx/dvbs2/frame'] || 'long';
+  // See DATV()'s encapFactor above (DVB BlueBook A171-1, Table 11) — kept in
+  // sync manually since this page has no shared module scope to import from.
+  const encapFactor = mode === 'dvbs2-gse'
+    ? (frame === 'short' ? 0.96 : 0.97)
+    : (frame === 'short' ? 0.87 : 0.88);
   const netBitrateKbps = dv['tx/dvbs2/ts/bitrate']
     ? Math.round(parseFloat(dv['tx/dvbs2/ts/bitrate']) / 1000)
-    : Math.round(sr * (moduBits[modu] || 2) * fecNum(fec) * 0.88 / 1000);
+    : Math.round(sr * (moduBits[modu] || 2) * fecNum(fec) * encapFactor / 1000);
   const netBitrateReal = !!dv['tx/dvbs2/ts/bitrate'];
 
   const [obsIp,   setObsIp]   = useS2(() => localStorage.getItem('datv_obs_ip')   || '');
@@ -359,13 +404,13 @@ function DATVObs({ d, callsign }) {
   const [lastSent, setLastSent] = useS2(null);
 
   useE2(() => {
-    if (!obsIp || !isDvbs2 || !dv['tx/dvbs2/ts/bitrate']) return;
+    if (!obsIp || !hasStream || !dv['tx/dvbs2/ts/bitrate']) return;
     const msg = { bitrate: netBitrateKbps, host: obsIp, mode: 'record', format: 'mpegts' };
     if (obsPass) msg.password = obsPass;
     if (tsAddr)  msg.url = `udp://${tsAddr}?pkt_size=1316&bitrate=${netBitrateKbps * 1000}`;
     d.publish('encoder/auto_bitrate', JSON.stringify(msg));
     setLastSent(new Date().toLocaleTimeString());
-  }, [dv['tx/dvbs2/ts/bitrate']]);
+  }, [dv['tx/dvbs2/ts/bitrate'], hasStream]);
 
   return (
     <div className="page">
@@ -393,9 +438,9 @@ function DATVObs({ d, callsign }) {
               <span className="dim mono">{lastSent}</span>
             </div>
           )}
-          {!isDvbs2 && (
+          {!hasStream && (
             <div className="mqtt-status" style={{ marginTop: 8 }}>
-              <Pill tone="warn" dot>Not in DVB-S2 mode</Pill>
+              <Pill tone="warn" dot>Not in a DVB-S / DVB-S2 stream mode</Pill>
             </div>
           )}
         </Card>
