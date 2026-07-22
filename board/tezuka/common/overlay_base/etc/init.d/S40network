@@ -62,7 +62,7 @@ create_system_files () {
 	else
 		echo 1 > /proc/sys/net/ipv6/conf/all/disable_ipv6
 	fi
-
+	TX_POWER_SAVE=$(fw_printenv -n tx_power_save 2> /dev/null || echo no | tr -cd '[a-zA-Z0-9 \\/]._-')
 
 	### /etc/udhcpd.conf ###
 	echo "start $IPADDR_HOST" > $UDHCPD_CONF
@@ -210,6 +210,7 @@ create_system_files () {
 	printf "force_model = %s%s\n" "$FORCE_MODEL" "$CR" >> $CONF
 	printf "disable_usb_console = %s%s\n" "$DISABLE_USB_CONSOLE" "$CR" >> $CONF
 	printf "enable_ipv6 = %s%s\n" "$ENABLE_IPV6" "$CR" >> $CONF
+	printf "tx_power_save = %s%s\n" "$TX_POWER_SAVE" "$CR" >> $CONF
 	printf "%s\n" "$CR" >> $CONF
 	### /root/index.html ###
 
