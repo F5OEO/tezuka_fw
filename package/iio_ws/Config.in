@@ -1,4 +1,4 @@
-config BR2_IIO_WS
+config BR2_PACKAGE_IIO_WS
 	bool "iio_ws"
 	help
 	  IIO stream to WebSocket Proxy
