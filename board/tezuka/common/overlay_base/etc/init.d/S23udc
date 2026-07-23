@@ -92,7 +92,7 @@ case "$1" in
 	echo "$USBPID" > $GADGET/idProduct
 
 	mkdir -p $GADGET/strings/0x409
-	echo "F5OEO" > $GADGET/strings/0x409/manufacturer
+	echo "Analog Devices Inc." > $GADGET/strings/0x409/manufacturer
 	echo "$PRODUCT" > $GADGET/strings/0x409/product
 	echo "$serial" > $GADGET/strings/0x409/serialnumber
 
