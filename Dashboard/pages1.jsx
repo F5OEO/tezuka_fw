@@ -577,8 +577,6 @@ function SpectrumPage({ d }) {
   const isSweepR    = useSpR(false);
   const mousePosRef = useSpR(null);   // {px} normalised 0-1 when cursor is over canvas
   const mouseDragRef    = useSpR(null);  // {startX, startY, startRefDb, startCenterHz} while dragging
-  const dragPubTimerRef  = useSpR(0);   // last MQTT publish timestamp during drag
-  const wheelPubTimerRef  = useSpR(0);  // last MQTT publish timestamp during wheel zoom
   const wheelDebounceRef  = useSpR(0);  // setTimeout id for post-wheel flush
   const spanPubTimerRef   = useSpR(0);  // last MQTT publish timestamp for span tuner
   const spanThrottleRef   = useSpR(0);  // 500 ms gate for rx/span publishes
@@ -789,18 +787,14 @@ function SpectrumPage({ d }) {
       const nc = Math.max(47e6 + ns / 2, Math.min(6e9 - ns / 2, markerFreq));
       setCenterHz(nc);
       setSpanHz(ns);
+      d.publish(d.sweepActive ? 'rx/sweep/frequency' : 'rx/frequency', Math.round(nc));
       const now = performance.now();
-      if (now - wheelPubTimerRef.current >= 200) {
-        wheelPubTimerRef.current = now;
-        d.publish(d.sweepActive ? 'rx/sweep/frequency' : 'rx/frequency', Math.round(nc));
-      }
       if (now - spanThrottleRef.current >= 500) {
         spanThrottleRef.current = now;
         d.publish('rx/span', Math.round(ns));
       }
       clearTimeout(wheelDebounceRef.current);
       wheelDebounceRef.current = setTimeout(() => {
-        d.publish(d.sweepActive ? 'rx/sweep/frequency' : 'rx/frequency', Math.round(centerHzRef.current));
         d.publish('rx/span', Math.round(spanHzRef.current));
       }, 220);
       return;
@@ -875,7 +869,6 @@ function SpectrumPage({ d }) {
         d.publish(d.sweepActive ? 'rx/sweep/frequency' : 'rx/frequency',
                   Math.round(centerHzRef.current));
         mouseDragRef.current = null;
-        dragPubTimerRef.current = 0;
       }
     };
     window.addEventListener('mouseup', onUp);
@@ -981,17 +974,7 @@ function SpectrumPage({ d }) {
           : mouseDragRef.current.startCenterHz;
         setCenterHz(nc);
         setRefDb(mouseDragRef.current.startRefDb + (dy / H) * rangeRef.current);
-        const now = performance.now();
-        if (now - wheelPubTimerRef.current >= 200) {
-          wheelPubTimerRef.current = now;
-          const dv = dRef.current;
-          dv.publish(dv.sweepActive ? 'rx/sweep/frequency' : 'rx/frequency', Math.round(nc));
-        }
-        clearTimeout(wheelDebounceRef.current);
-        wheelDebounceRef.current = setTimeout(() => {
-          const dv = dRef.current;
-          dv.publish(dv.sweepActive ? 'rx/sweep/frequency' : 'rx/frequency', Math.round(centerHzRef.current));
-        }, 220);
+        dRef.current.publish(dRef.current.sweepActive ? 'rx/sweep/frequency' : 'rx/frequency', Math.round(nc));
       }
     };
 
@@ -1002,7 +985,6 @@ function SpectrumPage({ d }) {
         dv.publish(dv.sweepActive ? 'rx/sweep/frequency' : 'rx/frequency',
                    Math.round(centerHzRef.current));
         mouseDragRef.current = null;
-        dragPubTimerRef.current = 0;
         mousePosRef.current = null;
         setMkr(null);
         dirtyRef.current = true;
@@ -1043,11 +1025,7 @@ function SpectrumPage({ d }) {
         ? mouseDragRef.current.startCenterHz - steps * step
         : mouseDragRef.current.startCenterHz;
       setCenterHz(nc);
-      const now = performance.now();
-      if (now - dragPubTimerRef.current >= 200) {
-        dragPubTimerRef.current = now;
-        d.publish(d.sweepActive ? 'rx/sweep/frequency' : 'rx/frequency', Math.round(nc));
-      }
+      d.publish(d.sweepActive ? 'rx/sweep/frequency' : 'rx/frequency', Math.round(nc));
       // Vertical: drag down raises REF
       const deltaDb = (dy / H) * rangeRef.current;
       setRefDb(mouseDragRef.current.startRefDb + deltaDb);

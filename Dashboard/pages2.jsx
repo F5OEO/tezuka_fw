@@ -122,6 +122,17 @@ function QO100Plan({ currentUlHz, onSelect }) {
   );
 }
 
+// UDP source address must be "x.x.x.x:port" (each octet 0-255, port 1-65535)
+// before it's pushed to the device over MQTT — a malformed value would break
+// the receiver's UDP socket bind.
+function isValidUdpAddr(s) {
+  const m = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3}):(\d{1,5})$/.exec(s || '');
+  if (!m) return false;
+  if (m.slice(1, 5).some(o => Number(o) > 255)) return false;
+  const port = Number(m[5]);
+  return port >= 1 && port <= 65535;
+}
+
 function DATV({ d, callsign }) {
   const dv = d.datv || {};
   const call = callsign || 'F5OEO';
@@ -324,7 +335,8 @@ function DATV({ d, callsign }) {
               </Field>
               {tsSource === '0' && (
                 <Field label="UDP address:port">
-                  <TextInput value={tsAddr} onChange={(v) => { setTsAddr(v); pub('tx/dvbs2/tssourceaddress', v); }} />
+                  <TextInput value={tsAddr} invalid={!isValidUdpAddr(tsAddr)}
+                    onChange={(v) => { setTsAddr(v); if (isValidUdpAddr(v)) pub('tx/dvbs2/tssourceaddress', v); }} />
                 </Field>
               )}
             </Card>

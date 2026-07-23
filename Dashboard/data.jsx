@@ -2,7 +2,7 @@
 const { useState: useStateD, useEffect: useEffectD, useRef: useRefD, useCallback: useCBD } = React;
 
 // Set to the device IP for local development; leave null to use window.location.hostname (on-device)
-const MQTT_DEV_HOST = '10.0.0.61';
+const MQTT_DEV_HOST = '10.0.0.56';
 // Exposed for use in other pages (e.g. spectrum WebSocket)
 window._tezukaDevHost = MQTT_DEV_HOST || window.location.hostname;
 
@@ -281,9 +281,9 @@ function Select({ value, onChange, options }) {
   );
 }
 
-function TextInput({ value, onChange, suffix, mono = true, ...rest }) {
+function TextInput({ value, onChange, suffix, mono = true, invalid = false, ...rest }) {
   return (
-    <div className="text-input">
+    <div className={"text-input" + (invalid ? " invalid" : "")}>
       <input value={value} onChange={(e) => onChange(e.target.value)} className={mono ? "mono" : ""} {...rest} />
       {suffix && <span className="input-suffix">{suffix}</span>}
     </div>

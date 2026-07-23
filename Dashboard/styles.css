@@ -292,6 +292,7 @@ body {
 
 .text-input { display: flex; align-items: center; background: var(--inset); border: 1px solid var(--border); border-radius: var(--r-sm); overflow: hidden; }
 .text-input:focus-within { border-color: var(--accent); }
+.text-input.invalid { border-color: var(--c-coral); }
 .text-input input { flex: 1; background: none; border: none; outline: none; color: var(--text); padding: 10px 12px; font-size: 13.5px; font-family: inherit; }
 .text-input input.mono { font-family: "IBM Plex Mono", monospace; }
 .input-suffix { padding: 0 12px; color: var(--dim-2); font-size: 12px; font-family: "IBM Plex Mono", monospace; border-left: 1px solid var(--border-soft); align-self: stretch; display: flex; align-items: center; }
