@@ -1942,13 +1942,22 @@ function Reboot({ d, ver }) {
 }
 
 // ---- Operator -------------------------------------------------------------
-function Operator({ operator, onSave }) {
+function Operator({ d, operator, onSave }) {
   const [name, setName] = useS2(operator.name);
   const [callsign, setCallsign] = useS2(operator.callsign);
   const [locator, setLocator] = useS2(operator.locator);
   const [saved, setSaved] = useS2(false);
+  const [rebootNeeded, setRebootNeeded] = useS2(false);
   const dirty = name !== operator.name || callsign !== operator.callsign || locator !== operator.locator;
-  const save = () => { onSave({ name, callsign: callsign.toUpperCase(), locator }); setSaved(true); setTimeout(() => setSaved(false), 1800); };
+  const save = () => {
+    const call = callsign.toUpperCase();
+    if (call !== operator.callsign) {
+      d.publish('pluto/call', call);
+      setRebootNeeded(true);
+    }
+    onSave({ name, callsign: call, locator });
+    setSaved(true); setTimeout(() => setSaved(false), 1800);
+  };
   const reset = () => { setName(operator.name); setCallsign(operator.callsign); setLocator(operator.locator); };
 
   return (
@@ -1964,7 +1973,7 @@ function Operator({ operator, onSave }) {
         <Card title="Operator profile" sub="Edit your station details" className="span-7">
           <div className="form-grid">
             <Field label="Operator name"><TextInput value={name} onChange={setName} mono={false} /></Field>
-            <Field label="Callsign"><TextInput value={callsign} onChange={setCallsign} /></Field>
+            <Field label="Callsign" hint="Requires a device reboot to take effect"><TextInput value={callsign} onChange={setCallsign} /></Field>
             <div style={{ gridColumn: "1 / -1" }}>
               <Field label="Grid locator" hint="Maidenhead locator · e.g. JN18cv">
                 <TextInput value={locator} onChange={setLocator} />
@@ -1975,6 +1984,11 @@ function Operator({ operator, onSave }) {
             <button className="btn primary" disabled={!dirty} onClick={save}>{saved ? "Saved" : "Save changes"}</button>
             <button className="btn ghost" disabled={!dirty} onClick={reset}>Reset</button>
           </div>
+          {rebootNeeded && (
+            <div style={{ marginTop: 12 }}>
+              <Pill tone="warn" dot>Callsign changed — reboot the device for it to take effect</Pill>
+            </div>
+          )}
         </Card>
 
         <Card title="Identity" sub="As broadcast" className="span-5">

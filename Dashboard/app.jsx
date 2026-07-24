@@ -15,7 +15,7 @@ const VER = {
 const NAV = [
   { group: null, items: [["dashboard", "Dashboard", "dashboard"]] },
   { group: "RF", items: [["spectrum", "Spectrum", "spectrum"], ["arch", "Architecture", "chip"]] },
-  { group: "Application", items: [["datv", "DATV Controller", "datv", [["analysis", "Analysis", "analysis"], ["obs", "OBS Encoder", "monitor"]]], ["transverter", "Transverter", "transverter"], ["iqtape", "IQ Tape", "tape"], ["siggen", "Signal generator", "wave"], ["radio", "Radio", "headphone"]] },
+  { group: "Application", items: [["datv", "DATV Controller", "datv", [["analysis", "Analysis", "analysis", true], ["obs", "OBS Encoder", "monitor"]]], ["transverter", "Transverter", "transverter"], ["iqtape", "IQ Tape", "tape"], ["siggen", "Signal generator", "wave"], ["radio", "Radio", "headphone"]] },
   { group: "System", items: [["versions", "Versions", "versions"], ["network", "Network", "network"], ["diagnostic", "Diagnostic", "pulse"], ["calibrate", "Calibrate", "target", [["kalibrate", "Kalibrate", "search"]]], ["performance", "Performance", "chip"], ["gpio", "GPIO", "circuit"], ["persistent", "Persistent", "save"], ["gps", "GPS", "mappin"], ["reboot", "Reboot", "power"]] },
   { group: "Documentation", items: [["docs", "Documentation", "book"]] },
 ];
@@ -53,8 +53,8 @@ function Sidebar({ route, setRoute, collapsed, labels, operator }) {
                   </button>
                   {open && (
                     <div className="nav-children">
-                      {children.map(([ck, cl, ci]) => (
-                        <button key={ck} className={`nav-item nav-child ${route === ck ? "active" : ""}`} onClick={() => setRoute(ck)} title={cl}>
+                      {children.map(([ck, cl, ci, cDisabled]) => (
+                        <button key={ck} className={`nav-item nav-child ${route === ck ? "active" : ""}${cDisabled ? " nav-disabled" : ""}`} onClick={cDisabled ? undefined : () => setRoute(ck)} title={cl}>
                           <Icon name={ci} size={18} />
                           {labels && <span>{cl}</span>}
                           {route === ck && <i className="nav-bar" />}
@@ -131,7 +131,7 @@ function App() {
   }, [t.accent, t.accent2, t.density]);
 
   const page = () => {
-    if (!operator) return <Operator operator={op} onSave={setOperator} />;
+    if (!operator) return <Operator d={d} operator={op} onSave={setOperator} />;
     switch (route) {
       case "dashboard": return <Dashboard d={d} ver={ver} />;
       case "spectrum": return <SpectrumPage d={d} />;
@@ -152,7 +152,7 @@ function App() {
       case "persistent": return <Persistent d={d} />;
       case "gps": return <GpsPage d={d} />;
       case "reboot": return <Reboot d={d} ver={ver} />;
-      case "operator": return <Operator operator={op} onSave={setOperator} />;
+      case "operator": return <Operator d={d} operator={op} onSave={setOperator} />;
       case "radio": return <RadioPage d={d} />;
       case "docs": return <Documentation />;
       default: return <Dashboard d={d} ver={ver} />;

@@ -29,6 +29,7 @@
  * -R        ADC→WS only  (disable DAC path)
  * -T        WS→DAC only  (disable ADC path)
  * -s        Throughput stats every second
+ * -l        Create the RX IIO buffer as cyclic
  */
 
 #define _GNU_SOURCE
@@ -144,6 +145,7 @@ struct app {
     bool         do_rx;
     bool         do_tx;
     bool         stats;
+    bool         loop;
 
     /* IIO */
     struct iio_context *iio;
@@ -480,6 +482,7 @@ static void usage(const char *prog)
         "  -R        ADC→WS only\n"
         "  -T        WS→DAC only\n"
         "  -s        throughput stats\n"
+        "  -l        create the RX IIO buffer as cyclic\n"
         "  -h        this help\n",
         prog,
         DEF_IIO_URI, DEF_RX_DEV, DEF_TX_DEV,
@@ -510,18 +513,20 @@ int main(int argc, char **argv)
     A.buf_samples = DEF_BUF_SAMPLES;
     A.do_rx       = true;
     A.do_tx       = true;
+    A.loop        = false;
 
     int opt;
-    while ((opt = getopt(argc, argv, "u:r:t:p:n:RTsh")) != -1) {
+    while ((opt = getopt(argc, argv, "u:r:t:p:n:RTslh")) != -1) {
         switch (opt) {
         case 'u': A.iio_uri     = optarg;           break;
         case 'r': A.rx_dev_name = optarg;           break;
         case 't': A.tx_dev_name = optarg;           break;
         case 'p': A.port        = atoi(optarg);     break;
-        case 'n': A.buf_samples = (size_t)atoi(optarg); break;
+        case 'n': A.buf_samples = (size_t)atoi(optarg); break;  
         case 'R': A.do_rx = true;  A.do_tx = false; break;
         case 'T': A.do_rx = false; A.do_tx = true;  break;
         case 's': A.stats = true;                   break;
+        case 'l': A.loop  = true;                   break;
         case 'h': usage(argv[0]); return 0;
         default:  usage(argv[0]); return 1;
         }
@@ -546,7 +551,7 @@ int main(int argc, char **argv)
         iio_device_set_kernel_buffers_count(A.rx_dev, 8);
         A.sample_size = iio_device_get_sample_size(A.rx_dev);
         A.buf_bytes   = A.buf_samples * A.sample_size;
-        A.rx_buf = iio_device_create_buffer(A.rx_dev, A.buf_samples, false);
+        A.rx_buf = iio_device_create_buffer(A.rx_dev, A.buf_samples, A.loop);
         if (!A.rx_buf) { fprintf(stderr, "rx buffer create failed\n"); return 1; }
         fprintf(stderr, "iio: RX dev=%s  samples=%zu  sample_size=%zu  buf=%zu B\n",
                 A.rx_dev_name, A.buf_samples, A.sample_size, A.buf_bytes);

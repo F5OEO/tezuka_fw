@@ -667,9 +667,11 @@ parse_cmd () {
     ;;
     system/iqtape)
       if [ "$val" = "on" ]; then
-        if ! pgrep -x iio_ws_proxy >/dev/null 2>&1; then
-          /usr/bin/iio_ws_proxy &
+        if pgrep -x iio_ws_proxy >/dev/null 2>&1; then
+          killall iio_ws_proxy 2>/dev/null
+          while pgrep -x iio_ws_proxy >/dev/null 2>&1; do sleep 0.1; done
         fi
+        /usr/bin/iio_ws_proxy &
         publish_force "system/iqtape" "on"
         publish_force "system/siggen" "on"
       else
@@ -680,9 +682,11 @@ parse_cmd () {
     ;;
     system/siggen)
       if [ "$val" = "on" ]; then
-        if ! pgrep -x iio_ws_proxy >/dev/null 2>&1; then
-          /usr/bin/iio_ws_proxy &
+        if pgrep -x iio_ws_proxy >/dev/null 2>&1; then
+          killall iio_ws_proxy 2>/dev/null
+          while pgrep -x iio_ws_proxy >/dev/null 2>&1; do sleep 0.1; done
         fi
+        /usr/bin/iio_ws_proxy -l &
         publish_force "system/siggen" "on"
         publish_force "system/iqtape" "on"
       else
@@ -713,6 +717,11 @@ parse_cmd () {
       [[ "$val" =~ ^[a-zA-Z0-9_.+-]+$ ]] || return
       ( fw_setenv overclock_profile "$val" 2>/dev/null
         /usr/bin/mosquitto_pub -r -i "tezuka_oc" -t "state/system/overclock" -m "$val" ) &
+    ;;
+    pluto/call)
+      [[ "$val" =~ ^[a-zA-Z0-9/_-]+$ ]] || return
+      fw_setenv call "$val" 2>/dev/null &
+      publish_force "call" "$val"
     ;;
     system/getdebugiio)
       (
