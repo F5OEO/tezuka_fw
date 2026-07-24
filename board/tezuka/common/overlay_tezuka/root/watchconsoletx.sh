@@ -52,8 +52,9 @@ ptton()
                 echo "0x27 $RESULT_VALUE_HEX" > /sys/kernel/debug/iio/iio:device1/direct_reg_access
     fi
 
-    echo 1 > /sys/class/gpio/gpio906/value
-    gpioset  gpiochip0 80=1
+    #echo 1 > /sys/class/gpio/gpio906/value
+    #gpioset  gpiochip0 80=1
+    echo 1 > /sys/class/leds/ptt/brightness
     echo "$(date) watchconsoleTX PTT_ON" >> /tmp/lnb.txt    
 
 
@@ -109,8 +110,9 @@ pttoff()
     else
         echo "0x27 $RESULT_VALUE_HEX" > /sys/kernel/debug/iio/iio:device1/direct_reg_access
     fi
-    echo 0 > /sys/class/gpio/gpio906/value
-    gpioset  gpiochip0 80=0
+    #echo 0 > /sys/class/gpio/gpio906/value
+    #gpioset  gpiochip0 80=0
+    echo 0 > /sys/class/leds/ptt/brightness
     echo "$(date) watchconsoleTX PTT_OFF" >> /tmp/lnb.txt
 }
 
@@ -126,8 +128,8 @@ else
 fi
 
 #MIO for plutoplus : MIO start at 906, EMIO at 960
-echo "906" > /sys/class/gpio/export
-echo out > /sys/class/gpio/gpio906/direction
+#echo "906" > /sys/class/gpio/export
+#echo out > /sys/class/gpio/gpio906/direction
 
 pttoff
 

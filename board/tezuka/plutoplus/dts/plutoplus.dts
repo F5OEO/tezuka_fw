@@ -22,6 +22,11 @@
 			gpios = <&gpio0 15 0>;
 			linux,default-trigger = "heartbeat";
 		};
+		led1 {
+			label = "ptt";
+			gpios = <&gpio0 0 0>;
+			default-state = "off";
+		};
 	};
 
 	gpio_keys {
