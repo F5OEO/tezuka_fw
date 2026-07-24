@@ -1204,32 +1204,40 @@ if (!window._sigGen) window._sigGen = {
   active: false, ws: null, iqBuf: null, reconnTimer: null, onConnected: null,
 };
 
-const SG_N = 131072; // 128 K samples — default loop segment for fixed-frequency types
+const SG_N = 262144; // 256 K samples — matches iio_ws_proxy's default TX IIO buffer (DEF_BUF_SAMPLES), so one loop = one push
 
 function _sgBuild(type, fs, amp, p) {
   const A = Math.round(amp / 100 * 32767);
-  // Sweep uses one complete period; other types use the fixed SG_N block
-  const N = (type === 'Sweep')
-    ? Math.max(256, Math.min(SG_N * 8, Math.round(fs * p.sweepTime / 1000)))
-    : SG_N;
+  // Every type — including Sweep — uses exactly one SG_N block. The TX IIO
+  // buffer is cyclic (see sendBuf): only the *first* iio_buffer_push() on a
+  // cyclic buffer is guaranteed to start the DMA loop, so the buffer must
+  // never span more than one on-target push (a multi-block sweep would only
+  // ever transmit its first block, e.g. fStart up to the sweep's midpoint).
+  // Sweep duration is therefore fixed at one block's worth of time (N / fs
+  // seconds) and isn't independently configurable.
+  const N = SG_N;
   const iq = new Int16Array(N * 2);
+  // Snap a tone to the nearest frequency that completes a whole number of
+  // cycles over the N-sample buffer, so the loop point has zero phase
+  // discontinuity (bin resolution = fs/N, e.g. ~7.6 Hz at fs=2 MS/s).
+  const cyc = (freqHz) => 2 * Math.PI * Math.round(freqHz * N / fs) / N;
   if (type === 'CW') {
-    const w = 2 * Math.PI * p.fOffset / fs;
+    const w = cyc(p.fOffset);
     for (let n = 0; n < N; n++) {
       iq[n*2]   = Math.round(A * Math.cos(w * n));
       iq[n*2+1] = Math.round(A * Math.sin(w * n));
     }
   } else if (type === 'TwoTone') {
-    const w1 = 2 * Math.PI * (p.fOffset + p.spacing / 2) / fs;
-    const w2 = 2 * Math.PI * (p.fOffset - p.spacing / 2) / fs;
+    const w1 = cyc(p.fOffset + p.spacing / 2);
+    const w2 = cyc(p.fOffset - p.spacing / 2);
     const A2 = Math.round(A / 2);
     for (let n = 0; n < N; n++) {
       iq[n*2]   = Math.round(A2 * (Math.cos(w1*n) + Math.cos(w2*n)));
       iq[n*2+1] = Math.round(A2 * (Math.sin(w1*n) + Math.sin(w2*n)));
     }
   } else if (type === 'AM') {
-    const w0 = 2 * Math.PI * p.fOffset / fs;
-    const wm = 2 * Math.PI * p.fMod / fs;
+    const w0 = cyc(p.fOffset);
+    const wm = cyc(p.fMod);
     const m  = p.modDepth / 100;
     for (let n = 0; n < N; n++) {
       const env = (1 + m * Math.cos(wm * n)) / (1 + m);
@@ -1237,8 +1245,8 @@ function _sgBuild(type, fs, amp, p) {
       iq[n*2+1] = Math.round(A * env * Math.sin(w0 * n));
     }
   } else if (type === 'FM') {
-    const w0  = 2 * Math.PI * p.fOffset / fs;
-    const wm  = 2 * Math.PI * p.fMod / fs;
+    const w0  = cyc(p.fOffset);
+    const wm  = cyc(p.fMod);
     const wd  = 2 * Math.PI * p.fDev / fs;
     let phi = 0;
     for (let n = 0; n < N; n++) {
@@ -1248,29 +1256,61 @@ function _sgBuild(type, fs, amp, p) {
     }
   } else if (type === 'SSB') {
     // Analytic signal of a single audio tone → pure USB or LSB
-    const w = 2 * Math.PI * (p.sideband === 'LSB' ? -1 : 1) * p.fAudio / fs;
+    const w = (p.sideband === 'LSB' ? -1 : 1) * cyc(p.fAudio);
     for (let n = 0; n < N; n++) {
       iq[n*2]   = Math.round(A * Math.cos(w * n));
       iq[n*2+1] = Math.round(A * Math.sin(w * n));
     }
+  } else if (type === 'QPSK' || type === '8PSK' || type === 'PI4QPSK' || type === 'PI8_8PSK') {
+    // Unfiltered (rectangular-pulse) M-PSK test signal: random symbols held
+    // for a whole number of samples each, tiling the buffer exactly — the
+    // loop-back is just another symbol transition, same as any other, so it
+    // needs no special phase alignment. Carrier offset is still bin-snapped
+    // so the sub-carrier rotation itself closes cleanly over N samples.
+    // The offset variants (π/4-QPSK, π/8-8PSK) alternate every other symbol
+    // between two M-PSK constellations half a symbol-spacing (π/M) apart, so
+    // transitions never pass through the origin (0°/180°).
+    const M        = (type === '8PSK' || type === 'PI8_8PSK') ? 8 : 4;
+    const isOffset = type === 'PI4QPSK' || type === 'PI8_8PSK';
+    const rotOff   = M === 8 ? Math.PI / 8 : Math.PI / 4; // standard constellation rotation
+    const sps     = Math.max(1, Math.round(fs / p.symRate));
+    const numSyms = Math.max(1, Math.round(N / sps));
+    const w0      = cyc(p.fOffset);
+    for (let s = 0; s < numSyms; s++) {
+      const altOff   = (isOffset && (s & 1)) ? Math.PI / M : 0;
+      const symPhase = rotOff + altOff + 2 * Math.PI * Math.floor(Math.random() * M) / M;
+      const start = Math.round(s * N / numSyms);
+      const end   = Math.round((s + 1) * N / numSyms);
+      for (let n = start; n < end; n++) {
+        const ph = symPhase + w0 * n;
+        iq[n*2]   = Math.round(A * Math.cos(ph));
+        iq[n*2+1] = Math.round(A * Math.sin(ph));
+      }
+    }
   } else if (type === 'Sweep') {
-    // Linear frequency chirp — instantaneous frequency integrated into phase
+    // Linear frequency chirp — instantaneous frequency integrated into phase.
+    // The frequency profile already returns to fStart at n=N (seamless in
+    // frequency), but the *phase* it lands on generally isn't a multiple of
+    // 2π — a small click at the loop point. Integrate once to find the raw
+    // closing phase, then spread the correction evenly as a tiny frequency
+    // bias so phi(N) lands exactly on a 2π multiple (seamless in phase too).
     const { fStart, fStop, sweepMode } = p;
     const df = fStop - fStart;
-    let phi = 0;
-    for (let n = 0; n < N; n++) {
-      let f;
+    const freqAt = (n) => {
       if (sweepMode === 'Triangle') {
         // Up then down: frequency returns to fStart at n=N → seamless loop point
         const t = n / N;
-        f = (t < 0.5)
-          ? fStart + df * (t * 2)
-          : fStop  - df * ((t - 0.5) * 2);
-      } else {
-        // Sawtooth: ramp from fStart to fStop then jump back
-        f = fStart + df * (n / N);
+        return (t < 0.5) ? fStart + df * (t * 2) : fStop - df * ((t - 0.5) * 2);
       }
-      phi += 2 * Math.PI * f / fs;
+      // Sawtooth: ramp from fStart to fStop then jump back
+      return fStart + df * (n / N);
+    };
+    let phiRaw = 0;
+    for (let n = 0; n < N; n++) phiRaw += 2 * Math.PI * freqAt(n) / fs;
+    const wCorr = (Math.round(phiRaw / (2 * Math.PI)) * 2 * Math.PI - phiRaw) / N;
+    let phi = 0;
+    for (let n = 0; n < N; n++) {
+      phi += 2 * Math.PI * freqAt(n) / fs + wCorr;
       iq[n*2]   = Math.round(A * Math.cos(phi));
       iq[n*2+1] = Math.round(A * Math.sin(phi));
     }
@@ -1303,7 +1343,7 @@ function SigGen({ d }) {
   const [type,     setType]     = useS2('CW');
   const [amp,      setAmp]      = useS2(80);
   const [fOffset,  setFOffset]  = useS2(0);
-  const [spacing,  setSpacing]  = useS2(100000);
+  const [spacing,  setSpacing]  = useS2(1000);
   const [fMod,     setFMod]     = useS2(1000);
   const [modDepth, setModDepth] = useS2(80);
   const [fDev,     setFDev]     = useS2(75000);
@@ -1311,8 +1351,8 @@ function SigGen({ d }) {
   const [sideband, setSideband] = useS2('USB');
   const [fStart,    setFStart]   = useS2(-500000);
   const [fStop,     setFStop]    = useS2(500000);
-  const [sweepTime, setSweepTime] = useS2(100);
   const [sweepMode, setSweepMode] = useS2('Triangle');
+  const [symRate,  setSymRate]  = useS2(100000);
 
   useE2(() => { if (d.txFreq     != null) setTxFreq(d.txFreq); },     [d.txFreq]);
   useE2(() => { if (d.txGain     != null) setTxGain(d.txGain); },     [d.txGain]);
@@ -1325,18 +1365,20 @@ function SigGen({ d }) {
   }, []);
 
   const mhz    = (v) => (v / 1e6).toFixed(3) + ' MHz';
-  const getP   = () => ({ fOffset, spacing, fMod, modDepth, fDev, fAudio, sideband, fStart, fStop, sweepTime, sweepMode });
+  const getP   = () => ({ fOffset, spacing, fMod, modDepth, fDev, fAudio, sideband, fStart, fStop, sweepMode, symRate });
 
-  const pump = async (ws) => {
+  // The TX IIO buffer is created cyclic on the target (iio_ws_proxy -l): a
+  // single push repeats in hardware indefinitely, so the buffer only needs
+  // to be sent once per (re)connect or param change — not streamed forever.
+  const sendBuf = async (ws, buf) => {
     const FRAME = 65536, MAX_AHEAD = 1 << 20;
     let offset = 0;
-    while (G.active && ws.readyState === WebSocket.OPEN) {
+    while (offset < buf.length) {
+      if (!G.active || ws.readyState !== WebSocket.OPEN) return;
       if (ws.bufferedAmount >= MAX_AHEAD) { await new Promise(r => setTimeout(r, 5)); continue; }
-      const buf = G.iqBuf;
-      if (!buf) { await new Promise(r => setTimeout(r, 10)); continue; }
       const len = Math.min(FRAME, buf.length - offset);
       ws.send(buf.subarray(offset, offset + len));
-      offset = (offset + len) % buf.length;
+      offset += len;
     }
   };
 
@@ -1347,7 +1389,7 @@ function SigGen({ d }) {
     const ws = new WebSocket(`${proto}//${host}:8765`, 'iio-tx');
     ws.binaryType = 'arraybuffer';
     G.ws = ws;
-    ws.onopen  = () => { if (G.onConnected) G.onConnected(true); pump(ws); };
+    ws.onopen  = () => { if (G.onConnected) G.onConnected(true); if (G.iqBuf) sendBuf(ws, G.iqBuf); };
     ws.onerror = () => {};
     ws.onclose = () => {
       G.ws = null;
@@ -1364,24 +1406,29 @@ function SigGen({ d }) {
     connectWs();
   };
 
-  const stop = () => {
-    G.active = false;
+  const stop = async () => {
     clearTimeout(G.reconnTimer); G.reconnTimer = null;
     const ws = G.ws;
+    // The TX IIO buffer is cyclic — closing the socket alone leaves whatever
+    // was last pushed looping on the DAC forever. Push one silent (all-zero)
+    // buffer first so the cyclic playback actually goes quiet.
+    if (ws) await sendBuf(ws, new Uint8Array(SG_N * 4));
+    G.active = false;
     if (ws) { ws.onopen = ws.onclose = ws.onerror = null; try { ws.close(); } catch (_) {} G.ws = null; }
     setOn(false); setWsConn(false);
   };
 
-  const regen = () => {
-    const buf = _sgBuild(type, fs, amp, getP());
-    G.iqBuf = buf;
-    setPreview(buf);
-  };
-
-  // Refresh preview when params change while idle
+  // Rebuild the live buffer (and preview) whenever waveform params change,
+  // including while streaming — otherwise the type dropdown silently keeps
+  // pumping whatever waveform was active when start() was first clicked.
   useE2(() => {
-    if (!on) { setPreview(_sgBuild(type, fs, amp, getP())); }
-  }, [type, fs, amp, fOffset, spacing, fMod, modDepth, fDev, fAudio, sideband, fStart, fStop, sweepTime, sweepMode]);
+    const buf = _sgBuild(type, fs, amp, getP());
+    if (on) {
+      G.iqBuf = buf;
+      if (G.ws && G.ws.readyState === WebSocket.OPEN) sendBuf(G.ws, buf);
+    }
+    setPreview(buf);
+  }, [type, fs, amp, fOffset, spacing, fMod, modDepth, fDev, fAudio, sideband, fStart, fStop, sweepMode, symRate]);
 
   const constRef = React.useRef(null);
   const waveRef  = React.useRef(null);
@@ -1446,7 +1493,7 @@ function SigGen({ d }) {
         <TextInput value={String(fOffset)} onChange={v => setFOffset(parseInt(v) || 0)} suffix="Hz" />
       </Field>
       <Field label="Tone spacing" hint="Total Hz between the two tones (each at ±spacing/2)">
-        <TextInput value={String(spacing)} onChange={v => setSpacing(Math.abs(parseInt(v)) || 100000)} suffix="Hz" />
+        <TextInput value={String(spacing)} onChange={v => setSpacing(Math.abs(parseInt(v)) || 1000)} suffix="Hz" />
       </Field>
     </>);
     if (type === 'AM') return (<>
@@ -1479,9 +1526,16 @@ function SigGen({ d }) {
         <Select value={sideband} onChange={setSideband} options={['USB', 'LSB']} />
       </Field>
     </>);
+    if (type === 'QPSK' || type === '8PSK' || type === 'PI4QPSK' || type === 'PI8_8PSK') return (<>
+      <Field label="Carrier offset" hint="Baseband offset from TX carrier">
+        <TextInput value={String(fOffset)} onChange={v => setFOffset(parseInt(v) || 0)} suffix="Hz" />
+      </Field>
+      <Field label="Symbol rate" hint="Unfiltered rectangular pulses">
+        <TextInput value={String(symRate)} onChange={v => setSymRate(Math.max(1, parseInt(v) || 100000))} suffix="Bd" />
+      </Field>
+    </>);
     if (type === 'Sweep') {
-      const actualN = Math.max(256, Math.min(SG_N * 8, Math.round(fs * sweepTime / 1000)));
-      const actualMs = (actualN / fs * 1000).toFixed(1);
+      const periodMs = (SG_N / fs * 1000).toFixed(1);
       const bw = Math.abs(fStop - fStart);
       return (<>
         <Field label="Start freq" hint="Sweep start (baseband offset from TX carrier)">
@@ -1490,8 +1544,8 @@ function SigGen({ d }) {
         <Field label="Stop freq" hint="Sweep stop (baseband offset from TX carrier)">
           <TextInput value={String(fStop)} onChange={v => setFStop(parseInt(v) || 500000)} suffix="Hz" />
         </Field>
-        <Field label="Sweep time" hint={`One period = ${actualN.toLocaleString()} samples · ${actualMs} ms actual`}>
-          <TextInput value={String(sweepTime)} onChange={v => setSweepTime(Math.max(1, parseInt(v) || 100))} suffix="ms" />
+        <Field label="Sweep period" hint="Fixed at one IIO buffer's worth of samples — a single cyclic push must cover the whole period">
+          <span className="mono" style={{ lineHeight: '2' }}>{SG_N.toLocaleString()} samples · {periodMs} ms</span>
         </Field>
         <Field label="Shape">
           <Select value={sweepMode} onChange={setSweepMode} options={[
@@ -1516,7 +1570,7 @@ function SigGen({ d }) {
           <h1>Signal generator</h1>
           <span className="datv-sub mono">
             {type} · {(fs / 1e6).toFixed(3)} MS/s · {amp}% FS
-            {type === 'Sweep' && ` · ${(fStart/1e3).toFixed(1)}→${(fStop/1e3).toFixed(1)} kHz · ${sweepTime} ms ${sweepMode}`}
+            {type === 'Sweep' && ` · ${(fStart/1e3).toFixed(1)}→${(fStop/1e3).toFixed(1)} kHz · ${sweepMode}`}
             {on && ` · ${wsConn ? 'streaming' : 'connecting…'}`}
           </span>
         </div>
@@ -1572,6 +1626,10 @@ function SigGen({ d }) {
                 { v: 'AM',      l: 'AM — Amplitude modulation' },
                 { v: 'FM',      l: 'FM — Frequency modulation' },
                 { v: 'SSB',     l: 'SSB — Single sideband' },
+                { v: 'QPSK',    l: 'QPSK — Quadrature phase shift keying' },
+                { v: 'PI4QPSK', l: 'π/4-QPSK — Offset QPSK' },
+                { v: '8PSK',    l: '8PSK — 8-ary phase shift keying' },
+                { v: 'PI8_8PSK', l: 'π/8-8PSK — Offset 8PSK' },
                 { v: 'Sweep',   l: 'Sweep — Linear frequency chirp' },
                 { v: 'AWGN',    l: 'AWGN — Gaussian white noise' },
               ]} />
@@ -1580,11 +1638,6 @@ function SigGen({ d }) {
             <Slider value={amp} min={1} max={100} step={1} unit="%" fmt={v => v.toFixed(0)} onChange={setAmp} />
           </Field>
           {typeParams()}
-          {on && (
-            <button className="btn ghost" style={{ marginTop: 8 }} onClick={regen}>
-              <Icon name="refresh" size={15} />Apply changes
-            </button>
-          )}
         </Card>
 
         <Card title="IQ constellation" sub={<>I/Q plot · 2048 pts &nbsp;<span style={{color:'#5bc4ff'}}>■</span> I · <span style={{color:'#ff9b4a'}}>■</span> Q</>} className="span-4">

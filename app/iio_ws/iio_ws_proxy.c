@@ -29,7 +29,8 @@
  * -R        ADC→WS only  (disable DAC path)
  * -T        WS→DAC only  (disable ADC path)
  * -s        Throughput stats every second
- * -l        Create the RX IIO buffer as cyclic
+ * -l        Create the RX/TX IIO buffers as cyclic (TX: a single push
+ *           repeats in hardware until new data is pushed)
  */
 
 #define _GNU_SOURCE
@@ -482,7 +483,7 @@ static void usage(const char *prog)
         "  -R        ADC→WS only\n"
         "  -T        WS→DAC only\n"
         "  -s        throughput stats\n"
-        "  -l        create the RX IIO buffer as cyclic\n"
+        "  -l        create the RX/TX IIO buffers as cyclic\n"
         "  -h        this help\n",
         prog,
         DEF_IIO_URI, DEF_RX_DEV, DEF_TX_DEV,
@@ -569,7 +570,7 @@ int main(int argc, char **argv)
             A.sample_size = iio_device_get_sample_size(A.tx_dev);
             A.buf_bytes   = A.buf_samples * A.sample_size;
         }
-        A.tx_buf = iio_device_create_buffer(A.tx_dev, A.buf_samples, false);
+        A.tx_buf = iio_device_create_buffer(A.tx_dev, A.buf_samples, A.loop);
         if (!A.tx_buf) { fprintf(stderr, "tx buffer create failed\n"); return 1; }
         fprintf(stderr, "iio: TX dev=%s\n", A.tx_dev_name);
     }
