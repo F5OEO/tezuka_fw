@@ -38,6 +38,16 @@
 			gpios = <&gpio0 80 0>;
 			default-state = "off";
 		};
+		led2 {
+			label = "lnb_power";
+			gpios = <&gpio0 78 0>;
+			default-state = "off";
+		};
+		led3 {
+			label = "lnb_18v";
+			gpios = <&gpio0 79 0>;
+			default-state = "off";
+		};
 	};
 
 	gpio_keys {

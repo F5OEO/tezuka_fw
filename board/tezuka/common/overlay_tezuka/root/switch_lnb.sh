@@ -27,18 +27,24 @@ echo "Read actual config: ${actual}" >> /tmp/lnb.txt
 case $1 in
     off)
         PARAM_VALUE=0x00
-        gpioset  gpiochip0 78=0
+        echo 0 > /sys/class/leds/lnb_power/brightness
+        #gpioset  gpiochip0 78=0
         #echo "LNB select: OFF/0x00"
         ;;
     13V)
-        gpioset  gpiochip0 78=1
-        gpioset  gpiochip0 79=0
+        echo 1 > /sys/class/leds/lnb_power/brightness
+        echo 0 > /sys/class/leds/lnb_18v/brightness
+        
+        #gpioset  gpiochip0 78=1
+        #gpioset  gpiochip0 79=0
         PARAM_VALUE=0x80
         #echo "LNB select: 13V/0x80"
         ;;
     18V)
-        gpioset  gpiochip0 78=1
-        gpioset  gpiochip0 79=1
+        echo 1 > /sys/class/leds/lnb_power/brightness
+        echo 1 > /sys/class/leds/lnb_18v/brightness
+        #gpioset  gpiochip0 78=1
+        #gpioset  gpiochip0 79=1
         PARAM_VALUE=0xC0
         #echo "LNB select: 18V/0xC0"
 
