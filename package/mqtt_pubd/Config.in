@@ -1,0 +1,7 @@
+config BR2_PACKAGE_MQTT_PUBD
+	bool "mqtt_pubd"
+	select BR2_PACKAGE_MOSQUITTO
+	help
+	  Persistent-connection MQTT publisher daemon used by
+	  api_controller.sh to echo device state without spawning a new
+	  mosquitto_pub process (and MQTT handshake) per message.
