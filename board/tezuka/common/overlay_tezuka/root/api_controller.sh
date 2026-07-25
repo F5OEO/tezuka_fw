@@ -108,11 +108,14 @@ declare -A CACHE
 rm -f "$MQTT_FIFO"
 mkfifo "$MQTT_FIFO"
 
-(
-  while IFS=$'\t' read -r topic payload; do
-    /usr/bin/mosquitto_pub -r -i "tezuka_pub" -t "$topic" -m "$payload"
-  done
-) < "$MQTT_FIFO" &
+# mqtt_pubd keeps ONE persistent MQTT connection open for the life of this
+# script and publishes each "topic\tpayload" line from the FIFO on it —
+# no per-message process spawn, no per-message TCP/MQTT handshake. Replaces
+# the previous "spawn mosquitto_pub per line" reader, which made a burst of
+# commands (e.g. rapid frequency tuning, each triggering several state
+# echoes) visibly lag/"buffer" behind the connect+publish+disconnect cost
+# of each individual mosquitto_pub invocation.
+/usr/bin/mqtt_pubd -i "tezuka_pub" < "$MQTT_FIFO" &
 MQTT_PID=$!
 
 exec 4>"$MQTT_FIFO"
@@ -222,12 +225,18 @@ dump_data () {
   done
 
   # Handle Sweep Status Verification Safely
+  # Re-derive sweep state from LIVE signals only (hardware fastlock pin +
+  # current hardware SR) — never from the /tmp/sweep_on cache itself, which
+  # otherwise self-latches: once a high SR (>43 MHz) sets it to "1", changing
+  # the sample rate back down via cmd/rx/sampling (which doesn't touch this
+  # file) left it stuck at "1" forever, permanently skipping the sync branch
+  # below and leaving state/rx/span stuck at the old high value.
   local sweep_hw; sweep_hw=$(cat "${debug_folder}adi,rx-fastlock-pincontrol-enable" 2>/dev/null)
-  local sweep_sw; sweep_sw=$(cat /tmp/sweep_on 2>/dev/null)
   local s_freq; s_freq=$(cat /tmp/sweep_frequency 2>/dev/null)
   local s_span; s_span=$(cat /tmp/sweep_span 2>/dev/null)
+  local hw_sr; hw_sr=$(read_file "${folder}in_voltage_sampling_frequency")
 
-  if [ "$sweep_hw" == "1" ] || [ "$sweep_sw" == "1" ] || [ "${s_span:-0}" -gt "43000000" ]; then
+  if [ "$sweep_hw" == "1" ] || { [ "$hw_sr" != "n/a" ] && [ "${hw_sr:-0}" -gt "43000000" ]; }; then
     publish "rx/sweep/engaged" "1"
     publish "rx/sweep/activate" "1"
     echo "1" > /tmp/sweep_on
@@ -242,7 +251,6 @@ dump_data () {
     # Guard: skip when span < 2.4 MHz — that signals DDC mode where the display
     # span is intentionally smaller than the hardware SR.
     if [ "${s_span:-0}" -ge "2400000" ]; then
-      local hw_sr; hw_sr=$(read_file "${folder}in_voltage_sampling_frequency")
       if [ "$hw_sr" != "n/a" ] && [ -n "$hw_sr" ] && [ "${hw_sr:-0}" -ge "2400000" ]; then
         s_span=$hw_sr
         echo "$hw_sr" > /tmp/sweep_span
