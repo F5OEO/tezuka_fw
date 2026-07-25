@@ -583,6 +583,32 @@ function SpectrumPage({ d }) {
   const spanDebounceRef   = useSpR(0);  // setTimeout id for post-span-change flush
   const freqThrottleRef   = useSpR(0);  // 200 ms gate for rx/sweep/frequency publishes while sweeping
   const freqDebounceRef   = useSpR(0);  // setTimeout id for post-frequency-change flush while sweeping
+  const midiGainThrottleRef = useSpR(0);  // 100 ms gate for rx/gain publishes from MIDI VOL_DA (fader floods CC otherwise)
+  const midiGainDebounceRef = useSpR(0);  // setTimeout id for post-fader-move flush
+  const midiFreqThrottleRef = useSpR(0);  // 100 ms gate for rx/frequency publishes from MIDI JOG_DA (jog floods CC otherwise)
+  const midiFreqDebounceRef = useSpR(0);  // setTimeout id for post-jog-move flush
+  const midiFreqRef         = useSpR(null); // synchronous running accumulator — avoids stale reads between rapid jog messages before React commits centerHzRef
+  const midiJogSuppressUntilRef = useSpR(0); // ignore d.rxFreq telemetry echoes until this timestamp — see JOG_DA handler below
+  const midiSpanThrottleRef = useSpR(0);  // 500 ms gate for rx/span publishes from MIDI XFADER — do_sweep_start/stop is a real hardware reinit, not a sysfs write
+  const midiSpanDebounceRef = useSpR(0);  // setTimeout id for post-fader-move flush
+  const midiVfwThrottleRef  = useSpR(0);  // 500 ms gate for spectro/fps publishes from MIDI VOL_DB — spectro_fps() is a curl PATCH to the spectrometer HTTP API, not a sysfs write
+  const midiVfwDebounceRef  = useSpR(0);  // setTimeout id for post-fader-move flush
+  const midiStepFreqRef     = useSpR(1000e6 / 256); // Hz per BASS_DA raw-value unit — set by CUE_KP1-4_DA (GHz/MHz/kHz/Hz), default MHz
+  const bassDaLastValRef    = useSpR(null); // previous raw CC value for BASS_DA, to synthesize a delta from its absolute stream
+  const kpSelectedRef       = useSpR(null); // note number of the currently-selected KP1-4 step — guards LED sendNote so repeat presses of the same key are a no-op
+  // Note number -> step size, in KP1-4 order. Declared inside the component
+  // (not module scope) since MIDI_NOTE comes from midi.jsx, which loads
+  // after pages1.jsx — fine here because it's only read at render/callback
+  // time, long after every script has parsed.
+  // Step sizes: a full BASS_DA knob sweep (raw 0..255) covers 1000 of the
+  // selected unit — except GHz, capped to 0..6 to match the tunable
+  // frequency range (47 MHz..6 GHz), so that mode never overshoots.
+  const CUE_KP_STEPS = [
+    [MIDI_NOTE.CUE_KP1_DA, 6e9 / 256],    // GHz mode: full sweep = 0..6 GHz
+    [MIDI_NOTE.CUE_KP2_DA, 1000e6 / 256], // MHz mode: full sweep = 1000 MHz
+    [MIDI_NOTE.CUE_KP3_DA, 1000e3 / 256], // kHz mode: full sweep = 1000 kHz
+    [MIDI_NOTE.CUE_KP4_DA, 1000 / 256],   // Hz mode: full sweep = 1000 Hz
+  ];
   const centerHzRef = useSpR(sp.centerHz ?? (d.rxFreq ?? 437e6));
   const spanHzRef      = useSpR(sp.spanHz   ?? (d.span ?? d.rxSampling ?? null));
   const vfwRef          = useSpR(40);  // kept current via the sync effect below; used by span-change handlers
@@ -606,11 +632,171 @@ function SpectrumPage({ d }) {
   const [clipBlink,   setClipBlink]   = useSpS(false);
   const [dispZoom,    setDispZoom]    = useSpS(1);
   const [fosfor,      setFosfor]      = useSpS('off'); // 'off'|'light'|'medium'|'high'
-  const [isFullscreen, setIsFullscreen] = useSpS(false);
+  // Two distinct mechanisms, because requestFullscreen() requires transient
+  // user activation — a trusted synchronous gesture (click, keydown,
+  // pointerup, ...) — which a MIDI SYNC_DA press/release never has, so it
+  // reliably throws NotAllowedError when triggered from MIDI:
+  //  - osFullscreen: real Fullscreen API, mouse/keyboard only (hides
+  //    browser chrome + OS taskbar). Tracked from the browser's own
+  //    fullscreenchange event, since exiting via Esc bypasses our button.
+  //  - cssMaximized: plain CSS position:fixed "maximize", triggered by
+  //    MIDI (or anything else) — works from any code path since it's not
+  //    a gated browser API, but doesn't hide browser/OS chrome.
+  // The FULL indicator and .maximized/:fullscreen styling reflect whichever
+  // is currently active.
+  const [osFullscreen, setOsFullscreen] = useSpS(false);
+  const [cssMaximized, setCssMaximized] = useSpS(false);
+  const isFullscreen = osFullscreen || cssMaximized;
   const spPageRef = useSpR(null);
+  const syncPressedRef = useSpR(false); // tracks SYNC_DA press state for the 127→0 (release) edge toggle
+  const toggleOsFullscreen = () => {
+    const p = !document.fullscreenElement
+      ? spPageRef.current?.requestFullscreen()
+      : document.exitFullscreen();
+    p?.catch?.((e) => console.warn('[fullscreen] toggle failed:', e.name, e.message));
+  };
+  const toggleCssMaximize = () => setCssMaximized(v => !v);
 
   dRef.current = d;
   if (fosforRef.current !== fosfor) { fosforRef.current = fosfor; dirtyRef.current = true; }
+
+  // Shared RX-frequency step logic — used by both JOG_DA (relative encoder)
+  // and BASS_DA (absolute knob, stepped via applyMidiFreqStep below). Same
+  // anti-flood throttle+debounce and anti-revert telemetry suppression for
+  // both, since both can generate CC messages fast enough to need it.
+  const applyMidiFreqStep = (step) => {
+    midiJogSuppressUntilRef.current = performance.now() + 400;
+    const base = midiFreqRef.current ?? centerHzRef.current;
+    const hz = Math.max(47e6, Math.min(6e9, base + step));
+    midiFreqRef.current = hz;
+    setCenterHz(hz);
+    const topic = d.sweepActive ? 'rx/sweep/frequency' : 'rx/frequency';
+    const now = performance.now();
+    if (now - midiFreqThrottleRef.current >= 100) {
+      midiFreqThrottleRef.current = now;
+      d.publish(topic, Math.round(hz));
+    }
+    clearTimeout(midiFreqDebounceRef.current);
+    midiFreqDebounceRef.current = setTimeout(() => {
+      if (midiFreqRef.current != null) d.publish(topic, Math.round(midiFreqRef.current));
+    }, 120);
+  };
+
+  // MIDI: added one control at a time, via this page's own onCC hook rather
+  // than midi.jsx's d.publish dispatch table (still fully disabled) — keeps
+  // each binding local and easy to reason about while we build these up.
+  // MEDIUM_DA/DB set REF/RANGE directly (local UI state, never published).
+  // VOL_DA sets RX gain: the fader sends CC updates fast enough to flood
+  // cmd/rx/gain if published on every message (same reasoning as the
+  // span/frequency throttles above), so the local slider still tracks every
+  // message instantly but the actual publish is throttled to 100ms with a
+  // trailing flush so the final position always lands.
+  const midi = useMidiController(d, (num, val) => {
+    if (num === MIDI_CC.MEDIUM_DA) setRefDb(192 + (64 - val)*3);
+    if (num === MIDI_CC.MEDIUM_DB) setRange(192 + (val - 64) *3);
+    if (num === MIDI_CC.VOL_DA) {
+      const g = val ;
+      setGain(g);
+      const now = performance.now();
+      if (now - midiGainThrottleRef.current >= 100) {
+        midiGainThrottleRef.current = now;
+        d.publish('rx/gain', g);
+      }
+      clearTimeout(midiGainDebounceRef.current);
+      midiGainDebounceRef.current = setTimeout(() => d.publish('rx/gain', g), 120);
+    }
+    if (num === MIDI_CC.JOG_DA) {
+      // Step size scales with the current span (±5% per relative unit) so
+      // the jog feels proportional whether you're zoomed in or way out.
+      applyMidiFreqStep(decodeRelative(val) * spanHzRef.current * 0.01);
+    }
+    if (num === MIDI_CC.BASS_DA) {
+      // BASS_DA is an absolute knob (0-127), not a relative encoder like
+      // JOG_DA — so "step" is synthesized from the delta between successive
+      // raw values (how far the knob moved since the last message), scaled
+      // by midiStepFreqRef (set by the CUE_KP1-4_DA buttons: GHz/MHz/kHz/Hz
+      // per step). First message after (re)connect has no prior value to
+      // diff against, so it's ignored rather than producing a bogus jump.
+      const prev = bassDaLastValRef.current;
+      bassDaLastValRef.current = val;
+      if (prev != null) applyMidiFreqStep((val - prev) * midiStepFreqRef.current);
+    }
+    if (num === MIDI_CC.XFADER) {
+      // Log-scale across the full span range (80 kHz .. 300 MHz — a linear
+      // fader over a linear Hz range would spend almost its whole travel on
+      // spans above 50 MHz), snapped to the same NICE_SPANS ladder the
+      // wheel/pinch scroll controls step through so it always lands on a
+      // "real" span value, same as scrolling would. XFADER is absolute (no
+      // accumulation across messages, unlike JOG_DA), so the debounce below
+      // can safely close over the plain local value instead of needing a
+      // ref — nothing to race against.
+      const ratio = val / 127;
+      const raw = 80e3 * Math.pow(300e6 / 80e3, ratio);
+      const snapped = snapSpan(raw);
+      setSpanHz(snapped);
+      // rx/span (api_controller.sh) can trigger do_sweep_start/stop — real
+      // hardware sweep (re)init, not a cheap sysfs write — so this uses the
+      // same 500ms/220ms throttle-and-flush timing as the non-MIDI span
+      // controls in this file (spanThrottleRef/spanDebounceRef), not the
+      // 100ms used for plain register writes like gain.
+      const now = performance.now();
+      if (now - midiSpanThrottleRef.current >= 500) {
+        midiSpanThrottleRef.current = now;
+        d.publish('rx/span', Math.round(snapped));
+        publishFps(d);
+      }
+      clearTimeout(midiSpanDebounceRef.current);
+      midiSpanDebounceRef.current = setTimeout(() => {
+        d.publish('rx/span', Math.round(snapped));
+        publishFps(d);
+      }, 220);
+    }
+    if (num === MIDI_CC.VOL_DB) {
+      // vfw (video frame width, ms) drives spectro/fps via publishFps(),
+      // which reads vfwRef — set it synchronously so both the throttled and
+      // debounced calls below always see the latest fader position.
+      // spectro_fps() (api_controller.sh) does a curl PATCH to the
+      // spectrometer's HTTP API — a real network + backend-reconfig call,
+      // not a cheap sysfs write — so this needs the same 500ms/220ms timing
+      // as span above, not the 100ms used for gain/frequency register
+      // writes. 100ms here was firing PATCH requests faster than the
+      // backend could apply them, so most of them effectively got lost.
+      const v = 10 + val * 10;
+      setVfw(v);
+      vfwRef.current = v;
+      const now = performance.now();
+      if (now - midiVfwThrottleRef.current >= 500) {
+        midiVfwThrottleRef.current = now;
+        publishFps(d);
+      }
+      clearTimeout(midiVfwDebounceRef.current);
+      midiVfwDebounceRef.current = setTimeout(() => publishFps(d), 220);
+    }
+  }, (num, pressed) => {
+    // Momentary button, no dedicated Note Off — the device sends Note On
+    // val=127 on push and Note On val=0 on release. Toggle specifically on
+    // the release (127→0) that follows a real press, not on push itself.
+    if (num === MIDI_NOTE.SYNC_DA) {
+      if (pressed) {
+        syncPressedRef.current = true;
+      } else if (syncPressedRef.current) {
+        syncPressedRef.current = false;
+        toggleCssMaximize(); // not toggleOsFullscreen — see the comment by osFullscreen/cssMaximized above
+      }
+    }
+    // KP1-4 select the BASS_DA step size (GHz/MHz/kHz/Hz per unit of knob
+    // movement) — press edge only, matching the other momentary buttons.
+    // LED feedback: light the pressed key full-on (127), the other three off
+    // (0) — a physical "radio button" showing which step size is selected.
+    if (pressed) {
+      const kpEntry = CUE_KP_STEPS.find(([n]) => n === num);
+      if (kpEntry && kpSelectedRef.current !== num) {
+        kpSelectedRef.current = num;
+        midiStepFreqRef.current = kpEntry[1];
+        CUE_KP_STEPS.forEach(([n]) => midi.sendNote(n, n === num ? 127 : 0));
+      }
+    }
+  });
 
   // Keep refs current for RAF loop (avoids stale closures) + persist to session store
   useSpE(() => { refDbRef.current = refDb;  dirtyRef.current = true; sp.refDb    = refDb;    }, [refDb]);
@@ -623,7 +809,19 @@ function SpectrumPage({ d }) {
 
   // Sync from MQTT state
   useSpE(() => { if (d.rxGain    != null) setGain(d.rxGain); },    [d.rxGain]);
-  useSpE(() => { if (d.rxFreq    != null) setCenterHz(d.rxFreq); }, [d.rxFreq]);
+  useSpE(() => {
+    // Ignore telemetry that arrives while (or just after) actively jogging —
+    // see midiJogSuppressUntilRef in the JOG_DA handler above. Outside that
+    // window this is the normal external-change sync (other pages, initial
+    // mount, etc).
+    if (d.rxFreq != null && performance.now() >= midiJogSuppressUntilRef.current) setCenterHz(d.rxFreq);
+  }, [d.rxFreq]);
+  // Re-seed the MIDI jog accumulator once telemetry is trusted again after
+  // a jog session settles — never mid-jog, or a stale echo would reset the
+  // accumulator and the next jog tick would resume from a backward-jumped base.
+  useSpE(() => {
+    if (performance.now() >= midiJogSuppressUntilRef.current) midiFreqRef.current = null;
+  }, [d.rxFreq]);
   useSpE(() => {
     // Prefer an explicit span echo (d.span) over the raw sampling rate.
     // Never publish cmd/rx/span at startup — only reflect what the device reports.
@@ -639,7 +837,10 @@ function SpectrumPage({ d }) {
   }, [d.sweepActive]);
   useSpE(() => { d.publish('rx/gain_mode', 'manual'); }, []);
   useSpE(() => {
-    const handler = () => setIsFullscreen(!!document.fullscreenElement);
+    // Real fullscreen can be exited via Esc (or other OS/browser UI) without
+    // going through our button, so track it from the browser's own event
+    // rather than only setting it optimistically on click.
+    const handler = () => setOsFullscreen(!!document.fullscreenElement);
     document.addEventListener('fullscreenchange', handler);
     return () => document.removeEventListener('fullscreenchange', handler);
   }, []);
@@ -1042,7 +1243,7 @@ function SpectrumPage({ d }) {
   }, [d]);
 
   return (
-    <div className="sp-page" ref={spPageRef}>
+    <div className={`sp-page${cssMaximized ? ' maximized' : ''}`} ref={spPageRef}>
       <div className="hp-crt">
         <div className="hp-rows">
           <div className="hp-row">
@@ -1055,7 +1256,7 @@ function SpectrumPage({ d }) {
               <CrtField val={mkr ? mkr.db.toFixed(1) : (refDb - range).toFixed(1)} sfx="dB" readOnly />
             </span>
             <span className="hp-fld" style={{ cursor: 'pointer', userSelect: 'none' }}
-              onClick={() => { if (!document.fullscreenElement) spPageRef.current?.requestFullscreen(); else document.exitFullscreen(); }}>
+              onClick={toggleOsFullscreen}>
               <span className="hp-pfx">FULL</span>
               <span style={{ color: '#fff3d6' }}>{isFullscreen ? 'ON' : 'OFF'}</span>
             </span>
@@ -1126,4 +1327,4 @@ function SpectrumPage({ d }) {
   );
 }
 
-Object.assign(window, { Dashboard, RFParams, SpectrumPage });
+Object.assign(window, { Dashboard, RFParams, SpectrumPage, NICE_SPANS, stepSpan });

@@ -16,7 +16,7 @@ const NAV = [
   { group: null, items: [["dashboard", "Dashboard", "dashboard"]] },
   { group: "RF", items: [["spectrum", "Spectrum", "spectrum"], ["arch", "Architecture", "chip"]] },
   { group: "Application", items: [["datv", "DATV Controller", "datv", [["analysis", "Analysis", "analysis", true], ["obs", "OBS Encoder", "monitor"]]], ["transverter", "Transverter", "transverter"], ["iqtape", "IQ Tape", "tape"], ["siggen", "Signal generator", "wave"], ["radio", "Radio", "headphone"]] },
-  { group: "System", items: [["versions", "Versions", "versions"], ["network", "Network", "network"], ["diagnostic", "Diagnostic", "pulse"], ["calibrate", "Calibrate", "target", [["kalibrate", "Kalibrate", "search"]]], ["performance", "Performance", "chip"], ["gpio", "GPIO", "circuit"], ["persistent", "Persistent", "save"], ["gps", "GPS", "mappin"], ["reboot", "Reboot", "power"]] },
+  { group: "System", items: [["versions", "Versions", "versions"], ["network", "Network", "network"], ["diagnostic", "Diagnostic", "pulse"], ["calibrate", "Calibrate", "target", [["kalibrate", "Kalibrate", "search"]]], ["performance", "Performance", "chip"], ["gpio", "GPIO", "circuit"], ["persistent", "Persistent", "save"], ["gps", "GPS", "mappin"], ["midi", "MIDI controller", "sliders"], ["reboot", "Reboot", "power"]] },
   { group: "Documentation", items: [["docs", "Documentation", "book"]] },
 ];
 
@@ -79,7 +79,7 @@ function Sidebar({ route, setRoute, collapsed, labels, operator }) {
   );
 }
 
-const TITLES = { dashboard: "Dashboard", spectrum: "Spectrum", datv: "DATV Controller", obs: "OBS Encoder", transverter: "Transverter", iqtape: "IQ Tape", siggen: "Signal generator", radio: "Radio", calibrate: "Calibrate", analysis: "Analysis", arch: "Architecture", versions: "Versions & system", network: "Network", diagnostic: "Diagnostic", kalibrate: "Kalibrate from RF", performance: "Performance", gpio: "GPIO", persistent: "Persistent storage", gps: "GPS", reboot: "Reboot", operator: "Operator", docs: "Documentation" };
+const TITLES = { dashboard: "Dashboard", spectrum: "Spectrum", datv: "DATV Controller", obs: "OBS Encoder", transverter: "Transverter", iqtape: "IQ Tape", siggen: "Signal generator", radio: "Radio", calibrate: "Calibrate", analysis: "Analysis", arch: "Architecture", versions: "Versions & system", network: "Network", diagnostic: "Diagnostic", kalibrate: "Kalibrate from RF", performance: "Performance", gpio: "GPIO", persistent: "Persistent storage", gps: "GPS", midi: "MIDI controller", reboot: "Reboot", operator: "Operator", docs: "Documentation" };
 
 function Topbar({ onMenu, route, mqtt, ver }) {
   return (
@@ -106,6 +106,9 @@ function App() {
   });
   const op = operator || { name: "", callsign: "", locator: "" };
   const d = useLiveData(true);
+  // MIDI handling is scoped per-page for now (starting with SpectrumPage),
+  // not run globally — see midi.jsx. The MIDI status page calls the hook
+  // itself so it still works as a standalone diagnostic screen.
 
   // Merge live MQTT version fields over the build-time defaults
   const ver = {
@@ -151,6 +154,7 @@ function App() {
       case "gpio": return <GPIO d={d} />;
       case "persistent": return <Persistent d={d} />;
       case "gps": return <GpsPage d={d} />;
+      case "midi": return <MidiPage d={d} />;
       case "reboot": return <Reboot d={d} ver={ver} />;
       case "operator": return <Operator d={d} operator={op} onSave={setOperator} />;
       case "radio": return <RadioPage d={d} />;

@@ -723,7 +723,11 @@ body {
 
 /* ---- Spectrum WebSocket page ---- */
 .sp-page { display: flex; flex-direction: column; gap: var(--gap); }
+/* Real Fullscreen API — mouse/keyboard only, see toggleOsFullscreen in pages1.jsx. */
 .sp-page:fullscreen { background: #0a0a0a; padding: var(--gap); justify-content: center; }
+/* CSS-only "maximize" — triggered by MIDI (toggleCssMaximize), since
+   requestFullscreen() requires a trusted gesture that MIDI input never has. */
+.sp-page.maximized { position: fixed; inset: 0; z-index: 1000; background: #0a0a0a; padding: var(--gap); justify-content: center; }
 .sp-toolbar { display: flex; align-items: flex-end; gap: 20px; flex-wrap: wrap; padding: 14px 18px; background: var(--panel); border: 1px solid var(--border-soft); border-radius: var(--r); }
 .sp-toolbar .field { margin: 0; min-width: 160px; flex: 1; }
 .sp-toolbar .slider { min-width: 80px; }
