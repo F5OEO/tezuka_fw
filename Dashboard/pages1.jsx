@@ -555,8 +555,8 @@ function spDrawCursor(ctx, W, H, mp, bins, centerHz, spanHz, refDb, range, vs = 
 // Spectrum UI state — persists across route navigation within the session
 if (!window._sp) window._sp = {};
 
+// Standard 1-2-2.5-5 test-equipment span ladder (used by Ctrl+wheel SPAN stepping).
 const NICE_SPANS = [50e3,100e3,250e3,500e3,1e6,2.5e6,5e6,10e6,20e6,40e6,100e6,150e6,300e6];
-const nearestZoom = (v) => Math.max(1, Math.min(8, Math.pow(2, Math.round(Math.log2(v)))));
 const snapSpan  = (hz) => NICE_SPANS.reduce((b, v) => Math.abs(v - hz) < Math.abs(b - hz) ? v : b);
 const stepSpan  = (s, out) => out
   ? (NICE_SPANS.find(v => v > s)    ?? NICE_SPANS[NICE_SPANS.length - 1])
@@ -581,8 +581,11 @@ function SpectrumPage({ d }) {
   const spanPubTimerRef   = useSpR(0);  // last MQTT publish timestamp for span tuner
   const spanThrottleRef   = useSpR(0);  // 500 ms gate for rx/span publishes
   const spanDebounceRef   = useSpR(0);  // setTimeout id for post-span-change flush
+  const freqThrottleRef   = useSpR(0);  // 200 ms gate for rx/sweep/frequency publishes while sweeping
+  const freqDebounceRef   = useSpR(0);  // setTimeout id for post-frequency-change flush while sweeping
   const centerHzRef = useSpR(sp.centerHz ?? (d.rxFreq ?? 437e6));
   const spanHzRef      = useSpR(sp.spanHz   ?? (d.span ?? d.rxSampling ?? null));
+  const vfwRef          = useSpR(40);  // kept current via the sync effect below; used by span-change handlers
   const spanDefaultSet = useSpR(false);
   const dRef           = useSpR(d);
   const viewZoomR      = useSpR(1);    // graphical zoom factor (1 = full view)
@@ -614,6 +617,7 @@ function SpectrumPage({ d }) {
   useSpE(() => { rangeRef.current = range;  dirtyRef.current = true; sp.range    = range;    }, [range]);
   useSpE(() => { centerHzRef.current = centerHz; sp.centerHz = centerHz; }, [centerHz]);
   useSpE(() => { spanHzRef.current = spanHz; sp.spanHz = spanHz; }, [spanHz]);
+  useSpE(() => { vfwRef.current = vfw; }, [vfw]);
   useSpE(() => { sp.gain     = gain;     }, [gain]);
   useSpE(() => { sp.rxInput  = rxInput;  }, [rxInput]);
 
@@ -764,7 +768,62 @@ function SpectrumPage({ d }) {
     return () => { destroyed = true; try { wsRef.current?.close(); } catch(_) {} };
   }, []);
 
-  // Mouse wheel on canvas: zoom span centred on cursor (plain) or adjust RANGE (Ctrl)
+  // Publish rx/frequency, or rx/sweep/frequency while sweeping — throttled
+  // to at most one publish per 200ms in sweep mode only. do_sweep_start
+  // needs real time to (re)initialize the sweep on the device; firing
+  // retunes faster than that (e.g. a drag gesture or fast tuner scroll)
+  // just queues up stale ones behind each other. Non-sweep single-band
+  // retuning is cheap on the device, so it stays unthrottled.
+  const publishFreq = (dv, hz) => {
+    const topic = dv.sweepActive ? 'rx/sweep/frequency' : 'rx/frequency';
+    if (!dv.sweepActive) { dv.publish(topic, Math.round(hz)); return; }
+    const now = performance.now();
+    if (now - freqThrottleRef.current >= 200) {
+      freqThrottleRef.current = now;
+      dv.publish(topic, Math.round(hz));
+    }
+    clearTimeout(freqDebounceRef.current);
+    freqDebounceRef.current = setTimeout(() => {
+      dv.publish(topic, Math.round(centerHzRef.current));
+    }, 220);
+  };
+
+  // Publish spectro/fps from the current VFW setting. While sweeping, the
+  // device needs 8x the requested fps — a full sweep is built from 8
+  // sub-band captures, so hitting the same perceived sweep-update rate
+  // needs 8x the raw per-capture rate.
+  const publishFps = (dv) => {
+    const base = Math.round(1000 / vfwRef.current);
+    dv.publish('spectro/fps', dv.sweepActive ? base * 8 : base);
+  };
+
+  // Step the hardware SPAN one ladder entry (see NICE_SPANS), keeping the
+  // frequency under `px` (0-1 fraction across canvas width) fixed. No
+  // graphical zoom layer involved — this directly re-tunes the device.
+  // Shared by wheel (plain + Ctrl) and pinch, so `dv` is passed explicitly
+  // rather than closed over (the pinch handler uses dRef.current).
+  const stepSpanCentered = (dv, px, wider) => {
+    const s  = spanHzRef.current;
+    const ns = stepSpan(s, wider);
+    const markerFreq = centerHzRef.current + (px - 0.5) * s;
+    const nc = Math.max(47e6 + ns / 2, Math.min(6e9 - ns / 2, markerFreq));
+    setCenterHz(nc);
+    setSpanHz(ns);
+    publishFreq(dv, nc);
+    const now = performance.now();
+    if (now - spanThrottleRef.current >= 500) {
+      spanThrottleRef.current = now;
+      dv.publish('rx/span', Math.round(ns));
+      publishFps(dv);
+    }
+    clearTimeout(wheelDebounceRef.current);
+    wheelDebounceRef.current = setTimeout(() => {
+      dv.publish('rx/span', Math.round(spanHzRef.current));
+      publishFps(dv);
+    }, 220);
+  };
+
+  // Mouse wheel on canvas: zoom span centred on cursor, or adjust RANGE (Shift)
   const onCanvasWheel = useSpCb((e) => {
     e.preventDefault();
 
@@ -774,79 +833,13 @@ function SpectrumPage({ d }) {
       return;
     }
 
-    if (e.ctrlKey) {
-      // Ctrl+wheel → SPAN
-      const canvas = canvasRef.current;
-      if (!canvas) return;
-      const rect  = canvas.getBoundingClientRect();
-      const px    = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
-      const s     = spanHzRef.current;
-      const ns    = stepSpan(s, e.deltaY > 0);
-      const markerFreq = centerHzRef.current +
-        (viewCenterR.current + (px - 0.5) / viewZoomR.current - 0.5) * s;
-      const nc = Math.max(47e6 + ns / 2, Math.min(6e9 - ns / 2, markerFreq));
-      setCenterHz(nc);
-      setSpanHz(ns);
-      d.publish(d.sweepActive ? 'rx/sweep/frequency' : 'rx/frequency', Math.round(nc));
-      const now = performance.now();
-      if (now - spanThrottleRef.current >= 500) {
-        spanThrottleRef.current = now;
-        d.publish('rx/span', Math.round(ns));
-      }
-      clearTimeout(wheelDebounceRef.current);
-      wheelDebounceRef.current = setTimeout(() => {
-        d.publish('rx/span', Math.round(spanHzRef.current));
-      }, 220);
-      return;
-    }
-
-    // Plain wheel → graphical zoom (no MQTT, pivot under cursor)
-    {
-      const canvas = canvasRef.current;
-      if (!canvas) return;
-      const rect = canvas.getBoundingClientRect();
-      const px   = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
-      const zOld = viewZoomR.current;
-      const zoomIn = e.deltaY < 0;
-      const zNew = zoomIn ? Math.min(8, zOld * 2) : Math.max(1, zOld / 2);
-      // Frequency under cursor (accounting for current graphical zoom)
-      const markerFreq = centerHzRef.current +
-        (viewCenterR.current + (px - 0.5) / zOld - 0.5) * spanHzRef.current;
-      if (zNew === zOld && zoomIn) {
-        // At max graphical zoom — step hardware span down, keep effective visible range
-        const ns = stepSpan(spanHzRef.current, false);
-        const nz = Math.min(8, nearestZoom(ns * zOld / spanHzRef.current) * 2);
-        const nc = Math.max(47e6 + ns / 2, Math.min(6e9 - ns / 2, markerFreq - (px - 0.5) / nz * ns));
-        setCenterHz(nc); setSpanHz(ns);
-        spanThrottleRef.current = performance.now();
-        d.publish(d.sweepActive ? 'rx/sweep/frequency' : 'rx/frequency', Math.round(nc));
-        d.publish('rx/span', Math.round(ns));
-        viewZoomR.current   = nz;
-        viewCenterR.current = 0.5;
-        dirtyRef.current = true;
-        return;
-      }
-      if (zNew === zOld && !zoomIn) {
-        // At min graphical zoom — step hardware span up, keep effective visible range
-        const ns = stepSpan(spanHzRef.current, true);
-        const nz = Math.max(1, nearestZoom(ns * zOld / spanHzRef.current) / 2);
-        const nc = Math.max(47e6 + ns / 2, Math.min(6e9 - ns / 2, markerFreq - (px - 0.5) / nz * ns));
-        setCenterHz(nc); setSpanHz(ns);
-        spanThrottleRef.current = performance.now();
-        d.publish(d.sweepActive ? 'rx/sweep/frequency' : 'rx/frequency', Math.round(nc));
-        d.publish('rx/span', Math.round(ns));
-        viewZoomR.current   = nz;
-        viewCenterR.current = 0.5;
-        dirtyRef.current = true;
-        return;
-      }
-      // Keep the bin under cursor fixed
-      const cNew = viewCenterR.current + (px - 0.5) * (1 / zOld - 1 / zNew);
-      const half = 0.5 / zNew;
-      viewZoomR.current   = zNew;
-      viewCenterR.current = Math.max(half, Math.min(1 - half, cNew));
-      dirtyRef.current = true;
-    }
+    // Wheel → SPAN (hardware), centred on cursor. Ctrl is accepted too for
+    // muscle memory but no longer required.
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const rect = canvas.getBoundingClientRect();
+    const px   = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+    stepSpanCentered(d, px, e.deltaY > 0);
   }, [d]);
 
   // Keyboard shortcuts: +/- shift REF, [/] change RANGE (1 step = SP_ROWS dB)
@@ -866,8 +859,7 @@ function SpectrumPage({ d }) {
   useSpE(() => {
     const onUp = () => {
       if (mouseDragRef.current) {
-        d.publish(d.sweepActive ? 'rx/sweep/frequency' : 'rx/frequency',
-                  Math.round(centerHzRef.current));
+        publishFreq(d, centerHzRef.current);
         mouseDragRef.current = null;
       }
     };
@@ -880,8 +872,8 @@ function SpectrumPage({ d }) {
     const canvas = canvasRef.current;
     if (!canvas) return;
 
-    let startDist = null, startZoom = null, startCenter = null, startVdist = null, startRange = null;
-    let spanStepped = false;
+    let startDist = null, startVdist = null, startRange = null, lastStepDist = null;
+    const PINCH_STEP_RATIO = 1.3; // finger-distance ratio that triggers one SPAN step
 
     const pdist = (t) => Math.hypot(t[0].clientX - t[1].clientX, t[0].clientY - t[1].clientY);
 
@@ -895,67 +887,34 @@ function SpectrumPage({ d }) {
         };
       } else if (e.touches.length === 2) {
         mouseDragRef.current = null;
-        startDist   = pdist(e.touches);
-        startZoom   = viewZoomR.current;
-        startCenter = viewCenterR.current;
-        startVdist  = Math.abs(e.touches[0].clientY - e.touches[1].clientY) + 1;
-        startRange  = rangeRef.current;
-        spanStepped = false;
+        startDist    = pdist(e.touches);
+        lastStepDist = startDist;
+        startVdist   = Math.abs(e.touches[0].clientY - e.touches[1].clientY) + 1;
+        startRange   = rangeRef.current;
       }
     };
 
     const onTouchMove = (e) => {
       e.preventDefault();
       if (e.touches.length === 2) {
-        const d2 = pdist(e.touches);
         if (startDist) {
           // Vertical pinch → RANGE
           const vdist = Math.abs(e.touches[0].clientY - e.touches[1].clientY) + 1;
           const vFactor = Math.sqrt(startVdist / vdist);
           setRange(Math.max(SP_ROWS, startRange + Math.round((vFactor - 1) * 10) * SP_ROWS));
 
-          // Horizontal pinch → graphical zoom (pivot = finger midpoint)
-          const rawZoom = startZoom * Math.sqrt(d2 / startDist);
-          const zNew    = Math.max(1, Math.min(8, rawZoom));
-          const mx      = (e.touches[0].clientX + e.touches[1].clientX) / 2;
-          const rect    = canvas.getBoundingClientRect();
-          const px      = Math.max(0, Math.min(1, (mx - rect.left) / rect.width));
-          const cNew    = startCenter + (px - 0.5) * (1 / startZoom - 1 / zNew);
-          const half    = 0.5 / zNew;
-          viewZoomR.current   = zNew;
-          viewCenterR.current = Math.max(half, Math.min(1 - half, cNew));
-
-          // Frequency under finger midpoint (accounting for current graphical zoom)
-          const markerFreq = centerHzRef.current +
-            (viewCenterR.current + (px - 0.5) / viewZoomR.current - 0.5) * spanHzRef.current;
-
-          // At max zoom, spreading further steps hardware span down (once per gesture)
-          if (rawZoom > 8 && !spanStepped) {
-            spanStepped = true;
-            const ns = stepSpan(spanHzRef.current, false);
-            const nz = Math.min(8, nearestZoom(ns * viewZoomR.current / spanHzRef.current) * 2);
-            const nc = Math.max(47e6 + ns / 2, Math.min(6e9 - ns / 2, markerFreq - (px - 0.5) / nz * ns));
-            setCenterHz(nc); setSpanHz(ns);
-            spanThrottleRef.current = performance.now();
-            const dv = dRef.current;
-            dv.publish(dv.sweepActive ? 'rx/sweep/frequency' : 'rx/frequency', Math.round(nc));
-            dv.publish('rx/span', Math.round(ns));
-            viewZoomR.current   = nz;
-            viewCenterR.current = 0.5;
-          }
-          // At min zoom, pinching further steps hardware span up (once per gesture)
-          if (rawZoom < 1 && !spanStepped) {
-            spanStepped = true;
-            const ns = stepSpan(spanHzRef.current, true);
-            const nz = Math.max(1, nearestZoom(ns * viewZoomR.current / spanHzRef.current) / 2);
-            const nc = Math.max(47e6 + ns / 2, Math.min(6e9 - ns / 2, markerFreq - (px - 0.5) / nz * ns));
-            setCenterHz(nc); setSpanHz(ns);
-            spanThrottleRef.current = performance.now();
-            const dv = dRef.current;
-            dv.publish(dv.sweepActive ? 'rx/sweep/frequency' : 'rx/frequency', Math.round(nc));
-            dv.publish('rx/span', Math.round(ns));
-            viewZoomR.current   = nz;
-            viewCenterR.current = 0.5;
+          // Horizontal pinch → SPAN (hardware), one discrete step per
+          // PINCH_STEP_RATIO change in finger distance. No graphical zoom
+          // layer — each step directly re-tunes the hardware span, same as
+          // a wheel tick.
+          const d2 = pdist(e.touches);
+          const ratio = d2 / lastStepDist;
+          if (ratio > PINCH_STEP_RATIO || ratio < 1 / PINCH_STEP_RATIO) {
+            const mx   = (e.touches[0].clientX + e.touches[1].clientX) / 2;
+            const rect = canvas.getBoundingClientRect();
+            const px   = Math.max(0, Math.min(1, (mx - rect.left) / rect.width));
+            stepSpanCentered(dRef.current, px, ratio < 1);
+            lastStepDist = d2;
           }
           dirtyRef.current = true;
         }
@@ -974,16 +933,14 @@ function SpectrumPage({ d }) {
           : mouseDragRef.current.startCenterHz;
         setCenterHz(nc);
         setRefDb(mouseDragRef.current.startRefDb + (dy / H) * rangeRef.current);
-        dRef.current.publish(dRef.current.sweepActive ? 'rx/sweep/frequency' : 'rx/frequency', Math.round(nc));
+        publishFreq(dRef.current, nc);
       }
     };
 
     const onTouchEnd = (e) => {
-      if (e.touches.length < 2) { startDist = null; startZoom = null; startCenter = null; startVdist = null; startRange = null; spanStepped = false; }
+      if (e.touches.length < 2) { startDist = null; startVdist = null; startRange = null; lastStepDist = null; }
       if (e.touches.length === 0 && mouseDragRef.current) {
-        const dv = dRef.current;
-        dv.publish(dv.sweepActive ? 'rx/sweep/frequency' : 'rx/frequency',
-                   Math.round(centerHzRef.current));
+        publishFreq(dRef.current, centerHzRef.current);
         mouseDragRef.current = null;
         mousePosRef.current = null;
         setMkr(null);
@@ -1025,7 +982,7 @@ function SpectrumPage({ d }) {
         ? mouseDragRef.current.startCenterHz - steps * step
         : mouseDragRef.current.startCenterHz;
       setCenterHz(nc);
-      d.publish(d.sweepActive ? 'rx/sweep/frequency' : 'rx/frequency', Math.round(nc));
+      publishFreq(d, nc);
       // Vertical: drag down raises REF
       const deltaDb = (dy / H) * rangeRef.current;
       setRefDb(mouseDragRef.current.startRefDb + deltaDb);
@@ -1066,8 +1023,8 @@ function SpectrumPage({ d }) {
       d.publish('rx/gain', savedGain);
     }, 100);
   };
-  const onCenterChg = useSpCb((kHz) => { const hz = kHz * 1000; setCenterHz(hz); d.publish(d.sweepActive ? 'rx/sweep/frequency' : 'rx/frequency', hz); }, [d]);
-  const onVfwChg    = useSpCb((v) => { setVfw(v); d.publish('spectro/fps', Math.round(1000 / v)); }, [d]);
+  const onCenterChg = useSpCb((kHz) => { const hz = kHz * 1000; setCenterHz(hz); publishFreq(d, hz); }, [d]);
+  const onVfwChg    = useSpCb((v) => { setVfw(v); vfwRef.current = v; publishFps(d); }, [d]);
   const onSpanChg   = useSpCb((kHz) => {
     const hz = kHz * 1000;
     setSpanHz(hz);
@@ -1075,9 +1032,13 @@ function SpectrumPage({ d }) {
     if (now - spanThrottleRef.current >= 500) {
       spanThrottleRef.current = now;
       d.publish('rx/span', hz);
+      publishFps(d);
     }
     clearTimeout(spanDebounceRef.current);
-    spanDebounceRef.current = setTimeout(() => d.publish('rx/span', Math.round(spanHzRef.current)), 220);
+    spanDebounceRef.current = setTimeout(() => {
+      d.publish('rx/span', Math.round(spanHzRef.current));
+      publishFps(d);
+    }, 220);
   }, [d]);
 
   return (
@@ -1156,7 +1117,7 @@ function SpectrumPage({ d }) {
           </div>
           <div className="hp-row sm">
             <CrtField pfx="ST" val={stMs.toString()} sfx="ms" readOnly />
-            {dispZoom > 1 && <CrtField pfx="ZOOM" val={`×${dispZoom}`} readOnly />}
+            {dispZoom > 1 && <CrtField pfx="ZOOM" val={`×${dispZoom % 1 === 0 ? dispZoom : dispZoom.toFixed(1)}`} readOnly />}
           </div>
         </div>
       </div>
