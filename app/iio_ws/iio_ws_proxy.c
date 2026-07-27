@@ -31,6 +31,15 @@
  * -s        Throughput stats every second
  * -l        Create the RX/TX IIO buffers as cyclic (TX: a single push
  *           repeats in hardware until new data is pushed)
+ * -c CERT   TLS certificate file (default: /mnt/jffs2/maia-httpd.crt)
+ * -k KEY    TLS private key file (default: /mnt/jffs2/maia-httpd.key)
+ * -P PORT   TLS (wss://) listen port (default: PORT+1, i.e. 8766)
+ *
+ * A second, TLS-enabled vhost is opened alongside the plain one whenever
+ * both CERT and KEY are readable at startup (same cert pair Mosquitto uses
+ * for its own 9001/9002 ws/wss split) — the Dashboard needs wss:// for this
+ * socket whenever it's loaded over https:// (browsers block a plain ws://
+ * connection from an https:// page as mixed content).
  */
 
 #define _GNU_SOURCE
@@ -61,6 +70,9 @@
 /* Defaults                                                            */
 /* ------------------------------------------------------------------ */
 #define DEF_PORT         8765
+#define DEF_TLS_PORT     (DEF_PORT + 1)   /* wss:// listener, mirrors Mosquitto's 9001/9002 split */
+#define DEF_CERT_PATH    "/mnt/jffs2/maia-httpd.crt"
+#define DEF_KEY_PATH     "/mnt/jffs2/maia-httpd.key"
 #define DEF_BUF_SAMPLES  (1 << 18)   /* 262144 samples */
 #define DEF_IIO_URI      "local:"
 #define DEF_RX_DEV       "cf-ad9361-lpc"
@@ -142,6 +154,9 @@ struct app {
     const char  *rx_dev_name;
     const char  *tx_dev_name;
     int          port;
+    int          tls_port;
+    const char  *cert_path;
+    const char  *key_path;
     size_t       buf_samples;
     bool         do_rx;
     bool         do_tx;
@@ -484,10 +499,14 @@ static void usage(const char *prog)
         "  -T        WS→DAC only\n"
         "  -s        throughput stats\n"
         "  -l        create the RX/TX IIO buffers as cyclic\n"
+        "  -c CERT   TLS certificate (default: %s)\n"
+        "  -k KEY    TLS private key (default: %s)\n"
+        "  -P PORT   WSS port, opened only if CERT/KEY are readable (default: %d)\n"
         "  -h        this help\n",
         prog,
         DEF_IIO_URI, DEF_RX_DEV, DEF_TX_DEV,
-        DEF_PORT, DEF_BUF_SAMPLES);
+        DEF_PORT, DEF_BUF_SAMPLES,
+        DEF_CERT_PATH, DEF_KEY_PATH, DEF_TLS_PORT);
 }
 
 /* ------------------------------------------------------------------ */
@@ -511,19 +530,25 @@ int main(int argc, char **argv)
     A.rx_dev_name = DEF_RX_DEV;
     A.tx_dev_name = DEF_TX_DEV;
     A.port        = DEF_PORT;
+    A.tls_port    = 0;   /* 0 = unset, resolved to A.port+1 below once -p is known */
+    A.cert_path   = DEF_CERT_PATH;
+    A.key_path    = DEF_KEY_PATH;
     A.buf_samples = DEF_BUF_SAMPLES;
     A.do_rx       = true;
     A.do_tx       = true;
     A.loop        = false;
 
     int opt;
-    while ((opt = getopt(argc, argv, "u:r:t:p:n:RTslh")) != -1) {
+    while ((opt = getopt(argc, argv, "u:r:t:p:n:c:k:P:RTslh")) != -1) {
         switch (opt) {
         case 'u': A.iio_uri     = optarg;           break;
         case 'r': A.rx_dev_name = optarg;           break;
         case 't': A.tx_dev_name = optarg;           break;
         case 'p': A.port        = atoi(optarg);     break;
-        case 'n': A.buf_samples = (size_t)atoi(optarg); break;  
+        case 'n': A.buf_samples = (size_t)atoi(optarg); break;
+        case 'c': A.cert_path   = optarg;           break;
+        case 'k': A.key_path    = optarg;           break;
+        case 'P': A.tls_port    = atoi(optarg);     break;
         case 'R': A.do_rx = true;  A.do_tx = false; break;
         case 'T': A.do_rx = false; A.do_tx = true;  break;
         case 's': A.stats = true;                   break;
@@ -532,6 +557,7 @@ int main(int argc, char **argv)
         default:  usage(argv[0]); return 1;
         }
     }
+    if (!A.tls_port) A.tls_port = A.port + 1;
 
     signal(SIGINT,  on_signal);
     signal(SIGTERM, on_signal);
@@ -594,16 +620,51 @@ int main(int argc, char **argv)
         protocols[i].rx_buffer_size = ws_rx_sz;
     }
 
+    /* EXPLICIT_VHOSTS: lws_create_context() itself binds no socket; each
+     * vhost (plain + optional TLS) is opened explicitly below so the two
+     * can coexist on different ports within one context/event loop. */
     struct lws_context_creation_info info = {
+        .protocols = protocols,
+        .gid       = -1,
+        .uid       = -1,
+        .options   = LWS_SERVER_OPTION_EXPLICIT_VHOSTS |
+                     LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT,
+    };
+    A.lws = lws_create_context(&info);
+    if (!A.lws) { fprintf(stderr, "lws context failed\n"); return 1; }
+
+    struct lws_context_creation_info vh_plain = {
+        .vhost_name = "plain",
         .port      = A.port,
         .protocols = protocols,
         .gid       = -1,
         .uid       = -1,
-        .options   = 0,
     };
-    A.lws = lws_create_context(&info);
-    if (!A.lws) { fprintf(stderr, "lws context failed\n"); return 1; }
+    if (!lws_create_vhost(A.lws, &vh_plain)) {
+        fprintf(stderr, "lws plain vhost failed (port %d)\n", A.port);
+        return 1;
+    }
     fprintf(stderr, "ws: listening on port %d  (default fallback: iio-iq full duplex enabled)\n", A.port);
+
+    if (access(A.cert_path, R_OK) == 0 && access(A.key_path, R_OK) == 0) {
+        struct lws_context_creation_info vh_tls = {
+            .vhost_name              = "tls",
+            .port                    = A.tls_port,
+            .protocols               = protocols,
+            .gid                     = -1,
+            .uid                     = -1,
+            .options                 = LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT,
+            .ssl_cert_filepath       = A.cert_path,
+            .ssl_private_key_filepath = A.key_path,
+        };
+        if (!lws_create_vhost(A.lws, &vh_tls))
+            fprintf(stderr, "wss: TLS vhost failed (port %d)\n", A.tls_port);
+        else
+            fprintf(stderr, "wss: listening on port %d (cert=%s)\n", A.tls_port, A.cert_path);
+    } else {
+        fprintf(stderr, "wss: disabled — cert/key not readable (%s / %s)\n",
+                A.cert_path, A.key_path);
+    }
 
     A.running = true;
     atomic_init(&A.wsi_rx, (uintptr_t)NULL);
