@@ -169,6 +169,16 @@ read_file () {
   fi
 }
 
+
+# Boolean state ("1"/"0") for a /sys/class/leds/<name> — used by both the
+# periodic gpio/<name> publish below and the cmd/gpio/<name> handler, so
+# both always agree on what "on" means regardless of that LED's actual
+# max_brightness range (some are 0/1 GPIO LEDs, some are 0-255 PWM).
+led_state () {
+  local b; b=$(read_file "/sys/class/leds/$1/brightness")
+  if [ "$b" != "n/a" ] && [ "$b" -gt 0 ] 2>/dev/null; then echo 1; else echo 0; fi
+}
+
 prefix_to_mask () {
   local p=$1 i octet m=""
   for i in 1 2 3 4; do
@@ -390,6 +400,18 @@ dump_data () {
   _gloc=$(cat /tmp/gps_locator 2>/dev/null)
   publish "system/gps/fix" "${_gfix:-none}"
   [ -n "$_gloc" ] && publish "system/gps/locator" "$_gloc"
+
+  # Board LEDs (leds-gpio, /sys/class/leds/<label>) — reported to the
+  # Dashboard's GPIO page as gpio/<label>. Note led0 normally carries the
+  # kernel "heartbeat" trigger, so it will keep blinking on its own in the
+  # UI; that trigger also means a manual cmd/gpio/led0 toggle can get
+  # immediately overridden by the next heartbeat pulse.
+  local _led_dir _led
+  for _led_dir in /sys/class/leds/*/; do
+    [ -d "$_led_dir" ] || continue
+    _led=$(basename "$_led_dir")
+    publish "gpio/$_led" "$(led_state "$_led")"
+  done
 }
 
 do_sweep_stop () {
@@ -694,7 +716,7 @@ parse_cmd () {
           killall iio_ws_proxy 2>/dev/null
           while pgrep -x iio_ws_proxy >/dev/null 2>&1; do sleep 0.1; done
         fi
-        /usr/bin/iio_ws_proxy -l &
+        /usr/bin/iio_ws_proxy -l -T &
         publish_force "system/siggen" "on"
         publish_force "system/iqtape" "on"
       else
@@ -730,6 +752,17 @@ parse_cmd () {
       [[ "$val" =~ ^[a-zA-Z0-9/_-]+$ ]] || return
       fw_setenv call "$val" 2>/dev/null &
       publish_force "call" "$val"
+    ;;
+    gpio/*)
+      local led="${cmd#gpio/}"
+      [[ "$led" =~ ^[A-Za-z0-9_:.-]+$ ]] || return
+      [ -d "/sys/class/leds/$led" ] || return
+      if [ "$val" = "1" ]; then
+        echo "$(read_file "/sys/class/leds/$led/max_brightness")" > "/sys/class/leds/$led/brightness" 2>/dev/null
+      else
+        echo 0 > "/sys/class/leds/$led/brightness" 2>/dev/null
+      fi
+      publish_force "gpio/$led" "$(led_state "$led")"
     ;;
     system/getdebugiio)
       (
