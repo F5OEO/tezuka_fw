@@ -160,6 +160,7 @@ function DATV({ d, callsign }) {
   const [onAir, setOnAir] = useS2(false);
   const [freqHz, setFreqHz] = useLS2('datv_tx_frequency', 437000000, parseFloat);
   const [gain, setGain] = useLS2('datv_tx_gain', -11, parseFloat);
+  const [digitalGain, setDigitalGain] = useLS2('datv_digitalgain', 0, parseFloat);
   const [mode, setMode] = useLS2('datv_stream_mode', 'dvbs2-ts');
   const [modu, setModu] = useLS2('datv_constel', 'qpsk');
   const [sr, setSr] = useLS2('datv_symbolrate', 250000, (s) => parseInt(s));
@@ -174,6 +175,7 @@ function DATV({ d, callsign }) {
   // Sync from MQTT retained values on first arrival
   useE2(() => { if (dv['tx/frequency']             != null) setFreqHz(parseFloat(dv['tx/frequency'])); },           [dv['tx/frequency']]);
   useE2(() => { if (dv['tx/gain']                  != null) setGain(parseFloat(dv['tx/gain'])); },                  [dv['tx/gain']]);
+  useE2(() => { if (dv['tx/dvbs2/digitalgain']     != null) setDigitalGain(parseFloat(dv['tx/dvbs2/digitalgain'])); }, [dv['tx/dvbs2/digitalgain']]);
   useE2(() => { if (dv['tx/mute']                  != null) setOnAir(dv['tx/mute'] === '0'); },                     [dv['tx/mute']]);
   useE2(() => { if (dv['tx/stream/mode']           != null) setMode(dv['tx/stream/mode']); },                       [dv['tx/stream/mode']]);
   useE2(() => { if (dv['tx/dvbs2/constel']         != null) setModu(dv['tx/dvbs2/constel']); },                     [dv['tx/dvbs2/constel']]);
@@ -257,6 +259,7 @@ function DATV({ d, callsign }) {
     pub('tx/dvbs2/tssourcemode', tsSource);
     pub('tx/frequency', freqHz);
     pub('tx/gain', gain);
+    if (modu === 'qpsk') pub('tx/dvbs2/digitalgain', digitalGain);
   }, [mode]);
 
 
@@ -296,6 +299,14 @@ function DATV({ d, callsign }) {
               <Slider value={gain} min={-80} max={0} step={0.25}
                 onChange={(v) => { setGain(v); pub('tx/gain', v); }} unit=" dB" fmt={(v) => v.toFixed(2)} />
             </Field>
+            {isDvbs2 && (
+              <div className={modu === 'qpsk' ? '' : 'ftuner-disabled'}>
+                <Field label="Fine gain" hint="−6 to +3 dB · step 0.01 · QPSK only">
+                  <Slider value={digitalGain} min={-6} max={3} step={0.01}
+                    onChange={(v) => { setDigitalGain(v); pub('tx/dvbs2/digitalgain', v); }} unit=" dB" fmt={(v) => v.toFixed(2)} />
+                </Field>
+              </div>
+            )}
             <Field label="Stream mode">
               <Select value={mode} onChange={(v) => {
                 setMode(v); pub('tx/stream/mode', v);
