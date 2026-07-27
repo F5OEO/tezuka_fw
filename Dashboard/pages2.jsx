@@ -1,6 +1,21 @@
 // pages2.jsx — DATV Controller, Versions, Analysis, Network
 const { useState: useS2, useEffect: useE2 } = React;
 
+// useState backed by localStorage: initial value comes from the last saved
+// browser value (falling back to `initial` if never saved), and every
+// subsequent change is persisted automatically — so re-opening the DATV
+// Controller shows the last-used settings immediately, before any MQTT
+// retained state has had a chance to arrive and override it. `parse` converts
+// the stored string back (default: identity, i.e. plain strings).
+function useLS2(key, initial, parse = (s) => s) {
+  const [v, setV] = useS2(() => {
+    const raw = localStorage.getItem(key);
+    return raw != null ? parse(raw) : (typeof initial === 'function' ? initial() : initial);
+  });
+  useE2(() => { localStorage.setItem(key, String(v)); }, [key, v]);
+  return [v, setV];
+}
+
 // ── QO-100 Wideband transponder bandplan ──────────────────────────────────────
 // Downlink 10491.0–10500.5 MHz · Uplink = DL − 8089.5 MHz
 const QO100_LO = 10491.0, QO100_HI = 10500.5, QO100_DL2UL = -8089.5;
@@ -138,19 +153,24 @@ function DATV({ d, callsign }) {
   const call = callsign || 'F5OEO';
   const pub = (path, val) => d.publish('pluto/' + call + '/' + path, String(val));
 
+  // TX on-air is intentionally NOT persisted/restored from the browser —
+  // it must always reflect live device state (see the tx/mute sync effect
+  // below), never a stale "was transmitting last time" value that could
+  // otherwise look like an unintended auto-key-up while waiting for MQTT.
   const [onAir, setOnAir] = useS2(false);
-  const [freqHz, setFreqHz] = useS2(437000000);
-  const [gain, setGain] = useS2(-11);
-  const [mode, setMode] = useS2('dvbs2-ts');
-  const [modu, setModu] = useS2('qpsk');
-  const [sr, setSr] = useS2(250000);
-  const [fec, setFec] = useS2('2/3');
-  const [pilots, setPilots] = useS2('0');
-  const [frame, setFrame] = useS2('long');
-  const [firFilter, setFirFilter] = useS2('0');
-  const [tsSource, setTsSource] = useS2('0');
-  const [tsAddr, setTsAddr] = useS2('239.0.0.1:5004');
-  const [lnbLo, setLnbLo] = useS2(() => parseFloat(localStorage.getItem('datv_lnb_lo')) || 9750e6);
+  const [freqHz, setFreqHz] = useLS2('datv_tx_frequency', 437000000, parseFloat);
+  const [gain, setGain] = useLS2('datv_tx_gain', -11, parseFloat);
+  const [mode, setMode] = useLS2('datv_stream_mode', 'dvbs2-ts');
+  const [modu, setModu] = useLS2('datv_constel', 'qpsk');
+  const [sr, setSr] = useLS2('datv_symbolrate', 250000, (s) => parseInt(s));
+  const [fec, setFec] = useLS2('datv_fec', '2/3');
+  const [fecMode, setFecMode] = useLS2('datv_fecmode', 'fixed');
+  const [pilots, setPilots] = useLS2('datv_pilots', '0');
+  const [frame, setFrame] = useLS2('datv_frame', 'long');
+  const [firFilter, setFirFilter] = useLS2('datv_firfilter', '0');
+  const [tsSource, setTsSource] = useLS2('datv_tssource', '0');
+  const [tsAddr, setTsAddr] = useLS2('datv_tsaddr', '239.0.0.1:5004');
+  const [lnbLo, setLnbLo] = useLS2('datv_lnb_lo', 9750e6, parseFloat);
   // Sync from MQTT retained values on first arrival
   useE2(() => { if (dv['tx/frequency']             != null) setFreqHz(parseFloat(dv['tx/frequency'])); },           [dv['tx/frequency']]);
   useE2(() => { if (dv['tx/gain']                  != null) setGain(parseFloat(dv['tx/gain'])); },                  [dv['tx/gain']]);
@@ -158,10 +178,10 @@ function DATV({ d, callsign }) {
   useE2(() => { if (dv['tx/stream/mode']           != null) setMode(dv['tx/stream/mode']); },                       [dv['tx/stream/mode']]);
   useE2(() => { if (dv['tx/dvbs2/constel']         != null) setModu(dv['tx/dvbs2/constel']); },                     [dv['tx/dvbs2/constel']]);
   useE2(() => { if (dv['tx/dvbs2/sr']              != null) setSr(parseInt(dv['tx/dvbs2/sr'])); },                  [dv['tx/dvbs2/sr']]);
-  useE2(() => {
-    if (dv['tx/dvbs2/fecmode'] === 'variable') { setFec('auto'); return; }
-    if (dv['tx/dvbs2/fec'] != null) setFec(dv['tx/dvbs2/fec']);
-  }, [dv['tx/dvbs2/fecmode'], dv['tx/dvbs2/fec']]);
+  // fecMode and fec are tracked independently so the FEC dropdown always
+  // keeps showing the last selected rate even while in variable mode.
+  useE2(() => { if (dv['tx/dvbs2/fecmode'] != null) setFecMode(dv['tx/dvbs2/fecmode']); }, [dv['tx/dvbs2/fecmode']]);
+  useE2(() => { if (dv['tx/dvbs2/fec']     != null) setFec(dv['tx/dvbs2/fec']); },         [dv['tx/dvbs2/fec']]);
   useE2(() => { if (dv['tx/dvbs2/pilots']          != null) setPilots(dv['tx/dvbs2/pilots']); },                    [dv['tx/dvbs2/pilots']]);
   useE2(() => { if (dv['tx/dvbs2/frame']           != null) setFrame(dv['tx/dvbs2/frame']); },                      [dv['tx/dvbs2/frame']]);
   useE2(() => { if (dv['tx/dvbs2/firfilter']       != null) setFirFilter(dv['tx/dvbs2/firfilter']); },              [dv['tx/dvbs2/firfilter']]);
@@ -191,23 +211,33 @@ function DATV({ d, callsign }) {
     : (frame === 'short' ? 0.87 : 0.88);
   const netBitrateKbps = dv['tx/dvbs2/ts/bitrate']
     ? Math.round(parseFloat(dv['tx/dvbs2/ts/bitrate']) / 1000)
-    : Math.round(sr * (moduBits[modu] || 2) * fecNum(fec) * encapFactor / 1000);
+    : Math.round(sr * (moduBits[modu] || 2) * fecNum(fecMode === 'variable' ? 'auto' : fec) * encapFactor / 1000);
   const netBitrateReal = !!dv['tx/dvbs2/ts/bitrate'];
   const tsBitrateStr = hasStream ? netBitrateKbps + ' Kb/s' + (netBitrateReal ? '' : ' (est.)') : '—';
   const queue = dv['tx/dvbs2/queue'] ? parseInt(dv['tx/dvbs2/queue']) : 0;
   const queueWarn = queue > 100;
+  // Stable estimate for the OBS push in variable (ACM) mode — always the
+  // calculated figure (never the live tx/dvbs2/ts/bitrate telemetry, which
+  // fluctuates continuously as ACM adapts), so it only moves with sr/frame.
+  const estBitrateKbps = Math.round(sr * (moduBits[modu] || 2) * fecNum('auto') * encapFactor / 1000);
 
-  // Push OBS auto-bitrate whenever net bitrate changes (mirrors DATVObs effect)
+  // Push OBS auto-bitrate whenever net bitrate changes (mirrors DATVObs effect).
+  // In variable FEC (ACM) mode this uses estBitrateKbps instead of the live
+  // achieved bitrate — otherwise every ACM fluctuation would keep forcing the
+  // encoder to reconfigure/restart. `pilots` is listed explicitly below so a
+  // pilots toggle still notifies OBS even though it isn't (yet) a factor in
+  // the estimate itself.
   useE2(() => {
     const obsIp   = localStorage.getItem('datv_obs_ip')   || '';
     const obsPass = localStorage.getItem('datv_obs_pass') || '';
     if (!obsIp || !hasStream) return;
+    const bitrateToSend = fecMode === 'variable' ? estBitrateKbps : netBitrateKbps;
     const tsAddrVal = dv['tx/dvbs2/tssourceaddress'] || '';
-    const msg = { bitrate: netBitrateKbps, host: obsIp, mode: 'record', format: 'mpegts' };
+    const msg = { bitrate: bitrateToSend, host: obsIp, mode: 'record', format: 'mpegts' };
     if (obsPass)    msg.password = obsPass;
-    if (tsAddrVal)  msg.url = `udp://${tsAddrVal}?pkt_size=1316&bitrate=${netBitrateKbps * 1000}`;
+    if (tsAddrVal)  msg.url = `udp://${tsAddrVal}?pkt_size=1316&bitrate=${bitrateToSend * 1000}`;
     d.publish('encoder/auto_bitrate', JSON.stringify(msg));
-  }, [netBitrateKbps, hasStream]);
+  }, [netBitrateKbps, estBitrateKbps, hasStream, fecMode, pilots]);
 
   // Re-publish all DVB-S2 parameters when leaving passthrough mode
   const prevModeRef = React.useRef(mode);
@@ -221,7 +251,7 @@ function DATV({ d, callsign }) {
     pub('tx/dvbs2/pilots', pilots);
     pub('tx/dvbs2/frame', frame);
     pub('tx/dvbs2/firfilter', firFilter);
-    if (fec === 'auto') { pub('tx/dvbs2/fecmode', 'variable'); }
+    if (fecMode === 'variable') { pub('tx/dvbs2/fecmode', 'variable'); }
     else { pub('tx/dvbs2/fecmode', 'fixed'); pub('tx/dvbs2/fec', fec); }
     if (tsSource === '0') pub('tx/dvbs2/tssourceaddress', tsAddr);
     pub('tx/dvbs2/tssourcemode', tsSource);
@@ -273,9 +303,9 @@ function DATV({ d, callsign }) {
                 // rates vs DVB-S2 MODCOD rates) — fall back to a safe default
                 const dvbsRates = ['1/2', '2/3', '3/4', '5/6', '7/8'];
                 if (v === 'dvbs' && !dvbsRates.includes(fec)) {
-                  setFec('3/4'); pub('tx/dvbs2/fecmode', 'fixed'); pub('tx/dvbs2/fec', '3/4');
-                } else if (v !== 'dvbs' && fec !== 'auto' && !(fecByModu[modu] || fecByModu.qpsk).includes(fec)) {
-                  setFec('auto'); pub('tx/dvbs2/fecmode', 'variable');
+                  setFec('3/4'); setFecMode('fixed'); pub('tx/dvbs2/fecmode', 'fixed'); pub('tx/dvbs2/fec', '3/4');
+                } else if (v !== 'dvbs' && fecMode !== 'variable' && !(fecByModu[modu] || fecByModu.qpsk).includes(fec)) {
+                  setFecMode('variable'); pub('tx/dvbs2/fecmode', 'variable');
                 }
               }} options={modeOpts} />
             </Field>
@@ -293,31 +323,42 @@ function DATV({ d, callsign }) {
               <Field label="Constellation">
                 <Select value={modu} onChange={(v) => {
                   setModu(v); pub('tx/dvbs2/constel', v);
-                  // Current FEC may not be valid for the new constellation (MODCOD table) — fall back to 'auto'
-                  if (fec !== 'auto' && !(fecByModu[v] || fecByModu.qpsk).includes(fec)) {
-                    setFec('auto'); pub('tx/dvbs2/fecmode', 'variable');
+                  // Current FEC may not be valid for the new constellation (MODCOD table) — fall back to variable
+                  if (fecMode !== 'variable' && !(fecByModu[v] || fecByModu.qpsk).includes(fec)) {
+                    setFecMode('variable'); pub('tx/dvbs2/fecmode', 'variable');
                   }
                 }} options={['qpsk', '8psk', '16apsk', '32apsk']} />
               </Field>
             </>}
             {(isDvbs2 || mode === 'dvbs') && (
-              <Field label="FEC">
-                <Select value={fec} onChange={(v) => {
-                  setFec(v);
-                  if (v === 'auto') { pub('tx/dvbs2/fecmode', 'variable'); }
-                  else { pub('tx/dvbs2/fecmode', 'fixed'); pub('tx/dvbs2/fec', v); }
-                }} options={mode === 'dvbs'
-                  ? ['1/2', '2/3', '3/4', '5/6', '7/8']
-                  : [{ v: 'auto', l: 'Auto' }, ...fecOpts]} />
-              </Field>
+              <div style={{ display: 'flex', gap: 18 }}>
+                <Field label="FEC">
+                  <Select value={fec} onChange={(v) => {
+                    setFec(v); setFecMode('fixed');
+                    pub('tx/dvbs2/fecmode', 'fixed'); pub('tx/dvbs2/fec', v);
+                  }} options={mode === 'dvbs'
+                    ? ['1/2', '2/3', '3/4', '5/6', '7/8']
+                    : fecOpts} />
+                </Field>
+                {isDvbs2 && (
+                  <Field label="Variable">
+                    <Checkbox checked={fecMode === 'variable'} onChange={(v) => {
+                      if (v) { setFecMode('variable'); pub('tx/dvbs2/fecmode', 'variable'); }
+                      else { setFecMode('fixed'); pub('tx/dvbs2/fecmode', 'fixed'); pub('tx/dvbs2/fec', fec); }
+                    }} label={fecMode === 'variable' ? 'On' : 'Off'} />
+                  </Field>
+                )}
+              </div>
             )}
             {isDvbs2 && <>
-              <Field label="Pilots">
-                <Select value={pilots} onChange={(v) => { setPilots(v); pub('tx/dvbs2/pilots', v); }} options={[{ v: '0', l: 'Off' }, { v: '1', l: 'On' }]} />
-              </Field>
-              <Field label="Frame">
-                <Select value={frame} onChange={(v) => { setFrame(v); pub('tx/dvbs2/frame', v); }} options={[{ v: 'long', l: 'Long frame' }, { v: 'short', l: 'Short frame' }]} />
-              </Field>
+              <div style={{ display: 'flex', gap: 18 }}>
+                <Field label="Frame">
+                  <Checkbox checked={frame === 'short'} onChange={(v) => { const nv = v ? 'short' : 'long'; setFrame(nv); pub('tx/dvbs2/frame', nv); }} label="Short frame" />
+                </Field>
+                <Field label="Pilots">
+                  <Checkbox checked={pilots === '1'} onChange={(v) => { const nv = v ? '1' : '0'; setPilots(nv); pub('tx/dvbs2/pilots', nv); }} label={pilots === '1' ? 'On' : 'Off'} />
+                </Field>
+              </div>
               <Field label="FIR rolloff">
                 <Select value={firFilter} onChange={(v) => { setFirFilter(v); pub('tx/dvbs2/firfilter', v); }} options={[{ v: '0', l: '0.20 (standard)' }, { v: '1', l: '0.15 (narrow)' }]} />
               </Field>
@@ -339,12 +380,17 @@ function DATV({ d, callsign }) {
                     onChange={(v) => { setTsAddr(v); if (isValidUdpAddr(v)) pub('tx/dvbs2/tssourceaddress', v); }} />
                 </Field>
               )}
+              {dv['tx/dvbs2/ts/inputbitrate'] != null && (
+                <div className="kv-grid mt">
+                  <div className="kv"><span>Input bitrate</span><b className="mono">{Math.round(parseFloat(dv['tx/dvbs2/ts/inputbitrate']) / 1000)} Kb/s</b></div>
+                </div>
+              )}
             </Card>
           )}
           <Card title="QO-100 WB bandplan" sub="Click slot → set TX frequency, SR & RX IF">
             <Field label="LNB LO" hint="Local oscillator frequency (Hz)">
               <TextInput value={String(lnbLo)}
-                onChange={(v) => { const n = parseFloat(v); if (!isNaN(n)) { setLnbLo(n); localStorage.setItem('datv_lnb_lo', n); } }}
+                onChange={(v) => { const n = parseFloat(v); if (!isNaN(n)) setLnbLo(n); }}
                 suffix="Hz" />
             </Field>
             <QO100Plan
@@ -408,6 +454,12 @@ function DATVObs({ d, callsign }) {
     ? Math.round(parseFloat(dv['tx/dvbs2/ts/bitrate']) / 1000)
     : Math.round(sr * (moduBits[modu] || 2) * fecNum(fec) * encapFactor / 1000);
   const netBitrateReal = !!dv['tx/dvbs2/ts/bitrate'];
+  // Stable estimate for the OBS push in variable (ACM) mode — see DATV()'s
+  // matching estBitrateKbps above: only moves with sr/frame, never the live
+  // fluctuating tx/dvbs2/ts/bitrate telemetry.
+  const estBitrateKbps = Math.round(sr * (moduBits[modu] || 2) * fecNum('auto') * encapFactor / 1000);
+  const fecModeVal = dv['tx/dvbs2/fecmode'] || 'fixed';
+  const pilotsVal = dv['tx/dvbs2/pilots'];
 
   const [obsIp,   setObsIp]   = useS2(() => localStorage.getItem('datv_obs_ip')   || '');
   const [obsPass, setObsPass] = useS2(() => localStorage.getItem('datv_obs_pass') || '');
@@ -415,14 +467,21 @@ function DATVObs({ d, callsign }) {
   // Status of last publish
   const [lastSent, setLastSent] = useS2(null);
 
+  // In variable FEC (ACM) mode this uses estBitrateKbps instead of the live
+  // achieved bitrate — see DATV()'s matching effect comment above. `pilotsVal`
+  // is listed explicitly so a pilots toggle still notifies OBS even though it
+  // isn't (yet) a factor in the estimate itself. Fixed mode keeps requiring
+  // real ts/bitrate telemetry to have arrived before notifying, as before.
   useE2(() => {
-    if (!obsIp || !hasStream || !dv['tx/dvbs2/ts/bitrate']) return;
-    const msg = { bitrate: netBitrateKbps, host: obsIp, mode: 'record', format: 'mpegts' };
+    if (!obsIp || !hasStream) return;
+    if (fecModeVal !== 'variable' && !dv['tx/dvbs2/ts/bitrate']) return;
+    const bitrateToSend = fecModeVal === 'variable' ? estBitrateKbps : netBitrateKbps;
+    const msg = { bitrate: bitrateToSend, host: obsIp, mode: 'record', format: 'mpegts' };
     if (obsPass) msg.password = obsPass;
-    if (tsAddr)  msg.url = `udp://${tsAddr}?pkt_size=1316&bitrate=${netBitrateKbps * 1000}`;
+    if (tsAddr)  msg.url = `udp://${tsAddr}?pkt_size=1316&bitrate=${bitrateToSend * 1000}`;
     d.publish('encoder/auto_bitrate', JSON.stringify(msg));
     setLastSent(new Date().toLocaleTimeString());
-  }, [dv['tx/dvbs2/ts/bitrate'], hasStream]);
+  }, [dv['tx/dvbs2/ts/bitrate'], hasStream, fecModeVal, estBitrateKbps, pilotsVal]);
 
   return (
     <div className="page">
@@ -823,8 +882,14 @@ function IQTape({ d }) {
   const connectWs = () => {
     if (!R.active) return;
     const host  = window._tezukaDevHost || window.location.hostname;
-    const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const ws = new WebSocket(`${proto}//${host}:8765`, 'iio-rx');
+    // iio_ws_proxy runs a plain listener on 8765 and (when TLS cert/key are
+    // present on the device) a wss:// listener on 8766 — mirrors Mosquitto's
+    // 9001/9002 ws/wss split. Browsers block ws:// from an https:// page as
+    // mixed content, so this must switch port along with the scheme.
+    const useSSL = window.location.protocol === 'https:';
+    const proto  = useSSL ? 'wss:' : 'ws:';
+    const wsPort = useSSL ? 8766 : 8765;
+    const ws = new WebSocket(`${proto}//${host}:${wsPort}`, 'iio-rx');
     ws.binaryType = 'arraybuffer';
     R.ws = ws;
     ws.onopen  = () => { if (R.onConnected) R.onConnected(true); };
@@ -927,8 +992,14 @@ function IQTape({ d }) {
     if (!R.playActive) return;
 
     const host  = window._tezukaDevHost || window.location.hostname;
-    const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const ws = new WebSocket(`${proto}//${host}:8765`, 'iio-tx');
+    // iio_ws_proxy runs a plain listener on 8765 and (when TLS cert/key are
+    // present on the device) a wss:// listener on 8766 — mirrors Mosquitto's
+    // 9001/9002 ws/wss split. Browsers block ws:// from an https:// page as
+    // mixed content, so this must switch port along with the scheme.
+    const useSSL = window.location.protocol === 'https:';
+    const proto  = useSSL ? 'wss:' : 'ws:';
+    const wsPort = useSSL ? 8766 : 8765;
+    const ws = new WebSocket(`${proto}//${host}:${wsPort}`, 'iio-tx');
     ws.binaryType = 'arraybuffer';
     R.playWs = ws;
 
@@ -1385,8 +1456,14 @@ function SigGen({ d }) {
   const connectWs = () => {
     if (!G.active) return;
     const host  = window._tezukaDevHost || window.location.hostname;
-    const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const ws = new WebSocket(`${proto}//${host}:8765`, 'iio-tx');
+    // iio_ws_proxy runs a plain listener on 8765 and (when TLS cert/key are
+    // present on the device) a wss:// listener on 8766 — mirrors Mosquitto's
+    // 9001/9002 ws/wss split. Browsers block ws:// from an https:// page as
+    // mixed content, so this must switch port along with the scheme.
+    const useSSL = window.location.protocol === 'https:';
+    const proto  = useSSL ? 'wss:' : 'ws:';
+    const wsPort = useSSL ? 8766 : 8765;
+    const ws = new WebSocket(`${proto}//${host}:${wsPort}`, 'iio-tx');
     ws.binaryType = 'arraybuffer';
     G.ws = ws;
     ws.onopen  = () => { if (G.onConnected) G.onConnected(true); if (G.iqBuf) sendBuf(ws, G.iqBuf); };
@@ -2318,27 +2395,60 @@ function Persistent({ d }) {
 }
 
 // ---- GPIO -----------------------------------------------------------------
+// /sys/class/leds names look like "led0:green" (numbered board LED, kernel
+// heartbeat trigger, color known from the label) or a bare functional name
+// like "ptt"/"lnb_power"/"lnb_18v" (indicator LEDs, no color in sysfs) — see
+// api_controller.sh's gpio/<label> publish + led_state() helper.
+const GPIO_LED_COLORS = { green: '#3ddc73', red: '#ff5252', blue: '#4da3ff', yellow: '#ffd43b', orange: '#ff9f43', amber: '#ffb238', white: '#f2f2f2' };
+
+const GPIO_LABEL_ACRONYMS = { ptt: 'PTT', lnb: 'LNB', rf: 'RF', tx: 'TX', rx: 'RX' };
+
+function describeGpioLed(name) {
+  const numbered = /^led(\d+):(\w+)$/i.exec(name);
+  if (numbered) return { label: `LED ${numbered[1]}`, color: GPIO_LED_COLORS[numbered[2].toLowerCase()] || null };
+  if (/^\d+$/.test(name)) return { label: `GPIO ${name}`, color: null };
+  const label = name.split(/[_-]+/).map((w) => {
+    const lw = w.toLowerCase();
+    if (GPIO_LABEL_ACRONYMS[lw]) return GPIO_LABEL_ACRONYMS[lw];
+    if (/^\d+v$/i.test(w)) return w.toUpperCase(); // e.g. "18v" -> "18V"
+    return w.charAt(0).toUpperCase() + w.slice(1);
+  }).join(' ');
+  return { label, color: null };
+}
+
 function GPIO({ d }) {
   const gpio = d.gpio || {};
-  const pins = Object.keys(gpio).sort((a, b) => parseInt(a) - parseInt(b));
+  // Numbered board LEDs (led0, led1, …) first in index order, then any
+  // named indicator LEDs (ptt, lnb_power, …) alphabetically.
+  const pins = Object.keys(gpio).sort((a, b) => {
+    const ma = /^led(\d+):/i.exec(a), mb = /^led(\d+):/i.exec(b);
+    if (ma && mb) return +ma[1] - +mb[1];
+    if (ma) return -1;
+    if (mb) return 1;
+    return a.localeCompare(b);
+  });
 
   const toggle = (pin) => d.publish('gpio/' + pin, gpio[pin] ? '0' : '1');
 
   return (
     <div className="page">
       <div className="grid-12">
-        <Card title="GPIO pins" sub={`gpiochip0 · ${pins.length} pin${pins.length !== 1 ? 's' : ''} reported`} className="span-12">
+        <Card title="Board LEDs" sub={`/sys/class/leds · ${pins.length} LED${pins.length !== 1 ? 's' : ''} reported`} className="span-12">
           {pins.length === 0 ? (
-            <div className="dim" style={{ padding: '12px 0', fontSize: 13 }}>No GPIO state received yet — waiting for <code>state/gpio/&lt;n&gt;</code> messages.</div>
+            <div className="dim" style={{ padding: '12px 0', fontSize: 13 }}>No LED state received yet — waiting for <code>state/gpio/&lt;name&gt;</code> messages.</div>
           ) : (
             <div className="gpio-grid">
-              {pins.map((pin) => (
-                <div key={pin} className={`gpio-pin ${gpio[pin] ? "gpio-on" : "gpio-off"}`} onClick={() => toggle(pin)}>
-                  <span className="gpio-num">GPIO {pin}</span>
-                  <span className={`gpio-dot ${gpio[pin] ? "on" : ""}`} />
-                  <span className="gpio-state">{gpio[pin] ? "ON" : "OFF"}</span>
-                </div>
-              ))}
+              {pins.map((pin) => {
+                const on = gpio[pin];
+                const { label, color } = describeGpioLed(pin);
+                return (
+                  <div key={pin} className={`gpio-pin ${on ? "gpio-on" : "gpio-off"}`} onClick={() => toggle(pin)} title={pin}>
+                    <span className="gpio-num">{label}</span>
+                    <span className={`gpio-dot ${on ? "on" : ""}`} style={on && color ? { background: color, boxShadow: `0 0 6px ${color}` } : undefined} />
+                    <span className="gpio-state">{on ? "ON" : "OFF"}</span>
+                  </div>
+                );
+              })}
             </div>
           )}
         </Card>

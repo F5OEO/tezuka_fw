@@ -52,9 +52,13 @@ function RadioPage({ d }) {
 
   // ── Helpers ─────────────────────────────────────────────────────────────
   function wsUrl() {
-    const host  = window._tezukaDevHost || window.location.hostname;
-    const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    return `${proto}//${host}:8765`;
+    // iio_ws_proxy: plain listener on 8765, wss:// listener on 8766 when the
+    // device has TLS cert/key present (mirrors Mosquitto's 9001/9002 split).
+    const host   = window._tezukaDevHost || window.location.hostname;
+    const useSSL = window.location.protocol === 'https:';
+    const proto  = useSSL ? 'wss:' : 'ws:';
+    const port   = useSSL ? 8766 : 8765;
+    return `${proto}//${host}:${port}`;
   }
 
   function applySquelch(demod, on, level) {
