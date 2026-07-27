@@ -52,6 +52,7 @@ SOURCES = [
     ('jsx', 'pages5.jsx'),
     ('jsx', 'midi.jsx'),
     ('jsx', 'webtioune.jsx'),
+    ('jsx', 'rftest.jsx'),
     ('jsx', 'app.jsx'),
 ]
 
