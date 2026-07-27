@@ -646,6 +646,7 @@ int main(int argc, char **argv)
     }
     fprintf(stderr, "ws: listening on port %d  (default fallback: iio-iq full duplex enabled)\n", A.port);
 
+#ifdef LWS_WITH_TLS
     if (access(A.cert_path, R_OK) == 0 && access(A.key_path, R_OK) == 0) {
         struct lws_context_creation_info vh_tls = {
             .vhost_name              = "tls",
@@ -665,6 +666,9 @@ int main(int argc, char **argv)
         fprintf(stderr, "wss: disabled — cert/key not readable (%s / %s)\n",
                 A.cert_path, A.key_path);
     }
+#else
+    fprintf(stderr, "wss: disabled — this board's libwebsockets was built without TLS support\n");
+#endif
 
     A.running = true;
     atomic_init(&A.wsi_rx, (uintptr_t)NULL);
