@@ -541,6 +541,37 @@ function Versions({ ver }) {
     ["Root FS", ver.rootfs, "Read-only squashfs", "ok"],
     ["libiio", ver.iio, "IIO library", "neutral"],
   ];
+
+  const [checkState, setCheckState] = useS2('idle'); // idle | checking | ok | error
+  const [latestTag, setLatestTag] = useS2(null);
+  const [checkError, setCheckError] = useS2('');
+  const [lastChecked, setLastChecked] = useS2(null);
+
+  // ver.tezuka is "tezuka-$(git describe --tags)" (see post-build.sh /
+  // S23udc) — strip the prefix so it lines up with GitHub's tag_name
+  // (e.g. "v0.3.141592653"). A build made after the last tag will carry a
+  // "-N-gHASH" suffix from git describe, so an exact-match check correctly
+  // reports "update available" for that case too (rather than falsely
+  // claiming up to date), it just can't tell "ahead of" from "behind".
+  const currentTag = (ver.tezuka || '').replace(/^tezuka-/, '');
+  const isUpToDate = latestTag != null && currentTag === latestTag;
+
+  const checkForUpdates = async () => {
+    setCheckState('checking');
+    setCheckError('');
+    try {
+      const res = await fetch('https://api.github.com/repos/F5OEO/tezuka_fw/releases/latest');
+      if (!res.ok) throw new Error(`GitHub API returned HTTP ${res.status}`);
+      const data = await res.json();
+      setLatestTag(data.tag_name || null);
+      setLastChecked(new Date());
+      setCheckState('ok');
+    } catch (e) {
+      setCheckError(e.message || 'Network error');
+      setCheckState('error');
+    }
+  };
+
   return (
     <div className="page">
       <div className="grid-12">
@@ -551,12 +582,6 @@ function Versions({ ver }) {
               <h3>{ver.model}</h3>
               <span className="mono dim">{ver.serial}</span>
             </div>
-          </div>
-          <div className="kv-grid mt">
-            <div className="kv"><span>SoC</span><b className="mono">Zynq-7020</b></div>
-            <div className="kv"><span>RF transceiver</span><b className="mono">AD9363</b></div>
-            <div className="kv"><span>GCC target</span><b className="mono">arm-linux-gnueabihf</b></div>
-            <div className="kv"><span>Build date</span><b className="mono">Mar 9 2026</b></div>
           </div>
         </Card>
 
@@ -576,12 +601,27 @@ function Versions({ ver }) {
           </table>
         </Card>
 
-        <Card title="Update" sub="Check for newer Tezuka releases" className="span-12">
+        <Card title="Update" sub="Check github.com/F5OEO/tezuka_fw for a newer release" className="span-12">
           <div className="update-row">
-            <div className="up-status"><Pill tone="ok" dot>Up to date</Pill><span className="dim">Last checked 2 min ago · channel <b className="mono">stable</b></span></div>
+            <div className="up-status">
+              {checkState === 'idle' && <Pill tone="neutral" dot>Not checked yet</Pill>}
+              {checkState === 'checking' && <Pill tone="neutral" dot>Checking…</Pill>}
+              {checkState === 'error' && <Pill tone="warn" dot>Check failed</Pill>}
+              {checkState === 'ok' && <Pill tone={isUpToDate ? 'ok' : 'warn'} dot>{isUpToDate ? 'Up to date' : 'Update available'}</Pill>}
+              <span className="dim">
+                {checkState === 'error' && checkError}
+                {checkState === 'ok' && !isUpToDate && `Latest ${latestTag} · running ${currentTag || '—'}`}
+                {checkState === 'ok' && isUpToDate && `Running ${currentTag}`}
+                {checkState === 'ok' && lastChecked && ` · checked ${lastChecked.toLocaleTimeString()}`}
+              </span>
+            </div>
             <div className="ab-btns">
-              <button className="btn ghost"><Icon name="refresh" size={15} />Check for updates</button>
-              <button className="btn ghost"><Icon name="upload" size={15} />Install from file</button>
+              <button className="btn ghost" onClick={checkForUpdates} disabled={checkState === 'checking'}>
+                <Icon name="refresh" size={15} />{checkState === 'checking' ? 'Checking…' : 'Check for updates'}
+              </button>
+              <a className="btn ghost" href="https://github.com/F5OEO/tezuka_fw/releases/latest" target="_blank" rel="noopener noreferrer">
+                <Icon name="upload" size={15} />View releases
+              </a>
             </div>
           </div>
         </Card>
@@ -661,15 +701,6 @@ function Network({ d }) {
             </div>
             <Field label="Base topic"><TextInput value="state/#" onChange={() => {}} /></Field>
             <div className="mqtt-status"><Pill tone={d.mqtt ? "ok" : "warn"} dot>{d.mqtt ? "Connected" : "Offline"}</Pill><span className="dim mono">{d.mqttHost || '—'}</span></div>
-          </Card>
-          <Card title="Service ports" pad={false}>
-            <table className="ver-table compact">
-              <tbody>
-                {[["HTTP", "80"], ["RTSP", "554"], ["RTMP", "1935"], ["SSH", "22"], ["MQTT", "1883"]].map(([n, p]) => (
-                  <tr key={n}><td className="vt-name">{n}</td><td className="mono" style={{ textAlign: "right" }}>{p}</td></tr>
-                ))}
-              </tbody>
-            </table>
           </Card>
         </div>
 
