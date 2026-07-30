@@ -14,7 +14,7 @@ const VER = {
 
 const NAV = [
   { group: null, items: [["dashboard", "Dashboard", "dashboard"]] },
-  { group: "RF", items: [["spectrum", "Spectrum", "spectrum"], ["arch", "Architecture", "chip"]] },
+  { group: "RF", items: [["spectrum", "Spectrum", "spectrum"], ["arch", "Architecture", "chip"], ["maiasdr", "Maia SDR", "wave"]] },
   { group: "Application", items: [["datv", "DATV Controller", "datv", [["analysis", "Analysis", "analysis", true], ["obs", "OBS Encoder", "monitor"], ["webtioune", "Webtioune", "play"]]], ["transverter", "Transverter", "transverter"], ["iqtape", "IQ Tape", "tape"], ["siggen", "Signal generator", "wave"], ["rftest", "RF Test Frequencies", "rf"], ["radio", "Radio", "headphone"]] },
   { group: "System", items: [["versions", "Versions", "versions"], ["network", "Network", "network"], ["diagnostic", "Diagnostic", "pulse"], ["calibrate", "Calibrate", "target", [["kalibrate", "Kalibrate", "search"]]], ["performance", "Performance", "chip"], ["gpio", "GPIO", "circuit"], ["persistent", "Persistent", "save"], ["gps", "GPS", "mappin"], ["midi", "MIDI controller", "sliders"], ["reboot", "Reboot", "power"]] },
   { group: "Documentation", items: [["docs", "Documentation", "book"]] },
@@ -34,6 +34,10 @@ function Sidebar({ route, setRoute, collapsed, labels, operator }) {
       <a className="brand" href="https://github.com/F5OEO/tezuka_fw" target="_blank" rel="noopener noreferrer">
         <div className="brand-mark"><Icon name="wave" size={20} /></div>
         {!collapsed && <div className="brand-text">Tezuka<span>SDR control · by F5OEO</span></div>}
+      </a>
+      <a className="sb-donate" href="https://www.paypal.com/paypalme/f5oeo" target="_blank" rel="noopener noreferrer" title="Support this project via PayPal">
+        <Icon name="heart" size={16} />
+        {!collapsed && <span>Donate</span>}
       </a>
       <nav className="nav">
         {NAV.map((sec, i) => (
@@ -79,7 +83,7 @@ function Sidebar({ route, setRoute, collapsed, labels, operator }) {
   );
 }
 
-const TITLES = { dashboard: "Dashboard", spectrum: "Spectrum", datv: "DATV Controller", obs: "OBS Encoder", webtioune: "Webtioune", rftest: "RF Test Frequencies", transverter: "Transverter", iqtape: "IQ Tape", siggen: "Signal generator", radio: "Radio", calibrate: "Calibrate", analysis: "Analysis", arch: "Architecture", versions: "Versions & system", network: "Network", diagnostic: "Diagnostic", kalibrate: "Kalibrate from RF", performance: "Performance", gpio: "GPIO", persistent: "Persistent storage", gps: "GPS", midi: "MIDI controller", reboot: "Reboot", operator: "Operator", docs: "Documentation" };
+const TITLES = { dashboard: "Dashboard", spectrum: "Spectrum", datv: "DATV Controller", obs: "OBS Encoder", webtioune: "Webtioune", rftest: "RF Test Frequencies", maiasdr: "Maia SDR", transverter: "Transverter", iqtape: "IQ Tape", siggen: "Signal generator", radio: "Radio", calibrate: "Calibrate", analysis: "Analysis", arch: "Architecture", versions: "Versions & system", network: "Network", diagnostic: "Diagnostic", kalibrate: "Kalibrate from RF", performance: "Performance", gpio: "GPIO", persistent: "Persistent storage", gps: "GPS", midi: "MIDI controller", reboot: "Reboot", operator: "Operator", docs: "Documentation" };
 
 function Topbar({ onMenu, route, mqtt, ver }) {
   return (
@@ -148,6 +152,7 @@ function App() {
       case "obs": return <DATVObs d={d} callsign={op.callsign} />;
       case "webtioune": return <Webtioune d={d} />;
       case "arch": return <Architecture d={d} />;
+      case "maiasdr": return <MaiaSdr />;
       case "versions": return <Versions ver={ver} />;
       case "network": return <Network d={d} />;
       case "diagnostic": return <Diagnostic d={d} />;

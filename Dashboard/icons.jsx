@@ -39,6 +39,7 @@ function Icon({ name, size = 20 }) {
     mappin: <><path d="M21 10c0 7-9 13-9 13S3 17 3 10a9 9 0 0 1 18 0z" /><circle cx="12" cy="10" r="3" /></>,
     headphone: <><path d="M3 18v-6a9 9 0 0 1 18 0v6" /><path d="M21 19a2 2 0 0 1-2 2h-1a2 2 0 0 1-2-2v-3a2 2 0 0 1 2-2h3z" /><path d="M3 19a2 2 0 0 0 2 2h1a2 2 0 0 0 2-2v-3a2 2 0 0 0-2-2H3z" /></>,
     sliders: <><path d="M5 21V13M5 9V3" /><path d="M12 21v-6M12 11V3" /><path d="M19 21v-4M19 13V3" /><circle cx="5" cy="11" r="2" /><circle cx="12" cy="9" r="2" /><circle cx="19" cy="15" r="2" /></>,
+    heart: <><path d="M12 21s-7.5-4.6-10-9.3C.4 8.3 2 5 5.2 5 7.2 5 9 6.1 12 9c3-2.9 4.8-4 6.8-4C22 5 23.6 8.3 22 11.7 19.5 16.4 12 21 12 21z" /></>,
   };
   return <svg {...p}>{paths[name] || null}</svg>;
 }

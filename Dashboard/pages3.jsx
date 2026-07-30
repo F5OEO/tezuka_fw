@@ -222,4 +222,21 @@ function Architecture({ d }) {
   );
 }
 
+// ---- Maia SDR (embedded native web UI) -------------------------------------
+// The Maia-SDR waterfall UI (package/maia-wasm) is a separate app served by
+// maia-httpd at /waterfall/ — this page just frames it in an iframe, it
+// doesn't duplicate any of its functionality.
+function MaiaSdr() {
+  return (
+    <div className="page">
+      <div className="grid-12">
+        <Card title="Maia SDR" sub="Native Maia-SDR web UI, served at /waterfall/" className="span-12" pad={false}>
+          <iframe src="/waterfall/" title="Maia SDR" className="maiasdr-frame" />
+        </Card>
+      </div>
+    </div>
+  );
+}
+
 window.Architecture = Architecture;
+window.MaiaSdr = MaiaSdr;

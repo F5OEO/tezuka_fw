@@ -85,6 +85,9 @@ body {
 .nav-child { font-size: 13px; padding-left: 14px; color: var(--dim-2); }
 .nav-child .nav-bar { left: -16px; }
 .collapsed .nav-item { justify-content: center; }
+.sb-donate { display: flex; align-items: center; gap: 10px; margin: 4px 12px 8px; padding: 8px 10px; border-radius: var(--r-sm); color: var(--dim); text-decoration: none; transition: background .15s, color .15s; border-bottom: 1px solid var(--border-soft); }
+.sb-donate:hover { background: var(--panel); color: var(--c-pink); }
+.collapsed .sb-donate { justify-content: center; }
 .sb-user { display: flex; align-items: center; gap: 6px; padding: 10px 12px; border-top: 1px solid var(--border-soft); }
 .sb-userbtn { flex: 1; min-width: 0; display: flex; align-items: center; gap: 10px; background: none; border: none; padding: 6px; border-radius: var(--r-sm); cursor: pointer; color: inherit; text-align: left; transition: background .15s; }
 .sb-userbtn:hover { background: var(--panel); }
@@ -128,6 +131,8 @@ body {
 .mqtt-chip.up { color: var(--ok); border-color: color-mix(in oklab, var(--ok) 30%, transparent); }
 .mqtt-chip.up i { background: var(--ok); box-shadow: 0 0 8px var(--ok); animation: pulse 2s infinite; }
 @keyframes pulse { 50% { opacity: 0.4; } }
+
+.maiasdr-frame { width: 100%; height: calc(100vh - 220px); min-height: 500px; border: none; display: block; }
 
 /* ---- Grid + cards ---- */
 .page { opacity: 1; }
