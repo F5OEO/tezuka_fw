@@ -22,11 +22,13 @@ ___________                  __
 </header>
 
 <nav>
-  <a class="btn" id="sweep-link" href="sweep/index.html">SweepFFT</a>
-  <a class="btn" href="waterfall/">Maia SDR</a>
-  <a class="btn" href="/view/api/maiasdr/maiasdr/recording">IQEngine</a>
-  <a class="btn" href="dash/index.html">Dashboard</a>
-  <a class="btn-secondary" href="https://github.com/F5OEO/tezuka_fw/discussions">Support</a>
+  <!-- info.html is only ever viewed either offline from the mounted USB
+       drive, or live over the USB gadget link itself — plain relative
+       paths don't resolve in the offline case (these subpaths aren't part
+       of the USB drive image), so every link here is absolute against the
+       device's own USB IP (#IP#, filled in at boot by S40network). -->
+  <a class="btn" href="http://#IP#/index.html">Dashboard</a>     
+  <a class="btn" href="http://#IP#/waterfall/">Maia SDR</a>
   <a class="btn-secondary" href="https://github.com/F5OEO/tezuka_fw/blob/main/LICENSE">License</a>
 </nav>
 
@@ -69,16 +71,6 @@ ___________                  __
   var ethCell = document.getElementById('eth-ip');
   if (ethCell && !ethCell.textContent.trim()) {
     ethCell.textContent = window.location.hostname;
-  }
-
-  // SweepFFT uses ws:// to mosquitto:9001. When the landing page is served
-  // over https, the browser blocks mixed content. Force the SweepFFT link
-  // to http:// so the sweep page itself runs plain-http and ws:// works.
-  // Tag the link with ?from=https so sweep's Back button can return to
-  // https (browsers strip Referer on https->http so that hint is gone).
-  var sweepLink = document.getElementById('sweep-link');
-  if (sweepLink && window.location.protocol === 'https:') {
-    sweepLink.href = 'http://' + window.location.hostname + '/sweep/?from=https';
   }
 </script>
 
