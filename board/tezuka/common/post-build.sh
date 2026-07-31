@@ -68,8 +68,6 @@ INSTALL=install
 rm -Rf "${TARGET_DIR}/etc/dropbear"
 
 mkdir -p "${TARGET_DIR}/root/img"
-mkdir -p "${TARGET_DIR}/root/sweep"
-mkdir -p "${TARGET_DIR}/root/dash"
 mkdir -p "${TARGET_DIR}/mnt/jffs2"
 mkdir -p "${TARGET_DIR}/mnt/msd"
 mkdir -p "${TARGET_DIR}/mnt/nfs"
@@ -78,9 +76,17 @@ mkdir -p "${TARGET_DIR}/etc/dropbear"
 mkdir -p "${TARGET_DIR}/var/spool/cron/crontabs"
 
 ${INSTALL} -D -m 0644 "${BOARD_DIR}/msd/img/"* "${TARGET_DIR}/root/img/"
-${INSTALL} -D -m 0644 "${BOARD_DIR}/msd/sweep/"* "${TARGET_DIR}/root/sweep/"
-python3 "${BOARD_DIR}/../../../Dashboard/bundle.py" "${TARGET_DIR}/root/dash/index.html"
-${INSTALL} -D -m 0644 "${BOARD_DIR}/msd/"*.* "${TARGET_DIR}/root/"
+# Static landing page — patched with #MODEL#/#SERIAL#/#IP#/etc by S40network
+# and S45msd at boot, then copied onto the USB mass-storage image as
+# info.html. Kept as a *static* page deliberately: unlike the live "/" page
+# below (reached over the network, where a real hostname exists), info.html
+# is opened offline from a mounted USB drive with no path back to this
+# device's MQTT broker — the live Dashboard's auto-connect would just throw
+# on an empty-host WebSocket URL and render nothing.
+${INSTALL} -D -m 0644 "${BOARD_DIR}/msd/index.html" "${TARGET_DIR}/root/info.html"
+# Dashboard is now the served root page ("/"), replacing the old static
+# landing page that used to link out to it from dash/index.html.
+python3 "${BOARD_DIR}/../../../Dashboard/bundle.py" "${TARGET_DIR}/root/index.html"
 
 ln -sf ../../wpa_supplicant/ifupdown.sh "${TARGET_DIR}/etc/network/if-up.d/wpasupplicant"
 ln -sf ../../wpa_supplicant/ifupdown.sh "${TARGET_DIR}/etc/network/if-down.d/wpasupplicant"
