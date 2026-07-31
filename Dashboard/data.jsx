@@ -2,7 +2,7 @@
 const { useState: useStateD, useEffect: useEffectD, useRef: useRefD, useCallback: useCBD } = React;
 
 // Set to the device IP for local development; leave null to use window.location.hostname (on-device)
-const MQTT_DEV_HOST = '10.0.0.56';
+const MQTT_DEV_HOST = '10.0.0.59';
 // Exposed for use in other pages (e.g. spectrum WebSocket)
 window._tezukaDevHost = MQTT_DEV_HOST || window.location.hostname;
 
@@ -111,6 +111,9 @@ function applyMqtt(prev, path, raw) {
     case 'system/kalibrate/log':        return { ...prev, kalibrateLog: [...prev.kalibrateLog, raw] };
     case 'system/gps/fix':             return { ...prev, gpsfix: raw };
     case 'system/gps/locator':         return { ...prev, gpsLocator: raw };
+    case 'operator/name':               return { ...prev, opName: raw };
+    case 'operator/callsign':           return { ...prev, opCallsign: raw };
+    case 'operator/locator':            return { ...prev, opLocator: raw };
     default:                    return prev;
   }
 }

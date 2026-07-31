@@ -217,6 +217,12 @@ dump_data () {
   [ -n "$_fpga_ver" ]    && publish "main/fpga"       "$_fpga_ver"
   [ -n "$IIO_VERSION" ] && publish "main/iio" "$IIO_VERSION"
 
+  # Station identity — device is the source of truth (u-boot env), the
+  # Dashboard's Operator page reflects these instead of its own localStorage.
+  publish "operator/name"     "$(fw_printenv -n operator_name 2>/dev/null)"
+  publish "operator/callsign" "$(fw_printenv -n call          2>/dev/null)"
+  publish "operator/locator"  "$(fw_printenv -n locator       2>/dev/null)"
+
   local _iface _cidr _prefix _mac _gw _dns
   publish "net/hostname" "$(hostname 2>/dev/null || echo 'n/a')"
   _gw=$(ip route show default 2>/dev/null | awk '/default/{print $3; exit}')
@@ -748,10 +754,22 @@ parse_cmd () {
       ( fw_setenv overclock_profile "$val" 2>/dev/null
         /usr/bin/mosquitto_pub -r -i "tezuka_oc" -t "state/system/overclock" -m "$val" ) &
     ;;
-    pluto/call)
-      [[ "$val" =~ ^[a-zA-Z0-9/_-]+$ ]] || return
+    operator/name)
+      [[ "$val" =~ ^[a-zA-Z0-9\ ._-]*$ ]] || return
+      fw_setenv operator_name "$val" 2>/dev/null &
+      publish_force "operator/name" "$val"
+    ;;
+    operator/callsign)
+      # No "/" — it's a topic-level separator and this gets embedded in
+      # pluto/<callsign>/... topics.
+      [[ "$val" =~ ^[a-zA-Z0-9_-]*$ ]] || return
       fw_setenv call "$val" 2>/dev/null &
-      publish_force "call" "$val"
+      publish_force "operator/callsign" "$val"
+    ;;
+    operator/locator)
+      [[ "$val" =~ ^[a-zA-Z0-9]*$ ]] || return
+      fw_setenv locator "$val" 2>/dev/null &
+      publish_force "operator/locator" "$val"
     ;;
     gpio/*)
       local led="${cmd#gpio/}"

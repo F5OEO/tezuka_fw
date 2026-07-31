@@ -75,7 +75,7 @@ function Sidebar({ route, setRoute, collapsed, labels, operator }) {
       <div className="sb-user">
         <button className={`sb-userbtn ${route === "operator" ? "active" : ""}`} onClick={() => setRoute("operator")} title="Operator profile">
           <div className="sb-avatar"><Icon name="user" size={18} /></div>
-          {!collapsed && <div className="sb-uinfo"><b>{operator.name}</b><span className="mono">{operator.callsign}</span></div>}
+          {!collapsed && <div className="sb-uinfo"><b>{operator.name}</b><span className="mono">{operator.callsign || "SWL-Anonymous"}</span></div>}
         </button>
         {!collapsed && <button className="sb-logout"><Icon name="power" size={16} /></button>}
       </div>
@@ -105,11 +105,11 @@ function App() {
   const [t, setTweak] = useTweaks(TWEAK_DEFAULTS);
   const [route, setRoute] = useA(() => location.hash.replace("#", "") || "dashboard");
   const [collapsed, setCollapsed] = useA(false);
-  const [operator, setOperator] = useA(() => {
-    try { return JSON.parse(localStorage.getItem("tezuka.operator")) || null; } catch (e) { return null; }
-  });
-  const op = operator || { name: "", callsign: "", locator: "" };
   const d = useLiveData(true);
+  // Station identity lives on the device (u-boot env), not in the browser —
+  // the Operator page reflects state/operator/* instead of localStorage.
+  const op = { name: d.opName || "", callsign: d.opCallsign || "", locator: d.opLocator || "" };
+  const needsOperator = d.mqtt && !op.callsign;
   // MIDI handling is scoped per-page for now (starting with SpectrumPage),
   // not run globally — see midi.jsx. The MIDI status page calls the hook
   // itself so it still works as a standalone diagnostic screen.
@@ -127,8 +127,6 @@ function App() {
     fpga:   d.fpgaVersion      || VER.fpga,
   };
 
-  useAE(() => { if (operator) localStorage.setItem("tezuka.operator", JSON.stringify(operator)); }, [operator]);
-
   useAE(() => { location.hash = route; }, [route]);
   useAE(() => {
     const r = document.documentElement;
@@ -138,7 +136,7 @@ function App() {
   }, [t.accent, t.accent2, t.density]);
 
   const page = () => {
-    if (!operator) return <Operator d={d} operator={op} onSave={setOperator} />;
+    if (needsOperator) return <Operator d={d} operator={op} />;
     switch (route) {
       case "dashboard": return <Dashboard d={d} ver={ver} />;
       case "spectrum": return <SpectrumPage d={d} />;
@@ -163,7 +161,7 @@ function App() {
       case "gps": return <GpsPage d={d} />;
       case "midi": return <MidiPage d={d} />;
       case "reboot": return <Reboot d={d} ver={ver} />;
-      case "operator": return <Operator d={d} operator={op} onSave={setOperator} />;
+      case "operator": return <Operator d={d} operator={op} />;
       case "radio": return <RadioPage d={d} />;
       case "docs": return <Documentation />;
       default: return <Dashboard d={d} ver={ver} />;

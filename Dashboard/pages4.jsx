@@ -616,7 +616,7 @@ const DOCS = {
         id: 'operator',
         icon: 'user',
         title: 'Operator',
-        desc: 'Station identity stored in localStorage. Used as the DATV callsign and displayed in the sidebar.',
+        desc: 'Station identity stored on the device (u-boot env, via state/operator/*). Used as the DATV callsign and displayed in the sidebar.',
         groups: [
           {
             title: 'Profile card',
@@ -1347,7 +1347,7 @@ const DOCS = {
         id: 'operator',
         icon: 'user',
         title: 'Opérateur',
-        desc: 'Identité de la station stockée dans localStorage. Utilisée comme callsign DATV et affichée dans la barre latérale.',
+        desc: 'Identité de la station stockée sur l\'appareil (env u-boot, via state/operator/*). Utilisée comme callsign DATV et affichée dans la barre latérale.',
         groups: [
           {
             title: 'Carte Profil',

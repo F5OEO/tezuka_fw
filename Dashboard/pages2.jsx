@@ -1,5 +1,5 @@
 // pages2.jsx — DATV Controller, Versions, Analysis, Network
-const { useState: useS2, useEffect: useE2 } = React;
+const { useState: useS2, useEffect: useE2, useRef: useR2 } = React;
 
 // useState backed by localStorage: initial value comes from the last saved
 // browser value (falling back to `initial` if never saved), and every
@@ -2114,20 +2114,35 @@ function Reboot({ d, ver }) {
 }
 
 // ---- Operator -------------------------------------------------------------
-function Operator({ d, operator, onSave }) {
+function Operator({ d, operator }) {
   const [name, setName] = useS2(operator.name);
   const [callsign, setCallsign] = useS2(operator.callsign);
   const [locator, setLocator] = useS2(operator.locator);
   const [saved, setSaved] = useS2(false);
   const [rebootNeeded, setRebootNeeded] = useS2(false);
   const dirty = name !== operator.name || callsign !== operator.callsign || locator !== operator.locator;
+  // Re-sync local edit fields whenever the device reports new values (first
+  // connect — these arrive after mount, once MQTT retained state lands — or
+  // a change made from elsewhere). Comparing against the *previous* synced
+  // snapshot rather than the live `operator` prop matters: right after new
+  // values arrive, the fields still hold the old ones, so they briefly look
+  // "dirty" against the new prop even though the user never touched them —
+  // that stale comparison would otherwise block the very sync that fixes it.
+  const lastSyncedRef = useR2({ name: operator.name, callsign: operator.callsign, locator: operator.locator });
+  useE2(() => {
+    const untouched = name === lastSyncedRef.current.name && callsign === lastSyncedRef.current.callsign && locator === lastSyncedRef.current.locator;
+    if (untouched) { setName(operator.name); setCallsign(operator.callsign); setLocator(operator.locator); }
+    lastSyncedRef.current = { name: operator.name, callsign: operator.callsign, locator: operator.locator };
+  }, [operator.name, operator.callsign, operator.locator]);
   const save = () => {
     const call = callsign.toUpperCase();
+    if (name !== operator.name) d.publish('operator/name', name);
     if (call !== operator.callsign) {
-      d.publish('pluto/call', call);
+      d.publish('operator/callsign', call);
       setRebootNeeded(true);
     }
-    onSave({ name, callsign: call, locator });
+    if (locator !== operator.locator) d.publish('operator/locator', locator);
+    setCallsign(call);
     setSaved(true); setTimeout(() => setSaved(false), 1800);
   };
   const reset = () => { setName(operator.name); setCallsign(operator.callsign); setLocator(operator.locator); };
@@ -2145,7 +2160,7 @@ function Operator({ d, operator, onSave }) {
         <Card title="Operator profile" sub="Edit your station details" className="span-7">
           <div className="form-grid">
             <Field label="Operator name"><TextInput value={name} onChange={setName} mono={false} /></Field>
-            <Field label="Callsign" hint="Requires a device reboot to take effect"><TextInput value={callsign} onChange={setCallsign} /></Field>
+            <Field label="Callsign" hint="Requires a device reboot to take effect · no &quot;/&quot; (MQTT topic separator)"><TextInput value={callsign} onChange={(v) => setCallsign(v.replace(/\//g, ''))} /></Field>
             <div style={{ gridColumn: "1 / -1" }}>
               <Field label="Grid locator" hint="Maidenhead locator · e.g. JN18cv">
                 <TextInput value={locator} onChange={setLocator} />
@@ -2168,7 +2183,7 @@ function Operator({ d, operator, onSave }) {
             <div className="op-avatar"><Icon name="user" size={28} /></div>
             <div className="op-id">
               <b>{operator.name}</b>
-              <span className="mono">{operator.callsign}</span>
+              <span className="mono">{operator.callsign || "SWL-Anonymous"}</span>
               <span className="mono dim">Locator {operator.locator}</span>
             </div>
           </div>
