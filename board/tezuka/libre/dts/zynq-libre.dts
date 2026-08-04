@@ -62,11 +62,13 @@
         #size-cells = <1>;
         ranges;
 
-        // Core present in Build A
-        my_custom_ip@43c00000 {
-            compatible = "tezuka,vcxoctrl1";
+        // vcxoctrl is present
+        vcxoctrl@43c00000 {
+            compatible = "tezuka,antsdr";
             reg = <0x43c00000 0x1000>;
             status = "okay";
+
+			tezuka,mode = "pps", "10mhz";
         };
 
        
