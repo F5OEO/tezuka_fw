@@ -35,6 +35,12 @@
 			gpios = <&gpio0 107 0>;
 			linux,default-trigger = "heartbeat";
 		};
+
+		led2 {
+			label = "ptt";
+			gpios = <&gpio0 74 0>;
+			default-state = "off";
+		};
 	};
     gpio_keys {
 		compatible = "gpio-keys";
@@ -49,4 +55,20 @@
 		};
 
 	};
+
+	amba_pl: amba_pl@0 {
+        compatible = "simple-bus";
+        #address-cells = <1>;
+        #size-cells = <1>;
+        ranges;
+
+        // Core present in Build A
+        my_custom_ip@43c00000 {
+            compatible = "tezuka,vcxoctrl1";
+            reg = <0x43c00000 0x1000>;
+            status = "okay";
+        };
+
+       
+    };
 };
