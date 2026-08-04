@@ -114,6 +114,14 @@ function applyMqtt(prev, path, raw) {
     case 'operator/name':               return { ...prev, opName: raw };
     case 'operator/callsign':           return { ...prev, opCallsign: raw };
     case 'operator/locator':            return { ...prev, opLocator: raw };
+    case 'system/clkref/source':         return { ...prev, clkrefSource: raw };
+    case 'system/clkref/lock':           return { ...prev, clkrefLock: raw };
+    case 'system/clkref/frequency':      return { ...prev, clkrefFrequency: raw };
+    case 'system/clkref/correction': {
+      const v = parseFloat(raw);
+      if (!isFinite(v)) return { ...prev, clkrefCorrection: raw };
+      return { ...prev, clkrefCorrection: raw, clkrefCorrH: [...prev.clkrefCorrH.slice(1), v] };
+    }
     default:                    return prev;
   }
 }
@@ -128,7 +136,7 @@ function useLiveData(running = true) {
     rfLevel: 0, lock: false, ber: 0,
     tsBitrate: 0, rxRate: 0, txRate: 0,
     cpuH: zeros, memH: zeros, tempH: zeros, fpgaH: zeros,
-    tsH: zeros, rxH: zeros, txH: zeros, rfH: zeros,
+    tsH: zeros, rxH: zeros, txH: zeros, rfH: zeros, clkrefCorrH: zeros,
     uptime: 0, mqtt: false, datv: {},
     rxFreq: null, txFreq: null,
     rxSampling: null, txSampling: null,

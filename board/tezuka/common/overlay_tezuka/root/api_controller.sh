@@ -21,6 +21,22 @@ IIO_VERSION=$(iio_info --version 2>/dev/null | awk 'NR==1{print $3; exit}')
 XO_BASE=$(<"${folder}xo_correction" 2>/dev/null)
 XO_BASE=${XO_BASE:-40000000}
 
+# axi_vcxo_ctrl reference-discipline IP — present only on some boards
+# (currently libre). Detected once from the live devicetree, base address
+# taken from the node name itself (vcxoctrl@<hex base>), rather than
+# assumed — boards without this node/status=okay just get VCXO_BASE="" and
+# fall back to the old refclk_source-only reporting in dump_data().
+VCXO_BASE=""
+for _vn in /sys/firmware/devicetree/base/amba_pl@0/vcxoctrl@*; do
+  [ -e "$_vn" ] || continue
+  _vst=$(tr -d '\0' < "$_vn/status" 2>/dev/null)
+  if [ "$_vst" = "okay" ] || [ "$_vst" = "ok" ]; then
+    VCXO_BASE="0x${_vn##*@}"
+  fi
+  break
+done
+unset _vn _vst
+
 _init_freq=$(<"${folder}out_altvoltage0_RX_LO_frequency" 2>/dev/null)
 _init_sr=$(<"${folder}in_voltage_sampling_frequency" 2>/dev/null)
 echo "${_init_freq:-280000000}" > /tmp/sweep_frequency
@@ -222,6 +238,59 @@ dump_data () {
   publish "operator/name"     "$(fw_printenv -n operator_name 2>/dev/null)"
   publish "operator/callsign" "$(fw_printenv -n call          2>/dev/null)"
   publish "operator/locator"  "$(fw_printenv -n locator       2>/dev/null)"
+
+  # Reference clock status. On boards with the axi_vcxo_ctrl IP (VCXO_BASE
+  # set at startup — see top of file), read real registers per
+  # vcxodac.md: 0x10 lock/classification bits, 0x08 live DAC setpoint
+  # (the loop's actual correction output). Boards without the IP fall back
+  # to the old refclk_source-only reporting (no real lock-detect there).
+  if [ -n "$VCXO_BASE" ]; then
+    local _v10 _v08
+    _v10=$(devmem "$(( VCXO_BASE + 0x10 ))" 32 2>/dev/null)
+    _v08=$(devmem "$(( VCXO_BASE + 0x08 ))" 32 2>/dev/null)
+
+    if [[ "$_v10" =~ ^(0x)?[0-9a-fA-F]+$ ]]; then
+      local _ref_is_10m=$(( ($_v10 >> 2) & 1 ))
+      local _ref_is_pps=$(( ($_v10 >> 3) & 1 ))
+      if   [ "$_ref_is_10m" = "1" ]; then
+        publish "system/clkref/source" "10mhz"
+        local _v14; _v14=$(devmem "$(( VCXO_BASE + 0x14 ))" 32 2>/dev/null)
+        if [[ "$_v14" =~ ^(0x)?[0-9a-fA-F]+$ ]] && [ "$(( _v14 ))" -gt 0 ]; then
+          publish "system/clkref/frequency" "$(( 200000000 / _v14 ))"
+        else
+          publish "system/clkref/frequency" "n/a"
+        fi
+      elif [ "$_ref_is_pps" = "1" ]; then
+        publish "system/clkref/source"    "pps"
+        publish "system/clkref/frequency" "1"
+      else
+        publish "system/clkref/source"    "none"
+        publish "system/clkref/frequency" "n/a"
+      fi
+      publish "system/clkref/lock" "$(( _v10 & 1 ))"
+    else
+      publish "system/clkref/source"    "n/a"
+      publish "system/clkref/frequency" "n/a"
+      publish "system/clkref/lock"      "0"
+    fi
+
+    if [[ "$_v08" =~ ^(0x)?[0-9a-fA-F]+$ ]]; then
+      publish "system/clkref/correction" "$(( _v08 & 0xFFFF ))"
+    else
+      publish "system/clkref/correction" "n/a"
+    fi
+  else
+    local _clkref_src; _clkref_src=$(fw_printenv -n refclk_source 2>/dev/null)
+    _clkref_src=${_clkref_src:-internal}
+    publish "system/clkref/source"      "$_clkref_src"
+    if [ "$_clkref_src" = "external" ]; then
+      publish "system/clkref/lock"      "0"
+    else
+      publish "system/clkref/lock"      "1"
+    fi
+    publish "system/clkref/frequency"   "n/a"
+    publish "system/clkref/correction"  "n/a"
+  fi
 
   local _iface _cidr _prefix _mac _gw _dns
   publish "net/hostname" "$(hostname 2>/dev/null || echo 'n/a')"

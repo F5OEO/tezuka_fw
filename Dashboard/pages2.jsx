@@ -2579,4 +2579,72 @@ function GpsPage({ d }) {
   );
 }
 
-Object.assign(window, { DATV, Versions, Analysis, Network, Transverter, IQTape, SigGen, Calibrate, Diagnostic, Reboot, Operator, Kalibrate, Persistent, Performance, GPIO, GpsPage });
+// ---- Clock reference -------------------------------------------------------
+const CLKREF_SOURCE_LABELS = {
+  '10mhz': '10 MHz reference (CLKIN)',
+  pps: 'PPS (1 Hz)',
+  none: 'No reference detected',
+  internal: 'Internal TCXO',
+  external: 'External reference',
+};
+
+function fmtClkrefFreq(freq) {
+  const hz = parseFloat(freq);
+  if (!(hz > 0)) return '—';
+  if (hz >= 1e6) return `${(hz / 1e6).toFixed(6)} MHz`;
+  if (hz >= 1e3) return `${(hz / 1e3).toFixed(3)} kHz`;
+  return `${hz} Hz`;
+}
+
+function ClockRef({ d }) {
+  const source = d.clkrefSource || '';
+  const locked = d.clkrefLock === '1';
+  const freq = d.clkrefFrequency;
+  const corr = d.clkrefCorrection;
+  const hasFreq = freq && freq !== 'n/a';
+  const hasCorr = corr && corr !== 'n/a';
+  const sourceLabel = CLKREF_SOURCE_LABELS[source] || source || '—';
+
+  return (
+    <div className="page">
+      <div className="datv-head">
+        <div className="datv-title">
+          <h1>Reference Clock</h1>
+          <span className="datv-sub mono">VCTCXO reference-discipline loop status (axi_vcxo_ctrl)</span>
+        </div>
+      </div>
+
+      <div className="grid-12">
+        <Card title="Reference clock" sub="Lock state, source, and discipline status" className="span-12">
+          <div style={{ display: "flex", alignItems: "center", gap: "2em", flexWrap: "wrap" }}>
+            <Field label="Lock status">
+              <Pill tone={locked ? "ok" : "warn"} dot>{locked ? "Locked" : "No lock"}</Pill>
+            </Field>
+            <Field label="Source">
+              <span className="mono">{sourceLabel}</span>
+            </Field>
+            <Field label="Reference input frequency" hint="Nominal, from the loop's configured expected period — not a live frequency count">
+              <span className="mono">{hasFreq ? fmtClkrefFreq(freq) : '—'}</span>
+            </Field>
+            <Field label="Correction" hint="Live 16-bit VCTCXO DAC setpoint">
+              <span className="mono">{hasCorr ? corr : '—'}</span>
+            </Field>
+          </div>
+          {!hasCorr && (
+            <div style={{ marginTop: 16 }}>
+              <Pill tone="neutral" dot>No axi_vcxo_ctrl hardware detected on this board — reporting refclk_source only</Pill>
+            </div>
+          )}
+        </Card>
+
+        {hasCorr && (
+          <Card title="DAC correction" sub="Live VCTCXO DAC setpoint over time (60-point history, 1 sample/poll)" className="span-12">
+            <StreamChart fmt={(v) => v.toFixed(0)} series={[{ data: d.clkrefCorrH, color: "var(--c-purple)", label: "Correction" }]} />
+          </Card>
+        )}
+      </div>
+    </div>
+  );
+}
+
+Object.assign(window, { DATV, Versions, Analysis, Network, Transverter, IQTape, SigGen, Calibrate, Diagnostic, Reboot, Operator, Kalibrate, Persistent, Performance, GPIO, GpsPage, ClockRef });
