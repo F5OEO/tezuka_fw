@@ -1,7 +1,7 @@
 config BR2_PACKAGE_SOAPYPLUTOSDR
 	bool "soapyplutosdr"
 	depends on BR2_TOOLCHAIN_HAS_THREADS
-	depends on BR2_PACKAGE_SOAPY_SDR
+	depends on BR2_PACKAGE_SOAPYSDR
 	select BR2_PACKAGE_LIBIIO
 	select BR2_PACKAGE_LIBAD9361_IIO
 	help

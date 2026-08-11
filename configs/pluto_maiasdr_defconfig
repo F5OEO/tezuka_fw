@@ -142,5 +142,5 @@ BR2_ROOTFS_POST_BUILD_SCRIPT="${BR2_EXTERNAL_PLUTOSDR_PATH}/board/tezuka/common/
 BR2_ROOTFS_POST_IMAGE_SCRIPT="${BR2_EXTERNAL_PLUTOSDR_PATH}/board/tezuka/common/prepost-image.sh ${BR2_EXTERNAL_PLUTOSDR_PATH}/board/tezuka/common/postimage-qspi.sh ${BR2_EXTERNAL_PLUTOSDR_PATH}/board/tezuka/common/postimage-sd.sh ${BR2_EXTERNAL_PLUTOSDR_PATH}/board/tezuka/common/postimage-zip.sh"
 BR2_ROOTFS_POST_IMAGE_SCRIPT_ARGS="${BR2_EXTERNAL_PLUTOSDR_PATH}/board/tezuka/pluto zynq-pluto-sdr-revc.dtb 0x1E00000"
 
-BR2_PACKAGE_SOAPY_SDR=y
+BR2_PACKAGE_SOAPYSDR=y
 BR2_PACKAGE_SOAPYPLUTOSDR=y

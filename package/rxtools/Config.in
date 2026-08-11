@@ -1,6 +1,7 @@
 config BR2_PACKAGE_RXTOOLS
         bool "rxtools"
         select BR2_PACKAGE_SOAPYSDR
+        select BR2_PACKAGE_SOAPYPLUTOSDR
         depends on BR2_TOOLCHAIN_HAS_THREADS
              help
           rx_fm, rx_power, and rx_sdr tools for receiving data from SDRs, on rtl_fm, rtl_power, and rtl_sdr from librtlsdr, but using the SoapySDR vneutral SDR support library instead, intended to support a wider range of s than RTL-SDR
