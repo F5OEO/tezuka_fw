@@ -239,39 +239,38 @@ dump_data () {
   publish "operator/callsign" "$(fw_printenv -n call          2>/dev/null)"
   publish "operator/locator"  "$(fw_printenv -n locator       2>/dev/null)"
 
-  # Reference clock status. On boards with the axi_vcxo_ctrl IP (VCXO_BASE
+  # Reference clock status. On boards with the vctcxo_lock IP (VCXO_BASE
   # set at startup — see top of file), read real registers per
-  # vcxodac.md: 0x10 lock/classification bits, 0x08 live DAC setpoint
-  # (the loop's actual correction output). Boards without the IP fall back
-  # to the old refclk_source-only reporting (no real lock-detect there).
+  # vctcxo_lock.md: 0x0C dac_ref_sel selects the source (there is no
+  # auto-classification bit in this IP's status word — 0x10 only carries
+  # locked[0]/ref_present[1], bits [31:2] are unused), 0x08 live DAC
+  # setpoint (the loop's actual correction output). "Frequency" here is
+  # just the nominal rate implied by the selected mode, not a measured
+  # value — this IP has no register for that (unlike the old
+  # axi_vcxo_ctrl design this replaced on libre). Boards without the IP
+  # fall back to the old refclk_source-only reporting (no real
+  # lock-detect there).
   if [ -n "$VCXO_BASE" ]; then
-    local _v10 _v08
+    local _v0c _v10 _v08
+    _v0c=$(devmem "$(( VCXO_BASE + 0x0C ))" 32 2>/dev/null)
     _v10=$(devmem "$(( VCXO_BASE + 0x10 ))" 32 2>/dev/null)
     _v08=$(devmem "$(( VCXO_BASE + 0x08 ))" 32 2>/dev/null)
 
-    if [[ "$_v10" =~ ^(0x)?[0-9a-fA-F]+$ ]]; then
-      local _ref_is_10m=$(( ($_v10 >> 2) & 1 ))
-      local _ref_is_pps=$(( ($_v10 >> 3) & 1 ))
-      if   [ "$_ref_is_10m" = "1" ]; then
-        publish "system/clkref/source" "10mhz"
-        local _v14; _v14=$(devmem "$(( VCXO_BASE + 0x14 ))" 32 2>/dev/null)
-        if [[ "$_v14" =~ ^(0x)?[0-9a-fA-F]+$ ]] && [ "$(( _v14 ))" -gt 0 ]; then
-          publish "system/clkref/frequency" "$(( 200000000 / _v14 ))"
-        else
-          publish "system/clkref/frequency" "n/a"
-        fi
-      elif [ "$_ref_is_pps" = "1" ]; then
-        publish "system/clkref/source"    "pps"
-        publish "system/clkref/frequency" "1"
-      else
-        publish "system/clkref/source"    "none"
-        publish "system/clkref/frequency" "n/a"
-      fi
-      publish "system/clkref/lock" "$(( _v10 & 1 ))"
+    if [[ "$_v0c" =~ ^(0x)?[0-9a-fA-F]+$ ]]; then
+      case $(( _v0c & 0x3 )) in
+        0) publish "system/clkref/source" "10mhz"; publish "system/clkref/frequency" "10000000" ;;
+        1|2) publish "system/clkref/source" "pps";  publish "system/clkref/frequency" "1" ;;
+        *) publish "system/clkref/source" "none";   publish "system/clkref/frequency" "n/a" ;;
+      esac
     else
       publish "system/clkref/source"    "n/a"
       publish "system/clkref/frequency" "n/a"
-      publish "system/clkref/lock"      "0"
+    fi
+
+    if [[ "$_v10" =~ ^(0x)?[0-9a-fA-F]+$ ]]; then
+      publish "system/clkref/lock" "$(( _v10 & 1 ))"
+    else
+      publish "system/clkref/lock" "0"
     fi
 
     if [[ "$_v08" =~ ^(0x)?[0-9a-fA-F]+$ ]]; then
@@ -799,6 +798,23 @@ parse_cmd () {
         publish_force "system/siggen" "off"
         publish_force "system/iqtape" "off"
       fi
+    ;;
+    system/clkref/source)
+      # dac_ref_sel (vctcxo_lock reg 0x0C, bits[1:0]) is software-selected —
+      # the IP has no auto-classification of what's on the wire (see
+      # vctcxo_lock.md). Only meaningful on boards with the IP (VCXO_BASE set).
+      [ -n "$VCXO_BASE" ] || return
+      local _sel
+      case "$val" in
+        10mhz) _sel=0 ;;
+        pps)   _sel=1 ;;
+        none)  _sel=3 ;;
+        *) return ;;
+      esac
+      local _cur; _cur=$(devmem "$(( VCXO_BASE + 0x0C ))" 32 2>/dev/null)
+      [[ "$_cur" =~ ^(0x)?[0-9a-fA-F]+$ ]] || _cur=0
+      devmem "$(( VCXO_BASE + 0x0C ))" 32 "$(( (_cur & ~0x3) | _sel ))" >/dev/null 2>&1
+      publish_force "system/clkref/source" "$val"
     ;;
     system/reboot)
       if [ "$val" = "poweroff" ]; then poweroff; else reboot; fi

@@ -2610,7 +2610,7 @@ function ClockRef({ d }) {
       <div className="datv-head">
         <div className="datv-title">
           <h1>Reference Clock</h1>
-          <span className="datv-sub mono">VCTCXO reference-discipline loop status (axi_vcxo_ctrl)</span>
+          <span className="datv-sub mono">VCTCXO reference-discipline loop status (vctcxo_lock)</span>
         </div>
       </div>
 
@@ -2620,10 +2620,21 @@ function ClockRef({ d }) {
             <Field label="Lock status">
               <Pill tone={locked ? "ok" : "warn"} dot>{locked ? "Locked" : "No lock"}</Pill>
             </Field>
-            <Field label="Source">
-              <span className="mono">{sourceLabel}</span>
+            <Field label="Source" hint={hasCorr ? "Software-selected — the loop has no auto-detect for what's plugged in" : undefined}>
+              {hasCorr ? (
+                <Select
+                  value={['10mhz', 'pps', 'none'].includes(source) ? source : '10mhz'}
+                  onChange={(v) => d.publish('system/clkref/source', v)}
+                  options={[
+                    { v: '10mhz', l: CLKREF_SOURCE_LABELS['10mhz'] },
+                    { v: 'pps',   l: CLKREF_SOURCE_LABELS['pps'] },
+                    { v: 'none',  l: CLKREF_SOURCE_LABELS['none'] },
+                  ]} />
+              ) : (
+                <span className="mono">{sourceLabel}</span>
+              )}
             </Field>
-            <Field label="Reference input frequency" hint="Nominal, from the loop's configured expected period — not a live frequency count">
+            <Field label="Reference input frequency" hint="Nominal for the selected mode — not a live frequency measurement">
               <span className="mono">{hasFreq ? fmtClkrefFreq(freq) : '—'}</span>
             </Field>
             <Field label="Correction" hint="Live 16-bit VCTCXO DAC setpoint">
@@ -2632,7 +2643,7 @@ function ClockRef({ d }) {
           </div>
           {!hasCorr && (
             <div style={{ marginTop: 16 }}>
-              <Pill tone="neutral" dot>No axi_vcxo_ctrl hardware detected on this board — reporting refclk_source only</Pill>
+              <Pill tone="neutral" dot>No vctcxo_lock hardware detected on this board — reporting refclk_source only</Pill>
             </div>
           )}
         </Card>
