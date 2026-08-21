@@ -101,15 +101,22 @@ source /home/hp-z2-dev/prog/maia-sdr/sourceme.first   # Vivado 2023.1, oss-cad-s
 make -C /home/hp-z2-dev/prog/maia-sdr/maia-hdl/projects
 
 # Build a single board
-cd /home/hp-z2-dev/prog/maia-sdr/maia-hdl/projects/tezuka && PROJECT_NAME=<board> make
+cd /home/hp-z2-dev/prog/maia-sdr/maia-hdl/projects/tezuka && PROJECT_NAME=<board> make all
 ```
 
-Copy the resulting `.xsa` into `board/tezuka/<board>/bitstream/maia-iio/system_top.xsa` in this repo, then test it:
+Always pass the `all` target explicitly (`make all`, not bare `make`) — the Makefile's implicit default target only builds the Vivado project (`build_project`), it does not build `ip_cores` first or run `install` to copy the `.xsa` out. `make all` runs `ip_cores build_project install` in that order and copies `<board>.sdk/system_top.xsa` straight into `board/tezuka/<board>/bitstream/maia-iio/system_top.xsa` in this repo (`DEST` in the Makefile), so no manual copy step is needed afterward. Then test it:
 
 ```bash
 make -C buildroot O=output/<board> board-fpga-reconfigure   # re-extract system_top.bit into BINARIES_DIR
 make -C buildroot O=output/<board>                          # rebuild final images via post-image.sh
 ```
+
+#### Adding a new board's FPGA project
+
+A new board needs, in the maia-sdr checkout:
+- `maia-hdl/projects/tezuka/system_project.tcl`: a `switch` case setting `p_device` (e.g. `xc7z010clg400-1`).
+- `maia-hdl/projects/tezuka/system_bd.tcl`: a matching `switch` case (even if empty) setting any board flags it needs (`lvds`, `vctcxo`, `txfir`, `dac_dds`, `dvb`, `uartlite` — see existing boards for what each enables); a board with no case here falls through to `default` and aborts with "project name not recognized".
+- `maia-hdl/projects/boards/<board>/`: `ps7.tcl` (PS7 IP config — DDR/UART/USB/SD/ENET/etc.), `ports.tcl` (board-specific block-design ports/IP instances), `system_top.v` (top-level Verilog port list matching `ports.tcl`), `system_constr.xdc` (pin LOCs/IOSTANDARDs + timing constraints). Clone the closest existing board electrically and adjust pin-by-pin from the schematic — `boards/plutoskyr2` is the reference for RGMII-over-EMIO (PL-pin-attached Ethernet PHY, vs. the `MIO 16..27` PS-pin attachment every other board uses).
 
 ### DATV backend (pluto-ori-ps)
 
