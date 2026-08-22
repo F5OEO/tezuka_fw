@@ -1,0 +1,49 @@
+#!/bin/sh
+
+WG_CONF="/mnt/jffs2/etc/wireguard/wg0.conf"
+
+start() {
+	printf "Starting wireguard: "
+	if [ "$(fw_printenv -n wireguard_enabled 2>/dev/null)" != "1" ]; then
+		echo "disabled"
+		return 0
+	fi
+	if [ ! -f "$WG_CONF" ]; then
+		echo "no config"
+		return 0
+	fi
+	if wg-quick up "$WG_CONF" 2>/tmp/wireguard.log; then
+		echo "OK"
+	else
+		echo "FAIL"
+		cat /tmp/wireguard.log
+		return 1
+	fi
+}
+
+stop() {
+	printf "Stopping wireguard: "
+	if ip link show wg0 >/dev/null 2>&1; then
+		wg-quick down "$WG_CONF" 2>/tmp/wireguard.log
+	fi
+	echo "OK"
+}
+
+restart() {
+	stop
+	start
+}
+
+case "$1" in
+	start)
+		start;;
+	stop)
+		stop;;
+	restart)
+		restart;;
+	*)
+		echo "Usage: $0 {start|stop|restart}"
+		exit 1
+esac
+
+exit $?
