@@ -12,6 +12,10 @@ wait_for_iio() {
 
 case "$1" in
     start)
+        if grep -q dma_test_skip /proc/cmdline; then
+            echo "Skipping maia-httpd start (dma_test_skip on cmdline)"
+            exit 0
+        fi
         printf "Starting maia-httpd: "
         if [ -f /usr/bin/maia-httpd.xz ]; then
             xz -d /usr/bin/maia-httpd.xz

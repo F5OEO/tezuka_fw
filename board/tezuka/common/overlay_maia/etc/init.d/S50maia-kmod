@@ -5,7 +5,11 @@
 kernel_version=$(uname -r)
 case "$1" in
   start)
-    
+
+	if grep -q dma_test_skip /proc/cmdline; then
+		echo "Skipping maia-sdr.ko load (dma_test_skip on cmdline)"
+		exit 0
+	fi
 	printf "Loading maia-sdr.ko: "
 	# Module may be in extra/ (Buildroot <2026) or updates/ (Buildroot 2026+)
 	modprobe maia-sdr || insmod /lib/modules/"$kernel_version"/extra/maia-sdr.ko

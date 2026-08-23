@@ -142,7 +142,7 @@ make pluto_stream   # or: make   (builds pluto_mqtt_ctrl, pluto_stream, iio_ws_p
 
 ### Testing a binary on a physical board (scp/ssh)
 
-For quick verification without a full firmware reflash, there's a physical test board reachable over the network — root/analog over SSH (password auth). The board's IP can change between sessions (DHCP), so confirm it with the user rather than assuming a previously-used address still applies.
+For quick verification without a full firmware reflash, there's a physical test board reachable over the network — root/analog over SSH (password auth). The board's IP can change between sessions (DHCP), so confirm it with the user rather than assuming a previously-used address still applies. If unsure, `iio_info -S` lists reachable IIO contexts including each board's mDNS hostname/IP (e.g. `192.168.2.1 (PCIeSDR (Z7010-AD9361)) [pciesdr7010.local]`), which is a fast way to (re)discover a board's address without asking.
 
 The on-target binary is usually already running, so `scp` straight to `/usr/bin/<binary>` fails with "Text file busy". Copy to a temp name and `mv` into place instead (an atomic rename over a running executable is fine on Linux — the old process keeps its already-open inode):
 
@@ -158,6 +158,17 @@ The `S96plutostream` init script's `stop()` is a no-op (just echoes "Stopping"),
 ```bash
 sshpass -p analog ssh root@<board-ip> "pkill <binary>; nohup /usr/bin/<binary> >/tmp/<binary>.log 2>&1 </dev/null & disown"
 ```
+
+### Updating boot artifacts (kernel/dtb/BOOT.bin) on a physical board's SD card
+
+For an SD-booting board (not QSPI), the SD card's boot partition is auto-mounted at `/boot` on the running system (the same partition `post-image.sh` populates as `images/sdimg/`: `BOOT.bin`, `uImage`, `uramdisk.image.xz`, `devicetree.dtb`, `uEnv.txt`). After a rebuild, these can be updated in place over SSH instead of pulling the physical card to reflash it — none of them are an executing binary, so a plain `scp` overwrite (no temp-name/`mv` dance) is fine:
+
+```bash
+sshpass -p analog scp output/<board>/images/sdimg/{BOOT.bin,uImage,uramdisk.image.xz,devicetree.dtb,uEnv.txt} root@<board-ip>:/boot/
+sshpass -p analog ssh root@<board-ip> "sync; reboot"
+```
+
+Confirm the board is actually SD-booting (not QSPI) before relying on this — see the board's boot-mode DIP switch reference if unsure.
 
 ### Testing the Dashboard against a physical board
 
