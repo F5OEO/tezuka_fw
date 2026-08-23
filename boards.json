@@ -9,5 +9,6 @@
   {"board": "nano",               "defconfig": "nano_defconfig"},
   {"board": "plutoskyr2",         "defconfig": "plutoskyr2_defconfig"},
   {"board": "signalsdrpro",       "defconfig": "signalsdrpro_defconfig"},
-  {"board": "pciesdr7010",        "defconfig": "pciesdr7010_defconfig"}
+  {"board": "pciesdr7010",        "defconfig": "pciesdr7010_defconfig"},
+  {"board": "opensdrlab7010mini", "defconfig": "opensdrlab7010mini_defconfig"}
 ]

@@ -39,7 +39,7 @@ source sourceme.first    # sets BR2_EXTERNAL; required before any manual make
 Output lands in `output/<board>/images/`, and `build/<board>.zip` is produced automatically.
 
 **Supported boards** are defined in `boards.json` (single source of truth for both `build.sh` and CI):
-`pluto`, `plutoplus`, `e200`, `e310`, `libre`, `fishball`, `fishball7020`, `fishball_mini`, `fishball_mini_7020`, `nano`, `plutoskyr2`, `signalsdrpro`
+`pluto`, `plutoplus`, `e200`, `e310`, `libre`, `fishball`, `fishball7020`, `fishball_mini`, `fishball_mini_7020`, `nano`, `plutoskyr2`, `signalsdrpro`, `pciesdr7010`, `opensdrlab7010mini`
 
 ### Manual Buildroot invocation
 
