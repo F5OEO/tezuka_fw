@@ -11,12 +11,30 @@ if ! command -v jq >/dev/null 2>&1; then
     exit 1
 fi
 declare -A BOARDS=()
-while IFS=$'\t' read -r _board _defconfig; do
+declare -A ARTIFACT=()   # board -> release-artifact group name (defaults to board)
+declare -A VARIANT=()    # board -> variant tag within its artifact group (empty if ungrouped)
+while IFS=$'\t' read -r _board _defconfig _artifact _variant; do
     BOARDS[$_board]=$_defconfig
-done < <(jq -r '.[] | [.board, .defconfig] | @tsv' "${SCRIPT_DIR}/boards.json")
+    ARTIFACT[$_board]=$_artifact
+    VARIANT[$_board]=$_variant
+done < <(jq -r '.[] | [.board, .defconfig, (.artifact // .board), (.variant // "")] | @tsv' "${SCRIPT_DIR}/boards.json")
+
+# Artifact groups with more than one member board (e.g. fishball_mini ->
+# fishball_mini_7010 + fishball_mini_7020) get merged into one zip; see
+# merge_group() below.
+declare -A GROUP_MEMBERS=()  # artifact name -> space-separated member boards
+for board in "${!BOARDS[@]}"; do
+    GROUP_MEMBERS[${ARTIFACT[$board]}]+="${board} "
+done
+declare -A MERGE_GROUPS=()  # artifact names that have >1 member (i.e. real groups)
+for artifact in "${!GROUP_MEMBERS[@]}"; do
+    # shellcheck disable=SC2206
+    members=(${GROUP_MEMBERS[$artifact]})
+    [ "${#members[@]}" -gt 1 ] && MERGE_GROUPS[$artifact]=1
+done
 
 usage() {
-    echo "Usage: $0 [OPTIONS] <board|all> [board2 ...]"
+    echo "Usage: $0 [OPTIONS] <board|group|all> [board2 ...]"
     echo ""
     echo "Options:"
     echo "  -j N    Parallel make jobs (default: auto)"
@@ -26,6 +44,13 @@ usage() {
     for board in $(printf '%s\n' "${!BOARDS[@]}" | sort); do
         printf "  %-20s %s\n" "${board}" "${BOARDS[$board]}"
     done
+    if [ "${#MERGE_GROUPS[@]}" -gt 0 ]; then
+        echo ""
+        echo "Groups (build all members, merge flash images into one zip):"
+        for artifact in $(printf '%s\n' "${!MERGE_GROUPS[@]}" | sort); do
+            printf "  %-20s %s\n" "${artifact}" "${GROUP_MEMBERS[$artifact]}"
+        done
+    fi
     echo "  all                  Build all boards"
     exit 1
 }
@@ -57,13 +82,20 @@ if [ ! -d "${BUILDROOT_DIR}" ]; then
     exit 1
 fi
 
-# Expand "all" to all boards
+# Expand "all" and group names (e.g. fishball_mini) to their member boards.
+# REQUESTED_GROUPS tracks which groups were named explicitly, so their
+# members get merged into one zip after building (see merge_group() below).
 TARGETS=()
+REQUESTED_GROUPS=()
 for arg in "$@"; do
     if [ "$arg" = "all" ]; then
         TARGETS=("${!BOARDS[@]}")
     elif [ -n "${BOARDS[$arg]+x}" ]; then
         TARGETS+=("$arg")
+    elif [ -n "${MERGE_GROUPS[$arg]+x}" ]; then
+        # shellcheck disable=SC2206
+        TARGETS+=(${GROUP_MEMBERS[$arg]})
+        REQUESTED_GROUPS+=("$arg")
     else
         echo "ERROR: Unknown board '${arg}'"
         echo ""
@@ -102,8 +134,39 @@ build_board() {
     fi
 }
 
+# Merges a group's member boards' images/flash/ outputs into one
+# build/<artifact>.zip, each under a flash/<variant>/ subfolder (member
+# zips keep identical filenames like pluto.frm/boot.frm across variants,
+# so they can't be flattened into one flash/ dir without colliding).
+merge_group() {
+    local artifact="$1"
+    # shellcheck disable=SC2206
+    local members=(${GROUP_MEMBERS[$artifact]})
+    local merge_dir="${SCRIPT_DIR}/build/.merge-${artifact}"
+
+    rm -rf "${merge_dir}"
+    for board in "${members[@]}"; do
+        local flash_src="${SCRIPT_DIR}/output/${board}/images/flash"
+        local variant="${VARIANT[$board]:-$board}"
+        if [ -d "${flash_src}" ]; then
+            mkdir -p "${merge_dir}/flash/${variant}"
+            cp -r "${flash_src}/." "${merge_dir}/flash/${variant}/"
+        else
+            echo "WARNING: ${flash_src} not found for ${board}, skipping in merged ${artifact}.zip"
+        fi
+    done
+
+    (cd "${merge_dir}" && zip -rq "${SCRIPT_DIR}/build/${artifact}.zip" flash)
+    rm -rf "${merge_dir}"
+    echo "=== ${artifact} complete: build/${artifact}.zip (merged: ${members[*]}) ==="
+}
+
 for board in "${TARGETS[@]}"; do
     build_board "${board}"
+done
+
+for artifact in "${REQUESTED_GROUPS[@]}"; do
+    merge_group "${artifact}"
 done
 
 echo ""

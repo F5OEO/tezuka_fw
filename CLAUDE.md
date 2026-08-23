@@ -32,14 +32,16 @@ source sourceme.first    # sets BR2_EXTERNAL; required before any manual make
 # With parallel jobs and clean output first
 ./build.sh -j8 -c fishball
 
-# List all boards and their defconfigs
+# List all boards (and groups) and their defconfigs
 ./build.sh -h
 ```
 
 Output lands in `output/<board>/images/`, and `build/<board>.zip` is produced automatically.
 
 **Supported boards** are defined in `boards.json` (single source of truth for both `build.sh` and CI):
-`pluto`, `plutoplus`, `e200`, `e310`, `libre`, `fishball`, `fishball7020`, `fishball_mini`, `fishball_mini_7020`, `nano`, `plutoskyr2`, `signalsdrpro`, `pciesdr7010`, `opensdrlab7010mini`
+`pluto`, `plutoplus`, `e200`, `e310`, `libre`, `fishball`, `fishball7020`, `fishball_mini_7010`, `fishball_mini_7020`, `nano`, `plutoskyr2`, `signalsdrpro`, `pciesdr7010`, `opensdrlab7010mini`
+
+**Board groups**: `fishball_mini_7010`/`fishball_mini_7020` are flash-only builds (QSPI `.frm`/`.dfu`, no SD image — they use `postimage-qspi.sh` only) that ship as one combined release artifact instead of two. Both carry a shared `artifact: "fishball_mini"` (plus a `variant: "7010"`/`"7020"`) in `boards.json`. `./build.sh fishball_mini` builds both defconfigs and merges their `images/flash/` into a single `build/fishball_mini.zip` with `flash/7010/` and `flash/7020/` subfolders (filenames like `pluto.frm`/`boot.frm` are identical across variants, so they can't share one `flash/` dir). `./build.sh fishball_mini_7010` (or `_7020`) builds just that variant on its own, unmerged. CI mirrors this: each variant is its own matrix row/artifact upload, and the release job's "Merge grouped board artifacts" step folds them into one release zip — only when both variants were actually built in that run (a `workflow_dispatch` for a single variant ships that variant's zip standalone instead).
 
 ### Manual Buildroot invocation
 
@@ -202,7 +204,7 @@ Since this is live hardware (not disposable CI infra), confirm with the user bef
 
 ### CI
 
-`.github/workflows/main.yml` builds a matrix from `boards.json`. On tag push (`vX.Y.Z`), it publishes a GitHub release with per-board zips and git-cliff release notes. Manual dispatch builds artifacts only (no release). ccache is keyed per board; Buildroot downloads are shared across the matrix.
+`.github/workflows/main.yml` builds a matrix from `boards.json`. On tag push (`vX.Y.Z`), it publishes a GitHub release with per-board zips (grouped boards, e.g. `fishball_mini_7010`/`_7020`, ship as one merged zip when both were built — see "Board groups" above) and git-cliff release notes. Manual dispatch builds artifacts only (no release). ccache is keyed per board; Buildroot downloads are shared across the matrix.
 
 ## Important constraints
 
