@@ -1,6 +1,11 @@
-# Buildroot release consumed by both getbuildroot.sh and CI.
-# Format: KEY=VALUE, one per line, no quotes -- compatible with both
-# POSIX shell source and the GitHub Actions GITHUB_ENV file mechanism
-# (so the workflow can do 'cat buildroot.version >> "$GITHUB_ENV"').
+# Buildroot release, sourced by getbuildroot.sh (KEY=VALUE, no quotes --
+# plain POSIX shell source). CI never parses this file directly; it only
+# hashes its content into cache keys (see main.yml).
 BR_VERSION=2026.02
 BR_SHA256=a98351d46dd3ed3201e426eda3e01ff938ccc4571ec7e04eb57939c85c4e8cb5
+# GitHub mirror of gitlab.com/buildroot.org/buildroot (github.com/buildroot/buildroot),
+# used by getbuildroot.sh as a fallback when buildroot.org itself is
+# unreachable (real outage observed 2026-08-23). Its tag-archive tarball is
+# packaged differently than the official dist tarball above, so it needs its
+# own checksum -- bump it alongside BR_VERSION/BR_SHA256 on a version bump.
+BR_SHA256_GITHUB=feb169002ae7a568d04d803f2a1b777ef79d51e5e2e250441e2519a8e9c94965

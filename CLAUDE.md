@@ -210,7 +210,7 @@ Since this is live hardware (not disposable CI infra), confirm with the user bef
 
 - Never read, grep, or glob inside the `buildroot/` directory — it is a downloaded third-party tree.
 - `boards.json` must stay in sync with `configs/` — adding a new board requires both a `*_defconfig` in `configs/` and an entry in `boards.json`.
-- The Buildroot version is pinned in `buildroot.version`; bump both `BR_VERSION` and `BR_SHA256` together.
+- The Buildroot version is pinned in `buildroot.version`; bump `BR_VERSION`, `BR_SHA256`, and `BR_SHA256_GITHUB` together (the latter pins `getbuildroot.sh`'s GitHub-mirror fallback, used when buildroot.org itself is unreachable — a stale `BR_SHA256_GITHUB` means the fallback only breaks during an actual outage, so don't forget it on a version bump).
 
 ## Verification (always do this before marking a task done)
 ## Verification (always do this before marking a task done)
