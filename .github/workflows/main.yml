@@ -81,8 +81,8 @@ jobs:
           # per-board output/ cache (3 GB) which doesn't fit budget
           # at COUNT=14 (one row per board.json entry -- fishball_mini_7010
           # and fishball_mini_7020 are each their own row/board here; they
-          # only become one merged "fishball_mini" release zip later, in
-          # the release job).
+          # only fold into their fishball/fishball7020 counterpart's release
+          # zip later, in the release job).
           if [ "$COUNT" -eq 1 ]; then
             echo "single_board=true" >> "$GITHUB_OUTPUT"
           else
@@ -381,23 +381,27 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          # Boards sharing boards.json's .artifact field build as independent
-          # matrix rows (own kernel/rootfs/tezuka.zip per defconfig) but ship
-          # as one release zip: fishball_mini_7010 + fishball_mini_7020 ->
-          # flash/7010/ + flash/7020/ under a single fishball_mini artifact
-          # (filenames like pluto.frm/boot.frm collide across variants, so
-          # they can't be flattened into one flash/ dir). Only merges a group
-          # when every member was actually built in this run -- a
-          # workflow_dispatch for just one variant leaves it as its own zip.
+          # Boards sharing an effective artifact identity (boards.json's
+          # .artifact field, defaulting to the board's own name) build as
+          # independent matrix rows but ship as one release zip: e.g.
+          # fishball_mini_7010's flash-only build folds into fishball's own
+          # zip alongside fishball's sdimg/. Each member populates only one
+          # of flash/ or sdimg/ (see build.sh's merge_group() comment), so a
+          # plain union has nothing to collide. The artifact name is often a
+          # real board itself (the "primary" member) rather than a synthetic
+          # label, so this stages the merge in a separate temp dir before
+          # removing any member directory -- the target path can equal one
+          # of the sources'. Only merges a group when every member was
+          # actually built in this run -- a workflow_dispatch for just the
+          # mini board leaves it shipping standalone instead.
           jq -c '
-            [.[] | select(.artifact != null)]
-            | group_by(.artifact)
+            group_by(.artifact // .board)
             | map(select(length > 1))
             | .[]
           ' boards.json > /tmp/groups.jsonl
 
           while IFS= read -r group; do
-            artifact=$(jq -r '.[0].artifact' <<<"$group")
+            artifact=$(jq -r '(.[0].artifact // .[0].board)' <<<"$group")
             mapfile -t members < <(jq -r '.[].board' <<<"$group")
 
             all_present=true
@@ -410,25 +414,28 @@ jobs:
             fi
 
             echo "Merging ${members[*]} -> ${artifact}"
-            merge_dir="artifacts/tezuka-${artifact}"
-            rm -rf "${merge_dir}"
-            mkdir -p "${merge_dir}/flash"
+            staging="artifacts/.merge-${artifact}"
+            rm -rf "${staging}"
+            mkdir -p "${staging}/flash" "${staging}/sdimg"
 
             first=true
             while IFS= read -r row; do
               board=$(jq -r '.board' <<<"$row")
-              variant=$(jq -r '.variant' <<<"$row")
               src="artifacts/tezuka-${board}"
-              mkdir -p "${merge_dir}/flash/${variant}"
-              cp -r "${src}/flash/." "${merge_dir}/flash/${variant}/"
+              [ -d "${src}/flash" ] && cp -r "${src}/flash/." "${staging}/flash/"
+              [ -d "${src}/sdimg" ] && cp -r "${src}/sdimg/." "${staging}/sdimg/"
               if [ "$first" = true ]; then
-                [ -d "${src}/bom" ] && cp -r "${src}/bom" "${merge_dir}/bom"
-                [ -f "${src}/README.md" ] && cp "${src}/README.md" "${merge_dir}/README.md"
-                [ -f "${src}/LICENSE" ] && cp "${src}/LICENSE" "${merge_dir}/LICENSE"
+                [ -d "${src}/bom" ] && cp -r "${src}/bom" "${staging}/bom"
+                [ -f "${src}/README.md" ] && cp "${src}/README.md" "${staging}/README.md"
+                [ -f "${src}/LICENSE" ] && cp "${src}/LICENSE" "${staging}/LICENSE"
                 first=false
               fi
-              rm -rf "${src}"
             done < <(jq -c '.[]' <<<"$group")
+
+            for b in "${members[@]}"; do
+              rm -rf "artifacts/tezuka-${b}"
+            done
+            mv "${staging}" "artifacts/tezuka-${artifact}"
           done < /tmp/groups.jsonl
 
       - name: Package release zips
