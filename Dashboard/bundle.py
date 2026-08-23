@@ -50,6 +50,7 @@ SOURCES = [
     ('jsx', 'pages4.jsx'),
     ('js',  'vendor/signals.bundle.js'),
     ('jsx', 'pages5.jsx'),
+    ('jsx', 'radioastro.jsx'),
     ('jsx', 'midi.jsx'),
     ('jsx', 'webtioune.jsx'),
     ('jsx', 'rftest.jsx'),

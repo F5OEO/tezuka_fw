@@ -14,7 +14,7 @@ const VER = {
 
 const NAV = [
   { group: null, items: [["dashboard", "Dashboard", "dashboard"]] },
-  { group: "RF", items: [["spectrum", "Spectrum", "spectrum"], ["arch", "Architecture", "chip"], ["maiasdr", "Maia SDR", "wave"]] },
+  { group: "RF", items: [["spectrum", "Spectrum", "spectrum"], ["radioastro", "Radio Astronomy", "target"], ["arch", "Architecture", "chip"], ["maiasdr", "Maia SDR", "wave"]] },
   { group: "Application", items: [["datv", "DATV Controller", "datv", [["analysis", "Analysis", "analysis", true], ["obs", "OBS Encoder", "monitor"], ["webtioune", "Webtioune", "play"]]], ["transverter", "Transverter", "transverter"], ["iqtape", "IQ Tape", "tape"], ["siggen", "Signal generator", "wave"], ["rftest", "RF Test Frequencies", "rf"], ["radio", "Radio", "headphone"]] },
   { group: "System", items: [["versions", "Versions", "versions"], ["network", "Network", "network"], ["diagnostic", "Diagnostic", "pulse"], ["calibrate", "Calibrate", "target", [["kalibrate", "Kalibrate", "search"]]], ["performance", "Performance", "chip"], ["gpio", "GPIO", "circuit"], ["persistent", "Persistent", "save"], ["gps", "GPS", "mappin"], ["clkref", "Reference Clock", "clock"], ["midi", "MIDI controller", "sliders"], ["reboot", "Reboot", "power"]] },
   { group: "Documentation", items: [["docs", "Documentation", "book"]] },
@@ -83,7 +83,7 @@ function Sidebar({ route, setRoute, collapsed, labels, operator }) {
   );
 }
 
-const TITLES = { dashboard: "Dashboard", spectrum: "Spectrum", datv: "DATV Controller", obs: "OBS Encoder", webtioune: "Webtioune", rftest: "RF Test Frequencies", maiasdr: "Maia SDR", transverter: "Transverter", iqtape: "IQ Tape", siggen: "Signal generator", radio: "Radio", calibrate: "Calibrate", analysis: "Analysis", arch: "Architecture", versions: "Versions & system", network: "Network", diagnostic: "Diagnostic", kalibrate: "Kalibrate from RF", performance: "Performance", gpio: "GPIO", persistent: "Persistent storage", gps: "GPS", clkref: "Reference Clock", midi: "MIDI controller", reboot: "Reboot", operator: "Operator", docs: "Documentation" };
+const TITLES = { dashboard: "Dashboard", spectrum: "Spectrum", radioastro: "Radio Astronomy", datv: "DATV Controller", obs: "OBS Encoder", webtioune: "Webtioune", rftest: "RF Test Frequencies", maiasdr: "Maia SDR", transverter: "Transverter", iqtape: "IQ Tape", siggen: "Signal generator", radio: "Radio", calibrate: "Calibrate", analysis: "Analysis", arch: "Architecture", versions: "Versions & system", network: "Network", diagnostic: "Diagnostic", kalibrate: "Kalibrate from RF", performance: "Performance", gpio: "GPIO", persistent: "Persistent storage", gps: "GPS", clkref: "Reference Clock", midi: "MIDI controller", reboot: "Reboot", operator: "Operator", docs: "Documentation" };
 
 function Topbar({ onMenu, route, mqtt, ver }) {
   return (
@@ -140,6 +140,7 @@ function App() {
     switch (route) {
       case "dashboard": return <Dashboard d={d} ver={ver} />;
       case "spectrum": return <SpectrumPage d={d} />;
+      case "radioastro": return <RadioAstronomyPage d={d} />;
       case "datv": return <DATV d={d} callsign={op.callsign} />;
       case "transverter": return <Transverter d={d} />;
       case "iqtape": return <IQTape d={d} />;
