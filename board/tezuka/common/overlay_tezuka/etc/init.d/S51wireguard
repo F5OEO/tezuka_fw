@@ -17,7 +17,13 @@ start() {
 		echo "no config"
 		return 0
 	fi
-	if timeout 15 wg-quick up "$WG_CONF" 2>/tmp/wireguard.log; then
+	# Not wrapped in timeout(1) here: confirmed on real hardware that
+	# busybox's timeout applet interferes with wg-quick's own process
+	# substitution (wg setconf wg0 <(...)) in a way that reliably breaks
+	# the interface's kernel-side registration — "RTNETLINK answers:
+	# Network is unreachable" every time when run under timeout, never
+	# when run directly. See github.com/mbehn1976/tezuka_fw pull/8.
+	if wg-quick up "$WG_CONF" 2>/tmp/wireguard.log; then
 		echo "OK"
 	else
 		echo "FAIL"
@@ -29,7 +35,7 @@ start() {
 stop() {
 	printf "Stopping wireguard: "
 	if ip link show wg0 >/dev/null 2>&1; then
-		timeout 15 wg-quick down "$WG_CONF" 2>/tmp/wireguard.log
+		wg-quick down "$WG_CONF" 2>/tmp/wireguard.log
 	fi
 	echo "OK"
 }
