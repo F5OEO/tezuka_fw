@@ -1,32 +1,44 @@
 From: tezuka_fw
-Subject: [PATCH] wg-quick: pause after setconf before address add
+Subject: [PATCH] wg-quick: retry ip address add against a real-hardware race
 
-The "ip address add" call that immediately follows "wg setconf" in
+The "ip address add" call that runs right after "wg setconf" in
 cmd_up() can lose a race against the newly-configured WireGuard
 interface settling in the kernel's routing/FIB state on some
 platforms. Observed reliably on a Zynq-7010 ARM SoC (PlutoPlus):
 "RTNETLINK answers: Network is unreachable" on every automated
-wg-quick run, while the identical ip/wg commands succeed every time
-when spaced apart manually (even a 1s gap is enough). Retrying the
-whole wg-quick invocation does not help, since each attempt reproduces
-the same zero-delay setconf-then-addr-add sequence internally.
+wg-quick run, while the identical ip/wg commands succeed when spaced
+apart manually. Retrying the whole wg-quick invocation does not help
+(each attempt reproduces the same zero-delay sequence internally), and
+a single fixed delay isn't reliable either — the race window is not a
+fixed duration (confirmed: a 1s delay inserted at this exact point
+fixed it on one test run but not on a later one). Retry the address
+add itself instead, up to 5 times with a 1s pause between attempts, so
+this adapts to however long the interface actually needs rather than
+guessing a duration that has to always be long enough.
 
-See github.com/mbehn1976/tezuka_fw pull/4 for the on-hardware
-diagnosis this patch is based on.
+See github.com/mbehn1976/tezuka_fw pull/4 and pull/5 for the
+on-hardware diagnosis this patch is based on.
 
 --- a/src/wg-quick/linux.bash
 +++ b/src/wg-quick/linux.bash
-@@ -330,6 +330,13 @@ cmd_up() {
- 	add_if
- 	execute_hooks "${PRE_UP[@]}"
- 	set_config
-+	# The immediately-following "ip address add" can lose a race against
-+	# the newly-configured WireGuard interface settling in the kernel's
-+	# routing/FIB state on some platforms (observed reliably on a Zynq-7010
-+	# ARM SoC: "RTNETLINK answers: Network is unreachable"). A brief pause
-+	# here avoids it; the same commands succeed every time when spaced
-+	# apart manually. See github.com/mbehn1976/tezuka_fw pull/4.
-+	sleep 1
- 	for i in "${ADDRESSES[@]}"; do
- 		add_addr "$i"
- 	done
+@@ -119,7 +119,19 @@
+ add_addr() {
+ 	local proto=-4
+ 	[[ $1 == *:* ]] && proto=-6
+-	cmd ip $proto address add "$1" dev "$INTERFACE"
++	# On some platforms (observed reliably on a Zynq-7010 ARM SoC) this
++	# can lose a race against the newly-configured WireGuard interface
++	# settling in the kernel's routing/FIB state right after set_config,
++	# failing with "RTNETLINK answers: Network is unreachable" — and the
++	# race window isn't a fixed duration, so retry rather than guess a
++	# single delay long enough to always cover it. See
++	# github.com/mbehn1976/tezuka_fw pull/4 and pull/5.
++	local n
++	for n in 1 2 3 4 5; do
++		cmd ip $proto address add "$1" dev "$INTERFACE" && return
++		[[ $n -lt 5 ]] && sleep 1
++	done
++	return 1
+ }
+
+ set_mtu_up() {
