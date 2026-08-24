@@ -1,0 +1,39 @@
+From: tezuka_fw
+Subject: [PATCH] wg-quick: skip DNS config if resolvconf is missing
+
+set_dns() calls resolvconf unconditionally when a config has DNS =
+entries. On this busybox-based rootfs resolvconf isn't installed, so
+"resolvconf: command not found" aborts cmd_up() via its EXIT trap and
+tears the whole interface back down — even though the tunnel itself
+(address, MTU, routes) was already fully and successfully configured
+by this point. DNS is a convenience feature; its absence shouldn't
+undo a working tunnel.
+
+Skip DNS configuration gracefully (with a stderr note) when resolvconf
+isn't found, in both set_dns() and unset_dns().
+
+--- a/src/wg-quick/linux.bash
++++ b/src/wg-quick/linux.bash
+@@ -153,6 +153,15 @@
+ HAVE_SET_DNS=0
+ set_dns() {
+ 	[[ ${#DNS[@]} -gt 0 ]] || return 0
++	# On systems without resolvconf installed (e.g. this busybox-based
++	# rootfs), skip DNS configuration rather than aborting the whole
++	# tunnel bring-up — the interface itself is otherwise already fully
++	# configured by this point (address, MTU, routes) and shouldn't be
++	# torn down over an optional DNS convenience step.
++	if ! command -v resolvconf >/dev/null; then
++		echo "$PROGRAM: resolvconf not found, skipping DNS configuration" >&2
++		return 0
++	fi
+ 	{ printf 'nameserver %s\n' "${DNS[@]}"
+ 	  [[ ${#DNS_SEARCH[@]} -eq 0 ]] || printf 'search %s\n' "${DNS_SEARCH[*]}"
+ 	} | cmd resolvconf -a "$(resolvconf_iface_prefix)$INTERFACE" -m 0 -x
+@@ -161,6 +170,7 @@
+
+ unset_dns() {
+ 	[[ ${#DNS[@]} -gt 0 ]] || return 0
++	command -v resolvconf >/dev/null || return 0
+ 	cmd resolvconf -d "$(resolvconf_iface_prefix)$INTERFACE" -f
+ }
