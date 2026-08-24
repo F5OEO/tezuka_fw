@@ -17,13 +17,17 @@ start() {
 		echo "no config"
 		return 0
 	fi
-	# Not wrapped in timeout(1) here: confirmed on real hardware that
-	# busybox's timeout applet interferes with wg-quick's own process
-	# substitution (wg setconf wg0 <(...)) in a way that reliably breaks
-	# the interface's kernel-side registration — "RTNETLINK answers:
-	# Network is unreachable" every time when run under timeout, never
-	# when run directly. See github.com/mbehn1976/tezuka_fw pull/8.
-	if wg-quick up "$WG_CONF" 2>/tmp/wireguard.log; then
+	# Invoked as "bash /usr/bin/wg-quick" rather than "wg-quick" (letting
+	# its own #!/usr/bin/env bash shebang start the interpreter):
+	# confirmed on real hardware, repeatedly, that letting the shebang
+	# start bash reliably fails at the "ip address add" step right after
+	# "wg setconf" with "RTNETLINK answers: Network is unreachable" —
+	# whether invoked directly, via timeout(1) (see the now-reverted
+	# theory in pull/8), or from this script — while explicitly invoking
+	# bash on the script succeeds cleanly every time. Not wrapped in
+	# timeout(1) either way; that was a red herring, not the cause. See
+	# github.com/mbehn1976/tezuka_fw pull/9.
+	if bash /usr/bin/wg-quick up "$WG_CONF" 2>/tmp/wireguard.log; then
 		echo "OK"
 	else
 		echo "FAIL"
@@ -35,7 +39,7 @@ start() {
 stop() {
 	printf "Stopping wireguard: "
 	if ip link show wg0 >/dev/null 2>&1; then
-		wg-quick down "$WG_CONF" 2>/tmp/wireguard.log
+		bash /usr/bin/wg-quick down "$WG_CONF" 2>/tmp/wireguard.log
 	fi
 	echo "OK"
 }
