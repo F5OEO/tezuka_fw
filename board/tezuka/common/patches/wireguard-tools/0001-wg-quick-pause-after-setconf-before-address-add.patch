@@ -1,0 +1,32 @@
+From: tezuka_fw
+Subject: [PATCH] wg-quick: pause after setconf before address add
+
+The "ip address add" call that immediately follows "wg setconf" in
+cmd_up() can lose a race against the newly-configured WireGuard
+interface settling in the kernel's routing/FIB state on some
+platforms. Observed reliably on a Zynq-7010 ARM SoC (PlutoPlus):
+"RTNETLINK answers: Network is unreachable" on every automated
+wg-quick run, while the identical ip/wg commands succeed every time
+when spaced apart manually (even a 1s gap is enough). Retrying the
+whole wg-quick invocation does not help, since each attempt reproduces
+the same zero-delay setconf-then-addr-add sequence internally.
+
+See github.com/mbehn1976/tezuka_fw pull/4 for the on-hardware
+diagnosis this patch is based on.
+
+--- a/src/wg-quick/linux.bash
++++ b/src/wg-quick/linux.bash
+@@ -330,6 +330,13 @@ cmd_up() {
+ 	add_if
+ 	execute_hooks "${PRE_UP[@]}"
+ 	set_config
++	# The immediately-following "ip address add" can lose a race against
++	# the newly-configured WireGuard interface settling in the kernel's
++	# routing/FIB state on some platforms (observed reliably on a Zynq-7010
++	# ARM SoC: "RTNETLINK answers: Network is unreachable"). A brief pause
++	# here avoids it; the same commands succeed every time when spaced
++	# apart manually. See github.com/mbehn1976/tezuka_fw pull/4.
++	sleep 1
+ 	for i in "${ADDRESSES[@]}"; do
+ 		add_addr "$i"
+ 	done
