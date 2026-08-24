@@ -255,36 +255,28 @@
 			clock = <100000000>;
 		};
 
-		axi_spi: spi@7C430000 {
-			#address-cells = <1>;
-			#size-cells = <0>;
-			bits-per-word = <8>;
-			compatible = "xlnx,xps-spi-2.00.a";
-			fifo-size = <16>;
-			interrupt-parent = <&intc>;
-			interrupts = <0 54 IRQ_TYPE_LEVEL_HIGH>;
-			num-cs = <0x1>;
-			reg = <0x7C430000 0x10000>;
-			xlnx,num-ss-bits = <0x1>;
-			xlnx,spi-mode = <0>;
-			/* write-only: qspi_sdi_i tied low, qspi_csn_i/o unused in system_top.v */
+	};
+};
 
-			oled: sh1106@0 {
-				compatible = "sinowealth,sh1106";
-				reg = <0>;
-				spi-max-frequency = <4000000>;
+&i2c1 {
+	status = "okay";
+	clock-frequency = <100000>;
 
-				/* EMIO gpio_o bits 22/23 in system_top.v -> gpio0 54+22, 54+23 */
-				dc-gpios = <&gpio0 76 0>;
-				reset-gpios = <&gpio0 77 0>;
-				vcc-supply = <&oled_vcc>;
+	oled: display@3c {
+		compatible = "sinowealth,sh1106";
+		reg = <0x3c>;
 
-				solomon,width = <128>;
-				solomon,height = <64>;
-				solomon,col-offset = <2>;
-				solomon,com-lrremap;
-			};
-		};
+		/* Uniquement le Reset sur I2C (pas de dc-gpios) */
+		reset-gpios = <&gpio0 77 GPIO_ACTIVE_LOW>;
+
+		/* Assure-toi que oled_vcc est un regulateur valide et fonctionnel */
+		vcc-supply = <&oled_vcc>;
+
+		solomon,width = <128>;
+		solomon,height = <64>;
+		solomon,page-offset = <0>;
+		solomon,col-offset = <2>;
+		solomon,com-invdir;
 	};
 };
 
