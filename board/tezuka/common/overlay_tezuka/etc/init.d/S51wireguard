@@ -17,13 +17,25 @@ start() {
 		echo "no config"
 		return 0
 	fi
-	if timeout 15 wg-quick up "$WG_CONF" 2>/tmp/wireguard.log; then
-		echo "OK"
-	else
-		echo "FAIL"
-		cat /tmp/wireguard.log
-		return 1
-	fi
+	# wg-quick's own "ip -4 address add" call is immediately preceded by
+	# "wg setconf" with no delay between them — on real hardware this loses
+	# a race against the newly-created wg interface settling in the
+	# kernel's routing/FIB state and fails with "RTNETLINK answers: Network
+	# is unreachable" (confirmed: the identical commands succeed when
+	# manually spaced apart by even a 1s sleep, so this isn't a config
+	# issue). wg-quick's own failure path already cleanly tears the
+	# interface down, so retrying from scratch is safe.
+	local i
+	for i in 1 2 3; do
+		if timeout 15 wg-quick up "$WG_CONF" 2>/tmp/wireguard.log; then
+			echo "OK"
+			return 0
+		fi
+		sleep 1
+	done
+	echo "FAIL"
+	cat /tmp/wireguard.log
+	return 1
 }
 
 stop() {
