@@ -891,6 +891,12 @@ parse_cmd () {
       [[ "$val" =~ ^[A-Za-z0-9+/=]+$ ]] || return
       local tmp="/tmp/wg0.conf.$$"
       echo "$val" | base64 -d > "$tmp" 2>/dev/null || { rm -f "$tmp"; return; }
+      # Sanitize artifacts commonly produced by third-party config
+      # exporters before handing this to wg-quick: CRLF line endings, and
+      # a trailing comma left on a comma-separated value (e.g.
+      # "AllowedIPs = 0.0.0.0/0," with nothing after it) — the latter
+      # makes wg setconf's address parser choke on an empty token.
+      sed -i -e $'s/\r$//' -e 's/[[:space:]]*,[[:space:]]*$//' "$tmp"
       grep -q '^\[Interface\]' "$tmp" || { rm -f "$tmp"; return; }
       install -D -m 600 -o root -g root "$tmp" "$WG_CONF"
       rm -f "$tmp"
