@@ -1,7 +1,5 @@
 /*
- * ZYNQ Pluto SDR (Z7010/AD9363)
- *
- * Copyright (C) 2016 Analog Devices Inc.
+ * OpenSDRLab 7010 Mini (Z7010/AD9363)
  *
  * Licensed under the GPL-2.
  */
@@ -13,27 +11,19 @@
 #include <dt-bindings/iio/adc/adi,ad9361.h>
 
 / {
-	model = "FISHBall/PlutoSky (Z7020/AD9361)";
+	model = "OpenSDRLab 7010 Mini (Z7010/AD9361)";
 	memory {
 		device_type = "memory";
-		reg = <0x00000000 0x40000000>;
+		reg = <0x00000000 0x20000000>;
 	};
 
 	aliases {
-		ethernet0 = &gem0;
+
 		serial0 = &uart0;
 	};
 
 	chosen {
 		stdout-path = "/amba@0/uart@E0001000";
-	};
-
-	oled_vcc: fixedregulator-oled {
-		compatible = "regulator-fixed";
-		regulator-name = "oled-vcc";
-		regulator-min-microvolt = <3300000>;
-		regulator-max-microvolt = <3300000>;
-		regulator-always-on;
 	};
 
 	clocks {
@@ -52,7 +42,7 @@
 		view-port = <0x0170>;
 		drv-vbus;
 	};
-	
+
 	reserved-memory {
                 #address-cells = <1>;
                 #size-cells = <1>;
@@ -66,7 +56,7 @@
 
                 maia_sdr_recording: maia_sdr_recording@6000000 {
                         no-map;
-                        reg = <0x6000000 0x10000000>;
+                        reg = <0x6000000 0x8000000>;
                         label = "maia_sdr_recording";
                 };
         };
@@ -83,12 +73,7 @@
 	};
 };
 
-&sdhci0 {
-	status = "okay";
-	xlnx,has-cd = <0x0>;
-	xlnx,has-power = <0x0>;
-	xlnx,has-wp = <0x0>;
-};
+
 
 &watchdog0 {
 	status = "okay";
@@ -99,25 +84,10 @@
 	xlnx,phy-reset-gpio = <&gpio0 46 0>;
 	dr_mode = "otg";
 	status = "okay";
-	usb-phy = <&usb_phy0>;
 };
 
 
-&gem0 {
-	status = "okay";
-	phy-mode = "rgmii-id";
-	phy-handle = <&phy0>;
 
-	mdio {
-		#address-cells = <1>;
-		#size-cells = <0>;
-
-		phy0: ethernet-phy@0 { /* Marvell 88e1512 */
-			reg = <0>;
-			compatible = "ethernet-phy-ieee802.3-c22";
-		};
-	};
-};
 
 &qspi {
 	status = "okay";
@@ -130,7 +100,7 @@
 		#size-cells = <1>;
 		spi-tx-bus-width = <1>;
 		spi-rx-bus-width = <4>;
-		compatible = "w25q128","jedec,spi-nor";
+		compatible = "winbond,w25q256", "jedec,spi-nor";
 		reg = <0x0>;
 		spi-max-frequency = <50000000>;
 		partition@qspi-fsbl-uboot {
@@ -147,7 +117,7 @@
 		};
 		partition@qspi-linux {
 			label = "qspi-linux";
-			reg = <0x200000 0xE00000>; /* 16M  -> 30M */
+			reg = <0x200000 0x1E00000>; /* 30M */
 		};
 	};
 };
@@ -169,7 +139,7 @@
 		#size-cells = <0x1>;
 		ranges;
 
-		
+
 		rx_dma: dma@7c400000 {
 			compatible = "adi,axi-dmac-1.00.a";
 			reg = <0x7c400000 0x10000>;
@@ -222,7 +192,7 @@
 			interrupt-parent = <&intc>;
 			interrupts = <0 55 IRQ_TYPE_LEVEL_HIGH>;
 		};
-		
+
 		cf_ad9364_adc_core_0: cf-ad9361-lpc@79020000 {
 			compatible = "adi,axi-ad9361-6.00.a";
 			reg = <0x79020000 0x6000>;
@@ -243,42 +213,16 @@
 			adi,axi-dds-default-scale = <0>;
 		};
 
-		axi_uartlite_0:	serial@42C00000 {
-			compatible = "xlnx,xps-uartlite-1.00.a";
-			current-speed = <9600>;
-			device_type = "serial";
-			interrupt-names = "interrupt";
-			status = "okay";
-			reg = <0x42C00000 0x1000>;
-			interrupt-parent = <&intc>;
-			interrupts = <0 59 IRQ_TYPE_LEVEL_HIGH>;
-			clock = <100000000>;
-		};
+
+
 
 	};
 };
 
-&i2c1 {
-	status = "okay";
-	clock-frequency = <100000>;
-
-	oled: display@3c {
-		compatible = "sinowealth,sh1106";
-		reg = <0x3c>;
-
-		/* Uniquement le Reset sur I2C (pas de dc-gpios) */
-		reset-gpios = <&gpio0 77 GPIO_ACTIVE_LOW>;
-
-		/* Assure-toi que oled_vcc est un regulateur valide et fonctionnel */
-		vcc-supply = <&oled_vcc>;
-
-		solomon,width = <128>;
-		solomon,height = <64>;
-		solomon,page-offset = <0>;
-		solomon,col-offset = <2>;
-		solomon,com-invdir;
-	};
+&sdhci0 {
+	status = "disabled";
 };
+
 
 &spi0 {
 	status = "okay";
@@ -306,7 +250,6 @@
 		  * 1 = SKIP TX
 		  * 2 = SKIP ALL
 		  */
-		adi,digital-interface-tune-skip-mode = <0>;/* TUNE RX & TX */
 
 		adi,pp-tx-swap-enable;
 		adi,pp-rx-swap-enable;
@@ -317,6 +260,9 @@
 		adi,rx-data-delay = <4>;
 		adi,tx-fb-clock-delay = <7>;
 		adi,tx-data-delay = <9>;
+		#adi,digital-interface-tune-fir-disable;
+
+		adi,digital-interface-tune-skip-mode = <0>; /* TUNE RX & TX */
 
 		adi,xo-disable-use-ext-refclk-enable;
 
@@ -489,7 +435,7 @@
 		/* AuxADC Temp Sense Control */
 
 		adi,temp-sense-measurement-interval-ms = <1000>;
-		adi,temp-sense-offset-signed = <0xCE>;
+		adi,temp-sense-offset-signed = <0xB6>;
 		adi,temp-sense-periodic-measurement-enable;
 
 		/* AuxDAC Control */
@@ -514,68 +460,6 @@
 
 		en_agc-gpios = <&gpio0 66 0>;
 		reset-gpios = <&gpio0 67 0>;
-	
-		adi,band-ctl-0-gpio = <&gpio0 81 0>;
-		adi,band-ctl-1-gpio = <&gpio0 82 0>;
-        adi,band-ctl-2-gpio = <&gpio0 83 0>;
-
-		ad9361_rx_ant_port_a: ad9361_rx_ant_port_a {
-			adi,rx-rf-port-input-select = <0>; /* (RX1A_N &  RX1A_P) and (RX2A_N & RX2A_P) enabled; balanced */
-		};
-
-		ad9361_rx_ant_port_b: ad9361_rx_ant_port_b {
-			adi,rx-rf-port-input-select = <1>; /* (RX1B_N &  RX1B_P) and (RX2B_N & RX2B_P) enabled; balanced */
-		};
-
-		adi_rx_band_setting_0 {
-			adi,lo-freq-min = /bits/ 64 <0>;
-			adi,lo-freq-max = /bits/ 64 <30000000>;
-			adi,gpio-settings = <0 0 0>;
-			adi,band-ctl-post = <&ad9361_rx_ant_port_a 0>;
-		};
-
-		adi_rx_band_setting_1 {
-			adi,lo-freq-min = /bits/ 64 <30000001>;
-			adi,lo-freq-max = /bits/ 64 <100000000>;
-			adi,gpio-settings = <0 0 1>;
-			adi,band-ctl-post = <&ad9361_rx_ant_port_a 0>;
-		};
-
-		adi_rx_band_setting_2 {
-			adi,lo-freq-min = /bits/ 64 <100000001>;
-			adi,lo-freq-max = /bits/ 64 <200000000>;
-			adi,gpio-settings = <0 1 0>;
-			adi,band-ctl-post = <&ad9361_rx_ant_port_a 0>;
-		};
-		
-		adi_rx_band_setting_3 {
-			adi,lo-freq-min = /bits/ 64 <200000001>;
-			adi,lo-freq-max = /bits/ 64 <500000000>;
-			adi,gpio-settings = <0 1 1>;
-			adi,band-ctl-post = <&ad9361_rx_ant_port_a 0>;
-		};
-
-		adi_rx_band_setting_4 {
-			adi,lo-freq-min = /bits/ 64 <500000001>;
-			adi,lo-freq-max = /bits/ 64 <1500000000>;
-			adi,gpio-settings = <1 0 0>;
-			adi,band-ctl-post = <&ad9361_rx_ant_port_a 0>;
-		};
-
-		adi_rx_band_setting_5 {
-			adi,lo-freq-min = /bits/ 64 <1500000001>;
-			adi,lo-freq-max = /bits/ 64 <2400000000>;
-			adi,gpio-settings = <1 0 1>;
-			adi,band-ctl-post = <&ad9361_rx_ant_port_a 0>;
-		};
-
-		adi_rx_band_setting_6 {
-			adi,lo-freq-min = /bits/ 64 <2400000001>;
-			adi,lo-freq-max = /bits/ 64 <6000000000>;
-			adi,gpio-settings = <1 1 0>;
-			adi,band-ctl-post = <&ad9361_rx_ant_port_a 0>;
-		};
-
 	};
 
 

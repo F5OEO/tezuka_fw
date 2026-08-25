@@ -12,7 +12,7 @@ on:
   workflow_dispatch:
     inputs:
       boards:
-        description: 'Comma-separated board names, or "all" (validated against boards.json)'
+        description: 'Comma-separated board names, group names (e.g. fishball_mini), or "all" (validated against boards.json)'
         type: string
         required: false
         default: "all"
@@ -59,14 +59,19 @@ jobs:
           else
             # Reject unknown names up front; GitHub's own "matrix must define
             # at least one vector" only surfaces at job-expansion time and
-            # doesn't hint at the cause.
+            # doesn't hint at the cause. A "group" name (boards.json's
+            # optional .artifact field, e.g. fishball_mini) expands to all
+            # its member boards, each still a normal one-defconfig matrix row
+            # -- the merge into one release zip happens later, in the
+            # release job, not here.
             INCLUDE=$(jq -c --arg input "$INPUT" '
               ($input | split(",") | map(gsub("^\\s+|\\s+$";"")) | map(select(length>0))) as $wanted
-              | ($wanted - [.[].board]) as $unknown
+              | ([.[].board] + ([.[].artifact] | map(select(. != null)) | unique)) as $known
+              | ($wanted - $known) as $unknown
               | if ($unknown | length) > 0 then
                   error("Unknown board(s): " + ($unknown | join(", ")))
                 else
-                  [.[] | select(.board as $b | $wanted | index($b))]
+                  [.[] | select(.board as $b | (.artifact // "") as $a | ($wanted | index($b)) or ($wanted | index($a)))]
                 end
             ' boards.json)
           fi
@@ -74,7 +79,10 @@ jobs:
           echo "matrix={\"include\":${INCLUDE}}" >> "$GITHUB_OUTPUT"
           # 'true' iff dispatched with a single board; gates the
           # per-board output/ cache (3 GB) which doesn't fit budget
-          # at COUNT=12.
+          # at COUNT=14 (one row per board.json entry -- fishball_mini_7010
+          # and fishball_mini_7020 are each their own row/board here; they
+          # only fold into their fishball/fishball7020 counterpart's release
+          # zip later, in the release job).
           if [ "$COUNT" -eq 1 ]; then
             echo "single_board=true" >> "$GITHUB_OUTPUT"
           else
@@ -369,6 +377,67 @@ jobs:
           path: artifacts/
           pattern: tezuka-*
 
+      - name: Merge grouped board artifacts
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Boards sharing an effective artifact identity (boards.json's
+          # .artifact field, defaulting to the board's own name) build as
+          # independent matrix rows but ship as one release zip: e.g.
+          # fishball_mini_7010's flash-only build folds into fishball's own
+          # zip alongside fishball's sdimg/. Each member populates only one
+          # of flash/ or sdimg/ (see build.sh's merge_group() comment), so a
+          # plain union has nothing to collide. The artifact name is often a
+          # real board itself (the "primary" member) rather than a synthetic
+          # label, so this stages the merge in a separate temp dir before
+          # removing any member directory -- the target path can equal one
+          # of the sources'. Only merges a group when every member was
+          # actually built in this run -- a workflow_dispatch for just the
+          # mini board leaves it shipping standalone instead.
+          jq -c '
+            group_by(.artifact // .board)
+            | map(select(length > 1))
+            | .[]
+          ' boards.json > /tmp/groups.jsonl
+
+          while IFS= read -r group; do
+            artifact=$(jq -r '(.[0].artifact // .[0].board)' <<<"$group")
+            mapfile -t members < <(jq -r '.[].board' <<<"$group")
+
+            all_present=true
+            for b in "${members[@]}"; do
+              [ -d "artifacts/tezuka-${b}" ] || all_present=false
+            done
+            if [ "$all_present" != true ]; then
+              echo "Skipping merge for ${artifact}: not all members (${members[*]}) present in this run"
+              continue
+            fi
+
+            echo "Merging ${members[*]} -> ${artifact}"
+            staging="artifacts/.merge-${artifact}"
+            rm -rf "${staging}"
+            mkdir -p "${staging}/flash" "${staging}/sdimg"
+
+            first=true
+            while IFS= read -r row; do
+              board=$(jq -r '.board' <<<"$row")
+              src="artifacts/tezuka-${board}"
+              [ -d "${src}/flash" ] && cp -r "${src}/flash/." "${staging}/flash/"
+              [ -d "${src}/sdimg" ] && cp -r "${src}/sdimg/." "${staging}/sdimg/"
+              if [ "$first" = true ]; then
+                [ -d "${src}/bom" ] && cp -r "${src}/bom" "${staging}/bom"
+                [ -f "${src}/README.md" ] && cp "${src}/README.md" "${staging}/README.md"
+                [ -f "${src}/LICENSE" ] && cp "${src}/LICENSE" "${staging}/LICENSE"
+                first=false
+              fi
+            done < <(jq -c '.[]' <<<"$group")
+
+            for b in "${members[@]}"; do
+              rm -rf "artifacts/tezuka-${b}"
+            done
+            mv "${staging}" "artifacts/tezuka-${artifact}"
+          done < /tmp/groups.jsonl
+
       - name: Package release zips
         env:
           TAG: ${{ github.event_name == 'push' && github.ref_name || format('ci-test-{0}', github.sha) }}
@@ -418,6 +487,13 @@ jobs:
             done
           } >> "$GITHUB_STEP_SUMMARY"
 
+      # Provenance-only (no sbom-path): this is the actual shipped release
+      # zip, which is a repackage of the matrix job's artifacts/tezuka-<board>
+      # directory, not the same file the matrix job SBOM-attested
+      # (build/<board>.zip, an intermediate that never ships). Every board's
+      # release zip already has that gap, not just merged ones -- the SBOM
+      # itself still ships inside each zip under bom/, just without a
+      # dedicated attestation binding to this exact file's hash.
       - name: Attest release zips
         uses: actions/attest@v4
         with:

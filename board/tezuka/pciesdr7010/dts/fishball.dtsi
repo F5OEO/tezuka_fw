@@ -1,5 +1,5 @@
 /*
- * ZYNQ Pluto SDR (Z7010/AD9363)
+ * ZYNQ PCIeSDR (Z7010/AD9361)
  *
  * Copyright (C) 2016 Analog Devices Inc.
  *
@@ -13,7 +13,7 @@
 #include <dt-bindings/iio/adc/adi,ad9361.h>
 
 / {
-	model = "FISHBall/PlutoSky (Z7020/AD9361)";
+	model = "PCIeSDR (Z7010/AD9361)";
 	memory {
 		device_type = "memory";
 		reg = <0x00000000 0x40000000>;
@@ -26,14 +26,6 @@
 
 	chosen {
 		stdout-path = "/amba@0/uart@E0001000";
-	};
-
-	oled_vcc: fixedregulator-oled {
-		compatible = "regulator-fixed";
-		regulator-name = "oled-vcc";
-		regulator-min-microvolt = <3300000>;
-		regulator-max-microvolt = <3300000>;
-		regulator-always-on;
 	};
 
 	clocks {
@@ -52,7 +44,7 @@
 		view-port = <0x0170>;
 		drv-vbus;
 	};
-	
+
 	reserved-memory {
                 #address-cells = <1>;
                 #size-cells = <1>;
@@ -105,16 +97,23 @@
 
 &gem0 {
 	status = "okay";
-	phy-mode = "rgmii-id";
-	phy-handle = <&phy0>;
+	phy-mode = "rgmii-rxid";
+	gmii2rgmii-phy-handle = <&gmii_to_rgmii_0>;
 
 	mdio {
 		#address-cells = <1>;
 		#size-cells = <0>;
 
-		phy0: ethernet-phy@0 { /* Marvell 88e1512 */
-			reg = <0>;
-			compatible = "ethernet-phy-ieee802.3-c22";
+		phy0: ethernet-phy@1 { /* Realtek RTL8211F */
+			compatible = "ethernet-phy-id001c.c916",
+				     "ethernet-phy-ieee802.3-c22";
+			reg = <0x1>;
+		};
+
+		gmii_to_rgmii_0: gmiitorgmii@8 {
+			compatible = "xlnx,gmii-to-rgmii-1.0";
+			reg = <0x8>;
+			phy-handle = <&phy0>;
 		};
 	};
 };
@@ -169,7 +168,7 @@
 		#size-cells = <0x1>;
 		ranges;
 
-		
+
 		rx_dma: dma@7c400000 {
 			compatible = "adi,axi-dmac-1.00.a";
 			reg = <0x7c400000 0x10000>;
@@ -222,7 +221,7 @@
 			interrupt-parent = <&intc>;
 			interrupts = <0 55 IRQ_TYPE_LEVEL_HIGH>;
 		};
-		
+
 		cf_ad9364_adc_core_0: cf-ad9361-lpc@79020000 {
 			compatible = "adi,axi-ad9361-6.00.a";
 			reg = <0x79020000 0x6000>;
@@ -243,40 +242,9 @@
 			adi,axi-dds-default-scale = <0>;
 		};
 
-		axi_uartlite_0:	serial@42C00000 {
-			compatible = "xlnx,xps-uartlite-1.00.a";
-			current-speed = <9600>;
-			device_type = "serial";
-			interrupt-names = "interrupt";
-			status = "okay";
-			reg = <0x42C00000 0x1000>;
-			interrupt-parent = <&intc>;
-			interrupts = <0 59 IRQ_TYPE_LEVEL_HIGH>;
-			clock = <100000000>;
-		};
 
-	};
-};
 
-&i2c1 {
-	status = "okay";
-	clock-frequency = <100000>;
 
-	oled: display@3c {
-		compatible = "sinowealth,sh1106";
-		reg = <0x3c>;
-
-		/* Uniquement le Reset sur I2C (pas de dc-gpios) */
-		reset-gpios = <&gpio0 77 GPIO_ACTIVE_LOW>;
-
-		/* Assure-toi que oled_vcc est un regulateur valide et fonctionnel */
-		vcc-supply = <&oled_vcc>;
-
-		solomon,width = <128>;
-		solomon,height = <64>;
-		solomon,page-offset = <0>;
-		solomon,col-offset = <2>;
-		solomon,com-invdir;
 	};
 };
 
@@ -514,7 +482,7 @@
 
 		en_agc-gpios = <&gpio0 66 0>;
 		reset-gpios = <&gpio0 67 0>;
-	
+
 		adi,band-ctl-0-gpio = <&gpio0 81 0>;
 		adi,band-ctl-1-gpio = <&gpio0 82 0>;
         adi,band-ctl-2-gpio = <&gpio0 83 0>;
@@ -547,7 +515,7 @@
 			adi,gpio-settings = <0 1 0>;
 			adi,band-ctl-post = <&ad9361_rx_ant_port_a 0>;
 		};
-		
+
 		adi_rx_band_setting_3 {
 			adi,lo-freq-min = /bits/ 64 <200000001>;
 			adi,lo-freq-max = /bits/ 64 <500000000>;

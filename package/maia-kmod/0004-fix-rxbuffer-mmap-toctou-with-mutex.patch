@@ -1,0 +1,205 @@
+maia-kmod: close remaining mmap_done TOCTOU race with a mutex
+
+0003 serialized vm_close/cacheinv against mmap_done/vm_start with a
+spinlock, but had to release that spinlock around remap_pfn_range()
+in maia_sdr_rxbuffer_mmap() (remap_pfn_range() can sleep -- allocating
+page-table pages with GFP_KERNEL -- so it cannot be called while
+holding a spinlock). That left the original race open at its
+narrowest but most consequential point: two concurrent mmap() calls
+on the rxbuffer device (e.g. from two simultaneous iiod client
+contexts, one over the USB FunctionFS backend and one over the
+network/RNDIS backend) can both observe mmap_done == 0, both proceed
+to remap_pfn_range() the same physical DMA buffer into two different
+processes' address spaces, and then both write mmap_done/vm_start --
+whichever finishes last silently wins, leaving vm_start pointing at
+the wrong process's virtual address for the other mapping.
+
+This matters because vm_start feeds directly into v7_dma_inv_range()
+from IOCTL_CACHEINV: a cache-line invalidate (discard, not writeback)
+against a stale/wrong virtual address silently drops live data
+instead of writing anything recognizable, which is a plausible source
+of the "wild write into general RAM" corruption signature under
+concurrent RF/USB load documented in doc/crashnano.md (repeating
+fixed value at varying physical addresses -- consistent with
+cache-line-granularity corruption, not a raw pointer write).
+
+Fix: replace the spinlock with a mutex and hold it across the entire
+check-then-remap-then-set sequence in maia_sdr_rxbuffer_mmap(), not
+just around the individual reads/writes. A mutex is safe to hold
+across remap_pfn_range() since both run in sleepable process context
+(mmap() and munmap() are never called from atomic/interrupt context),
+which is exactly what let 0003's spinlock-based attempt leave this
+window open in the first place.
+
+Lock-ordering check: .mmap and vm_ops->close both run with mm->mmap_lock
+held by the core mm code, so both acquisitions here nest inside
+mmap_lock (mmap_lock -> drvdata->lock). The only other acquirer is
+IOCTL_CACHEINV, which holds no mm lock on entry, so the ordering is
+one-directional as long as nothing under drvdata->lock reaches back
+into mm code. v7_dma_inv_range() (arch/arm/mm/cache-v7.S) is a
+straight-line loop of "mcr p15" cache-maintenance-by-MVA instructions
+with no page-table walk or C code involved; arm_cache_outer_inv_range()
+(arch/arm/mm/outercache.c) dispatches to the PL310 L2 controller driver
+over MMIO on a physical address. Neither touches mm_struct or
+mmap_lock, so no ABBA deadlock is possible. arm_cache_outer_inv_range()
+is also moved outside drvdata->lock in this patch: it only depends on
+mem_base_addr, which is fixed at probe time, not on vm_start/mmap_done,
+so it was never protected by the lock in substance, only in position --
+moving it out shortens the critical section without changing behavior.
+
+Dropping IRQ-off: 0003 used spin_lock_irqsave, but nothing in this
+driver touches mmap_done/vm_start from interrupt or other atomic
+context -- the only writers/readers are .mmap, vm_ops->close, and the
+ioctl handler, all process context. The irqsave was therefore
+defensive rather than load-bearing, and a plain mutex is sufficient
+now that the critical section needs to span a sleeping call anyway.
+
+Status: written and cross-compiled clean against the pinned kernel
+(6.12.77, output/pciesdr7010/build/linux-custom), not yet flashed or
+tested on hardware. This is the third attempt at this specific race
+(after 0002 and 0003, both already applied and both insufficient --
+the crash reproduced on pciesdr7010 with both in place); treat it as
+unproven against the actual crash until tested against the boot/
+login-prompt reproduction recipe in doc/crashnano.md.
+
+--- a/maia-kmod/maia-sdr.c
++++ b/maia-kmod/maia-sdr.c
+@@ -14,11 +14,11 @@
+ #include <linux/init.h>
+ #include <linux/ioctl.h>
+ #include <linux/module.h>
++#include <linux/mutex.h>
+ #include <linux/of.h>
+ #include <linux/of_device.h>
+ #include <linux/of_reserved_mem.h>
+ #include <linux/platform_device.h>
+-#include <linux/spinlock.h>
+
+ #define DRIVER_NAME "maia-sdr"
+
+@@ -49,7 +49,7 @@
+ 	unsigned int num_buffers;
+ 	int mmap_done;
+ 	unsigned long vm_start;
+-	spinlock_t lock;
++	struct mutex lock;
+ };
+
+ // Defined in arch/arm/mm/cache-v7.S
+@@ -111,12 +111,11 @@
+ static void maia_sdr_rxbuffer_vm_close(struct vm_area_struct *vma)
+ {
+ 	struct maia_sdr_rxbuffer_drvdata *drvdata = vma->vm_private_data;
+-	unsigned long flags;
+
+-	spin_lock_irqsave(&drvdata->lock, flags);
++	mutex_lock(&drvdata->lock);
+ 	drvdata->mmap_done = 0;
+ 	drvdata->vm_start = 0;
+-	spin_unlock_irqrestore(&drvdata->lock, flags);
++	mutex_unlock(&drvdata->lock);
+ }
+
+ static struct vm_operations_struct maia_sdr_rxbuffer_vm_ops = {
+@@ -131,15 +130,6 @@
+ 	int ret;
+ 	const unsigned long pte_mask = L_PTE_RDONLY | L_PTE_XN;
+ 	unsigned long max_size = drvdata->buffer_size * drvdata->num_buffers;
+-	unsigned long flags;
+-
+-	spin_lock_irqsave(&drvdata->lock, flags);
+-	if (drvdata->mmap_done) {
+-		// Device is already mapped
+-		spin_unlock_irqrestore(&drvdata->lock, flags);
+-		return -EINVAL;
+-	}
+-	spin_unlock_irqrestore(&drvdata->lock, flags);
+
+ 	if ((pgprot_val(vma->vm_page_prot) & pte_mask) != pte_mask) {
+ 		// The pages can only be mapped in read-only no-execute mode
+@@ -151,20 +141,37 @@
+ 		return -EINVAL;
+ 	}
+
++	// The mmap_done check, remap_pfn_range() and the mmap_done/vm_start
++	// update must all happen under the same critical section: otherwise
++	// two concurrent mmap() calls (e.g. from two iiod client contexts)
++	// can both pass the check before either sets mmap_done, and both
++	// remap the same DMA buffer, leaving vm_start pointing at whichever
++	// mapping happened to finish last. remap_pfn_range() can sleep, so
++	// this section needs a sleepable lock, not the spinlock previously
++	// used here (which could only cover the non-sleeping cacheinv path).
++	mutex_lock(&drvdata->lock);
++
++	if (drvdata->mmap_done) {
++		// Device is already mapped
++		mutex_unlock(&drvdata->lock);
++		return -EINVAL;
++	}
++
+ 	ret = remap_pfn_range(vma, vma->vm_start,
+ 			      (drvdata->mem_base_addr >> PAGE_SHIFT) +
+ 				      vma->vm_pgoff,
+ 			      size, vma->vm_page_prot);
+ 	if (ret) {
++		mutex_unlock(&drvdata->lock);
+ 		return ret;
+ 	}
+-	spin_lock_irqsave(&drvdata->lock, flags);
+ 	drvdata->mmap_done = 1;
+ 	drvdata->vm_start = vma->vm_start;
+-	spin_unlock_irqrestore(&drvdata->lock, flags);
+ 	vma->vm_private_data = (void *)drvdata;
+ 	vma->vm_ops = &maia_sdr_rxbuffer_vm_ops;
+
++	mutex_unlock(&drvdata->lock);
++
+ 	return 0;
+ }
+
+@@ -174,13 +181,12 @@
+ {
+ 	unsigned long offset;
+ 	unsigned long start;
+-	unsigned long flags;
+ 	int ret = 0;
+
+ 	if (num_buffer >= drvdata->num_buffers) {
+ 		return -1;
+ 	}
+-	spin_lock_irqsave(&drvdata->lock, flags);
++	mutex_lock(&drvdata->lock);
+ 	if (!drvdata->mmap_done) {
+ 		ret = -1;
+ 		goto out_unlock;
+@@ -189,11 +195,18 @@
+ 	start = drvdata->vm_start + offset;
+ 	// See maia_sdr_recording_mmap for how the cache invalidation works.
+ 	v7_dma_inv_range(start, start + drvdata->buffer_size);
++out_unlock:
++	mutex_unlock(&drvdata->lock);
++	if (ret) {
++		return ret;
++	}
++
++	// mem_base_addr is fixed at probe time, so this call doesn't touch
++	// anything the lock above protects -- keep it outside to shorten the
++	// critical section.
+ 	start = drvdata->mem_base_addr + offset;
+ 	arm_cache_outer_inv_range(start, start + drvdata->buffer_size);
+-out_unlock:
+-	spin_unlock_irqrestore(&drvdata->lock, flags);
+-	return ret;
++	return 0;
+ }
+
+ static long maia_sdr_rxbuffer_ioctl(struct file *file, unsigned int cmd,
+@@ -400,7 +413,7 @@
+ 	if (IS_ERR_OR_NULL(drvdata)) {
+ 		return -ENOMEM;
+ 	}
+-	spin_lock_init(&drvdata->lock);
++	mutex_init(&drvdata->lock);
+
+ 	ret = of_property_read_u32(pdev->dev.of_node, "buffer-size",
+ 				   &buffer_size);

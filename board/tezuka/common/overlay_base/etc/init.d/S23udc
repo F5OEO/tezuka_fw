@@ -153,7 +153,11 @@ if [ "$AUDIO_MODE" = "on" ]
 	ln -s $GADGET/functions/$USB_NET_FUNCTION $GADGET/configs/c.1
 	ln -s $GADGET/functions/mass_storage.0 $GADGET/configs/c.1
 	ln -s $GADGET/functions/acm.usb0 $GADGET/configs/c.1
-	ln -s $GADGET/functions/ffs.iio_ffs $GADGET/configs/c.1/ffs.iio_ffs
+	if grep -q dma_test_skip /proc/cmdline; then
+		echo "Skipping ffs.iio_ffs gadget function (dma_test_skip on cmdline, no iiod to bind it)"
+	else
+		ln -s $GADGET/functions/ffs.iio_ffs $GADGET/configs/c.1/ffs.iio_ffs
+	fi
 	if [ "$AUDIO_MODE" = "on" ]
 	then
 	ln -s $GADGET/functions/uac2.usb0 $GADGET/configs/c.1
@@ -164,14 +168,16 @@ if [ "$AUDIO_MODE" = "on" ]
 	
 	mkdir -p /dev/iio_ffs
 	mount iio_ffs -t functionfs /dev/iio_ffs 2> /dev/null
-	if [ "$NB_CORE" = "2" ]
+	if grep -q dma_test_skip /proc/cmdline; then
+		echo "Skipping iiod start (dma_test_skip on cmdline)"
+	elif [ "$NB_CORE" = "2" ]
 	then
 		# shellcheck disable=SC2086
 		start-stop-daemon -S -b -q -m -p /var/run/iiod.pid -x /usr/bin/chrt -- -r 99 /usr/bin/taskset -c 1 /usr/sbin/iiod $IIOD_OPTS
-	else	
+	else
 		# shellcheck disable=SC2086
 		start-stop-daemon -S -b -q -m -p /var/run/iiod.pid -x  /usr/sbin/iiod  -- $IIOD_OPTS
-	fi	
+	fi
 	sleep 0.2
 
 	echo ci_hdrc.0 > $GADGET/UDC

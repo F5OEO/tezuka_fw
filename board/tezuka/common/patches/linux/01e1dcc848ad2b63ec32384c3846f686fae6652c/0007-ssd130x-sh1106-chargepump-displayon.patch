@@ -1,0 +1,29 @@
+diff --git a/drivers/gpu/drm/solomon/ssd130x.c b/drivers/gpu/drm/solomon/ssd130x.c
+index 111111111111..222222222222 100644
+--- a/drivers/gpu/drm/solomon/ssd130x.c
++++ b/drivers/gpu/drm/solomon/ssd130x.c
+@@ -149,6 +149,7 @@
+ 		.default_width = 132,
+ 		.default_height = 64,
+ 		.page_mode_only = 1,
++		.need_chargepump = 1,
+ 		.family_id = SSD130X_FAMILY,
+ 	},
+ 	[SSD1305_ID] = {
+@@ -1638,6 +1639,16 @@
+ 	if (ret)
+ 		return;
+ 
++	/*
++	 * Some SH1106-class controllers only reliably come out of sleep
++	 * mode when DISPLAY_ON is asserted before the charge pump is
++	 * enabled (which happens inside ssd130x_init()). Sending it here
++	 * too, ahead of ssd130x_init()'s own DISPLAY_ON at the end, avoids
++	 * a silent no-output state where every command ACKs normally but
++	 * the panel never lights.
++	 */
++	ssd130x_write_cmd(ssd130x, 1, SSD13XX_DISPLAY_ON);
++
+ 	ret = ssd130x_init(ssd130x);
+ 	if (ret)
+ 		goto power_off;
