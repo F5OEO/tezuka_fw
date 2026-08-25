@@ -1,0 +1,59 @@
+#!/bin/sh
+#
+# Starts busybox's ntpd to sync the system clock. This board has no
+# battery-backed RTC, so every boot starts near the Unix epoch until this
+# runs — that also throws off things like WireGuard's reported handshake
+# age. Runs as a background daemon rather than a one-shot query: on a
+# typical deployment the only route to the internet may be a WireGuard
+# tunnel that isn't up yet at this point in boot (see S51wireguard), so
+# ntpd is left running to keep retrying/discipline the clock whenever a
+# server actually becomes reachable, instead of giving up after one try.
+#
+# Servers are a plain space-separated list (not /etc/ntp.conf — that
+# file's GPS refclock lines are for the full ntp.org daemon used
+# elsewhere on this board, a format busybox's ntpd doesn't understand).
+
+NAME=ntpd
+DAEMON=/usr/sbin/$NAME
+PIDFILE=/var/run/$NAME.pid
+NTP_SERVERS=$(fw_printenv -n ntp_servers 2>/dev/null || echo "0.pool.ntp.org 1.pool.ntp.org 2.pool.ntp.org 3.pool.ntp.org")
+
+[ -x "$DAEMON" ] || exit 0
+
+start() {
+	set -- -n
+	for server in $NTP_SERVERS; do
+		set -- "$@" -p "$server"
+	done
+	printf 'Starting %s: ' "$NAME"
+	# shellcheck disable=SC2086
+	start-stop-daemon -S -q -b -m -p "$PIDFILE" --exec "$DAEMON" -- "$@" && echo "OK"
+}
+
+stop() {
+	printf 'Stopping %s: ' "$NAME"
+	start-stop-daemon -K -q -p "$PIDFILE" && echo "OK" || echo "Failed"
+	rm -f "$PIDFILE"
+}
+
+restart() {
+	stop
+	start
+}
+
+case "$1" in
+  start)
+	start
+	;;
+  stop)
+	stop
+	;;
+  restart|reload)
+	restart
+	;;
+  *)
+	echo "Usage: $0 {start|stop|restart}"
+	exit 1
+esac
+
+exit $?
