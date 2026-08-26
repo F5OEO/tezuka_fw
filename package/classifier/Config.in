@@ -1,0 +1,9 @@
+config BR2_PACKAGE_CLASSIFIER
+	bool "classifier"
+	select BR2_PACKAGE_LIBWEBSOCKETS
+	help
+	  Onboard PSD spectral-shape signal classifier — connects to
+	  maia-httpd's /waterfall feed as a WebSocket client and
+	  correlates live spectrum frames against templates loaded
+	  from /mnt/jffs2/classifier/templates.bin, publishing the
+	  best match over MQTT.
