@@ -14,6 +14,20 @@
 // dashboard reading, no separate transport needed for that part.
 const { useState: useSCl, useEffect: useECl, useRef: useRCl } = React;
 
+// Fixed palette keyed by service type — keeps band-plan entries simple to
+// edit (no per-entry color picking) while staying visually consistent.
+const BANDPLAN_COLORS = {
+  aviation: '#ff8a4c',
+  cellular: '#7a8cff',
+  broadcast: '#ffcd46',
+  maritime: '#4cc9ff',
+  emergency: '#ff5c7a',
+  iot: '#8be07a',
+  weather: '#c98bff',
+  other: '#9aa4ad',
+};
+let bandplanNextId = 1; // client-side scratch id for newly-added, unsaved rows
+
 function ClassifierPage({ d }) {
   const canvasRef = useRCl(null);
   const binsRef   = useRCl(null);      // Float32Array dB, current live frame
@@ -27,6 +41,32 @@ function ClassifierPage({ d }) {
   const lastLoggedRef = useRCl(null);        // dedupe: only log on actual change
 
   const refDb = 0, range = 100; // fixed display scale — this page isn't a general-purpose analyzer
+
+  // Band plan: fetched once from maia-httpd's static file serving (see
+  // S59bandplan — /root/bandplan.json is a symlink to the persistent copy
+  // on JFFS2), not MQTT — a several-KB reference dataset doesn't belong on
+  // the live telemetry channel just to get loaded once per page visit.
+  const [bandPlan, setBandPlan] = useSCl([]);
+  const [bandPlanDirty, setBandPlanDirty] = useSCl(false);
+  const loadBandPlan = () => {
+    fetch('/bandplan.json').then((r) => r.json()).then((list) => {
+      setBandPlan(Array.isArray(list) ? list : []);
+      setBandPlanDirty(false);
+    }).catch(() => {});
+  };
+  useECl(() => { loadBandPlan(); }, []);
+
+  const saveBandPlan = () => {
+    const clean = bandPlan.filter((e) => e.label && e.start_hz > 0 && e.end_hz >= e.start_hz);
+    d.publish('bandplan/data', JSON.stringify(clean));
+    setBandPlanDirty(false);
+  };
+
+  // Center/span for placing band segments in bin space — same `d` fields
+  // radioastro.jsx reads (d.rxFreq, d.span ?? d.rxSampling), no new
+  // device-side state needed.
+  const centerHz = d.rxFreq ?? 100e6;
+  const spanHz = d.span ?? d.rxSampling ?? 20e6;
 
   function redraw() {
     const canvas = canvasRef.current;
@@ -72,6 +112,42 @@ function ClassifierPage({ d }) {
       ctx.fillText(text, chipX + 8, chipY + 15);
       ctx.restore();
     }
+
+    // Band-plan strip along the bottom — independent of whatever the
+    // classifier has (or hasn't) matched. Segment placement inverts
+    // pages1.jsx's spDrawCursor freq math: freq = centerHz + (binFrac -
+    // 0.5) * spanHz, so binFrac = (freq - centerHz) / spanHz + 0.5.
+    const stripH = 14;
+    const hzToX = (hz) => (((hz - centerHz) / spanHz) + 0.5) * w;
+    ctx.save();
+    for (const e of bandPlan) {
+      let x0 = hzToX(e.start_hz), x1 = hzToX(e.end_hz);
+      if (x1 < 0 || x0 > w) continue; // entirely off-screen at this span
+      if (x1 - x0 < 2) { const mid = (x0 + x1) / 2; x0 = mid - 1; x1 = mid + 1; } // point freq: keep it visible/clickable
+      ctx.fillStyle = BANDPLAN_COLORS[e.service] || BANDPLAN_COLORS.other;
+      ctx.fillRect(Math.max(0, x0), h - stripH, Math.min(w, x1) - Math.max(0, x0), stripH);
+    }
+    ctx.restore();
+  }
+
+  // Hit-test the band-plan strip on click and tune to the matched entry —
+  // same mechanism radioastro.jsx's pubCenter / rftest.jsx's presets use.
+  const onCanvasClick = (evt) => {
+    const canvas = canvasRef.current;
+    if (!canvas || bandPlan.length === 0) return;
+    const rect = canvas.getBoundingClientRect();
+    const px = evt.clientX - rect.left, py = evt.clientY - rect.top;
+    const w = canvas.offsetWidth, h = canvas.offsetHeight, stripH = 14;
+    if (py < h - stripH) return; // click wasn't in the band-plan strip
+    const hzToX = (hz) => (((hz - centerHz) / spanHz) + 0.5) * w;
+    for (const e of bandPlan) {
+      let x0 = hzToX(e.start_hz), x1 = hzToX(e.end_hz);
+      if (x1 - x0 < 2) { const mid = (x0 + x1) / 2; x0 = mid - 4; x1 = mid + 4; } // wider click tolerance for point entries
+      if (px >= x0 && px <= x1) {
+        d.publish('rx/frequency', Math.round((e.start_hz + e.end_hz) / 2));
+        return;
+      }
+    }
   }
 
   useECl(() => {
@@ -84,8 +160,9 @@ function ClassifierPage({ d }) {
   }, []);
 
   // Re-render whenever a new classification arrives, so the chip tracks
-  // the latest label/offset even between spectrum frames.
-  useECl(() => { redraw(); }, [d.classifierLabel, d.classifierConfidence, d.classifierFreqOffset]);
+  // the latest label/offset even between spectrum frames. Also on band
+  // plan / center / span changes, since those affect the strip's layout.
+  useECl(() => { redraw(); }, [d.classifierLabel, d.classifierConfidence, d.classifierFreqOffset, bandPlan, centerHz, spanHz]);
 
   // Append to the scrolling log on genuine change only (state/classifier/*
   // republishes at ~1/s even when nothing changed — logging every tick
@@ -208,7 +285,8 @@ function ClassifierPage({ d }) {
           <Toggle on={enabled} onChange={(on) => { setEnabled(on); d.publish('classifier/enabled', on ? 'on' : 'off'); }} />
         </Field>
         <div className="hp-screen" style={{ height: 320, position: 'relative' }}>
-          <canvas ref={canvasRef} style={{ display: 'block', width: '100%', height: '100%' }} />
+          <canvas ref={canvasRef} style={{ display: 'block', width: '100%', height: '100%', cursor: bandPlan.length ? 'pointer' : 'default' }}
+            onClick={onCanvasClick} />
         </div>
       </Card>
 
@@ -229,6 +307,76 @@ function ClassifierPage({ d }) {
               {e.templateId != null && <span className="dim">#{e.templateId}</span>}
             </div>
           ))}
+        </div>
+      </Card>
+
+      <Card title="Band Plan" sub="What's normally here, independent of the classifier — click a swatch above or Tune below" className="span-12"
+        right={<Pill tone={bandPlanDirty ? 'warn' : 'neutral'}>{bandPlanDirty ? 'unsaved changes' : `${bandPlan.length} entries`}</Pill>}>
+        <div style={{ maxHeight: 280, overflowY: 'auto' }}>
+          <table className="mono" style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+            <thead>
+              <tr style={{ textAlign: 'left' }}>
+                <th style={{ width: 18 }}></th>
+                <th>Label</th>
+                <th>Start (MHz)</th>
+                <th>End (MHz)</th>
+                <th>Service</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody>
+              {bandPlan.map((e, i) => (
+                <tr key={e.id}>
+                  <td><span style={{ display: 'inline-block', width: 10, height: 10, borderRadius: 2, background: BANDPLAN_COLORS[e.service] || BANDPLAN_COLORS.other }} /></td>
+                  <td>
+                    <input value={e.label} onChange={(ev) => {
+                      const v = ev.target.value;
+                      setBandPlan((prev) => prev.map((r, j) => j === i ? { ...r, label: v } : r));
+                      setBandPlanDirty(true);
+                    }} style={{ width: '100%' }} />
+                  </td>
+                  <td>
+                    <input type="number" value={e.start_hz / 1e6} onChange={(ev) => {
+                      const v = (parseFloat(ev.target.value) || 0) * 1e6;
+                      setBandPlan((prev) => prev.map((r, j) => j === i ? { ...r, start_hz: v } : r));
+                      setBandPlanDirty(true);
+                    }} style={{ width: '9ch' }} />
+                  </td>
+                  <td>
+                    <input type="number" value={e.end_hz / 1e6} onChange={(ev) => {
+                      const v = (parseFloat(ev.target.value) || 0) * 1e6;
+                      setBandPlan((prev) => prev.map((r, j) => j === i ? { ...r, end_hz: v } : r));
+                      setBandPlanDirty(true);
+                    }} style={{ width: '9ch' }} />
+                  </td>
+                  <td>
+                    <select value={e.service} onChange={(ev) => {
+                      const v = ev.target.value;
+                      setBandPlan((prev) => prev.map((r, j) => j === i ? { ...r, service: v } : r));
+                      setBandPlanDirty(true);
+                    }}>
+                      {Object.keys(BANDPLAN_COLORS).map((s) => <option key={s} value={s}>{s}</option>)}
+                    </select>
+                  </td>
+                  <td style={{ whiteSpace: 'nowrap' }}>
+                    <button className="btn ghost" title="Tune here" onClick={() => d.publish('rx/frequency', Math.round((e.start_hz + e.end_hz) / 2))}>Tune</button>
+                    <button className="btn ghost" title="Delete" onClick={() => {
+                      setBandPlan((prev) => prev.filter((_, j) => j !== i));
+                      setBandPlanDirty(true);
+                    }}>✕</button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
+          <button className="btn ghost" onClick={() => {
+            setBandPlan((prev) => [...prev, { id: -(bandplanNextId++), label: 'New entry', start_hz: centerHz, end_hz: centerHz, service: 'other' }]);
+            setBandPlanDirty(true);
+          }}>+ Add entry</button>
+          <button className="btn primary" disabled={!bandPlanDirty} onClick={saveBandPlan}>Save</button>
+          <button className="btn ghost" disabled={!bandPlanDirty} onClick={loadBandPlan}>Discard changes</button>
         </div>
       </Card>
     </>

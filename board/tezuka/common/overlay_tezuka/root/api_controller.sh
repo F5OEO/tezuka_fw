@@ -4,6 +4,7 @@ SERIAL_PORT="/dev/ttyACM0"
 MQTT_FIFO="/tmp/mqtt_fifo"
 WG_CONF="/mnt/jffs2/etc/wireguard/wg0.conf"
 CLASSIFIER_TEMPLATES="/mnt/jffs2/classifier/templates.bin"
+BANDPLAN_FILE="/mnt/jffs2/bandplan.json"
 
 folder=$(grep -rl 'ad9361-phy' /sys/bus/iio/devices/*/name 2>/dev/null | head -1 | xargs dirname)/
 if [ -z "$folder" ] || [ "$folder" = "/" ]; then
@@ -936,6 +937,22 @@ parse_cmd () {
       if [ "$(fw_printenv -n classifier_enabled 2>/dev/null)" = "1" ]; then
         /etc/init.d/S61classifier restart
       fi
+    ;;
+    bandplan/data)
+      # Plain JSON text, not base64 — unlike vpn/config and
+      # classifier/templates (binary/sensitive), a band-plan edit is
+      # JSON.stringify() output with no embedded newlines, so it's safe
+      # as a normal one-shot MQTT command payload. Only a light
+      # structural check here (real JSON validation would need a parser
+      # this rootfs doesn't carry) — malformed input just fails to load
+      # client-side on the next fetch, it can't corrupt anything else.
+      # No daemon restart needed either: S59bandplan's symlink means
+      # maia-httpd reads this file straight off disk on every request.
+      case "$val" in
+        \[*\]) ;;
+        *) return ;;
+      esac
+      printf '%s' "$val" > "$BANDPLAN_FILE"
     ;;
     operator/name)
       [[ "$val" =~ ^[a-zA-Z0-9\ ._-]*$ ]] || return
