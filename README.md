@@ -103,6 +103,8 @@ Onboard PSD spectral-shape matching — identifies signal *types* (OFDM, FSK, ch
 
 This is spectral-*shape* matching (magnitude/PSD correlation), not true cyclostationary SCF — it separates signal types well but won't reliably distinguish modulation order within a family (e.g. BPSK vs. QPSK). It reuses the same live FFT feed the Spectrum and Radio Astronomy pages already consume (`maia-httpd`'s `/waterfall`), so it adds no new consumer of the ADC and never competes with IQ Tape or the Signal Generator.
 
+The same page also shows a **band plan** — a color-coded strip under the spectrum marking known allocations (broadcast, cellular, aviation, maritime, etc.), independent of whether the classifier has actually matched anything there. Click a swatch (or a row in the editable table below it) to tune to that frequency. Entries are stored on the device (`/mnt/jffs2/bandplan.json`, seeded from a starting reference table) and edited directly from the Dashboard — add, edit, or remove entries and hit **Save**.
+
 ---
 
 ## For Developers

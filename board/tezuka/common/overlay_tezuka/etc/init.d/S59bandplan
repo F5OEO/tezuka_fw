@@ -1,0 +1,44 @@
+#!/bin/sh
+#
+# Seeds the persistent band-plan file on first boot and symlinks it into
+# /root so maia-httpd's existing static file serving (it's started with
+# cwd=/root, see S60maia-httpd) picks it up automatically at
+# GET /bandplan.json — no new server code needed for reads. Numbered
+# before S60maia-httpd so the symlink exists before it could plausibly
+# be requested.
+
+SEED="/etc/bandplan-default.json"
+PERSIST="/mnt/jffs2/bandplan.json"
+LINK="/root/bandplan.json"
+
+start() {
+	printf "Starting bandplan: "
+	if [ ! -f "$PERSIST" ] && [ -f "$SEED" ]; then
+		install -D -m 644 "$SEED" "$PERSIST"
+	fi
+	ln -sf "$PERSIST" "$LINK"
+	echo "OK"
+}
+
+stop() {
+	:
+}
+
+restart() {
+	stop
+	start
+}
+
+case "$1" in
+	start)
+		start;;
+	stop)
+		stop;;
+	restart)
+		restart;;
+	*)
+		echo "Usage: $0 {start|stop|restart}"
+		exit 1
+esac
+
+exit $?
