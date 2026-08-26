@@ -21,6 +21,7 @@
 * **Risk-Free Booting:** Built-in **SD Card boot support** for effortless updates with zero risk of bricking your flash memory.
 * **Integrated Apps:** Includes Maia-SDR transparently, fast sweep, and MQTT status publishing and more.
 * **Remote Access:** Built-in WireGuard VPN, configured from the Dashboard by pasting a `wg-quick` config — no SSH/CLI needed.
+* **Signal Classifier:** Onboard PSD spectral-shape matching identifies signal types live, overlaid right on the Dashboard's spectrum view.
 
 ---
 
@@ -90,6 +91,17 @@ Connect your board to a remote WireGuard server for secure remote access, config
 * Routing follows whatever `AllowedIPs` your config specifies — a scoped value gives split-tunnel access to just that network, while `0.0.0.0/0` routes all device traffic through the tunnel.
 
 **Security note:** the pasted config is sent once and never redisplayed or echoed back over MQTT. That said, the Dashboard's default MQTT channel (port 9001) is unauthenticated on the local network by design, same as every other Dashboard control — treat the WireGuard private key like any other credential on an open network segment, and avoid exposing the device's management interface to untrusted networks.
+
+### Signal Classifier
+
+Onboard PSD spectral-shape matching — identifies signal *types* (OFDM, FSK, chirp, CW, etc.) live and overlays a label on the spectrum, right on the device, no host-side processing required:
+
+* Open the Dashboard's **Signal Classifier** page (under RF) and toggle **Enabled** — it runs as a background service, correlating the live spectrum against a set of loaded templates roughly once a second.
+* A matched signal gets a label chip (e.g. "OFDM · 92%") overlaid on its own live spectrum view, plus a reference-match panel showing the live shape against the matched template, and a scrolling log of recent classifications.
+* Templates are built offline (see `tools/classifier_templates/`, including a script to bootstrap templates directly from a live device — no GNU Radio/TorchSig install required for a first test) and pushed to the device the same way a WireGuard config is: base64 over MQTT (`cmd/classifier/templates`).
+* Below the confidence threshold, or with no templates loaded, the classifier reports "unknown" rather than forcing a guess.
+
+This is spectral-*shape* matching (magnitude/PSD correlation), not true cyclostationary SCF — it separates signal types well but won't reliably distinguish modulation order within a family (e.g. BPSK vs. QPSK). It reuses the same live FFT feed the Spectrum and Radio Astronomy pages already consume (`maia-httpd`'s `/waterfall`), so it adds no new consumer of the ADC and never competes with IQ Tape or the Signal Generator.
 
 ---
 

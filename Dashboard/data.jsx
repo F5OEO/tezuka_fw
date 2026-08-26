@@ -116,6 +116,11 @@ function applyMqtt(prev, path, raw) {
     // field from an incoming MQTT payload.
     case 'vpn/enabled':                return { ...prev, vpnEnabled: raw };
     case 'vpn/status': try { return { ...prev, vpnStatus: JSON.parse(raw) }; } catch { return prev; }
+    case 'classifier/enabled':         return { ...prev, classifierEnabled: raw };
+    case 'classifier/label':           return { ...prev, classifierLabel: raw };
+    case 'classifier/confidence':      return { ...prev, classifierConfidence: raw };
+    case 'classifier/freq_offset':     return { ...prev, classifierFreqOffset: raw };
+    case 'classifier/template_id':     return { ...prev, classifierTemplateId: raw };
     case 'operator/name':               return { ...prev, opName: raw };
     case 'operator/callsign':           return { ...prev, opCallsign: raw };
     case 'operator/locator':            return { ...prev, opLocator: raw };
