@@ -1,0 +1,21 @@
+[
+  { "id": 1,  "start_hz": 1090000000, "end_hz": 1090000000, "label": "ADS-B", "service": "aviation" },
+  { "id": 2,  "start_hz": 118000000,  "end_hz": 137000000,  "label": "Airband ATC", "service": "aviation" },
+  { "id": 3,  "start_hz": 800000000,  "end_hz": 800000000,  "label": "LTE 800", "service": "cellular" },
+  { "id": 4,  "start_hz": 1800000000, "end_hz": 1800000000, "label": "LTE 1800", "service": "cellular" },
+  { "id": 5,  "start_hz": 2600000000, "end_hz": 2600000000, "label": "LTE 2600", "service": "cellular" },
+  { "id": 6,  "start_hz": 700000000,  "end_hz": 700000000,  "label": "5G NR n28", "service": "cellular" },
+  { "id": 7,  "start_hz": 2100000000, "end_hz": 2100000000, "label": "5G NR n1", "service": "cellular" },
+  { "id": 8,  "start_hz": 3500000000, "end_hz": 3500000000, "label": "5G NR n78", "service": "cellular" },
+  { "id": 9,  "start_hz": 900000000,  "end_hz": 900000000,  "label": "GSM 900", "service": "cellular" },
+  { "id": 10, "start_hz": 1800000000, "end_hz": 1800000000, "label": "GSM 1800", "service": "cellular" },
+  { "id": 11, "start_hz": 380000000,  "end_hz": 400000000,  "label": "C2000 (emergency services)", "service": "emergency" },
+  { "id": 12, "start_hz": 868000000,  "end_hz": 868000000,  "label": "LoRa (The Things Network)", "service": "iot" },
+  { "id": 13, "start_hz": 161975000,  "end_hz": 161975000,  "label": "AIS 1", "service": "maritime" },
+  { "id": 14, "start_hz": 162025000,  "end_hz": 162025000,  "label": "AIS 2", "service": "maritime" },
+  { "id": 15, "start_hz": 156000000,  "end_hz": 174000000,  "label": "Maritime VHF voice", "service": "maritime" },
+  { "id": 16, "start_hz": 227360000,  "end_hz": 227360000,  "label": "DAB+ national (12C, NPO)", "service": "broadcast" },
+  { "id": 17, "start_hz": 178352000,  "end_hz": 178352000,  "label": "DAB+ local (5C, Hague region)", "service": "broadcast" },
+  { "id": 18, "start_hz": 87600000,   "end_hz": 105300000,  "label": "FM broadcast", "service": "broadcast" },
+  { "id": 19, "start_hz": 400000000,  "end_hz": 406000000,  "label": "Radiosonde (opportunistic — check sondehub.org)", "service": "weather" }
+]
