@@ -177,10 +177,14 @@ CONFIG_SPI_CADENCE=y
 CONFIG_SPI_XILINX=y
 CONFIG_SPI_ZYNQ_QSPI=y
 CONFIG_SPI_SPIDEV=y
-#CONFIG_PPS=y
-#CONFIG_NTP_PPS=y
-#CONFIG_PPS_CLIENT_KTIMER=y
-#CONFIG_PPS_CLIENT_LDISC=y
+CONFIG_PPS=y
+CONFIG_PPS_CLIENT_LDISC=y
+CONFIG_PPS_CLIENT_GPIO=y
+# CONFIG_NTP_PPS (the in-kernel hardpps consumer) is left off: it depends on a
+# periodic kernel (!NO_HZ) which these configs do not run, and chrony reads
+# /dev/pps directly so nothing here needs it.
+# CONFIG_PPS_CLIENT_KTIMER is left off deliberately: it fabricates test pulses,
+# and a /dev/pps that ticks without any GPS attached is a trap, not a feature.
 CONFIG_GPIOLIB=y
 CONFIG_GPIO_SYSFS=y
 CONFIG_GPIO_ZYNQ=y
