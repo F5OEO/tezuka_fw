@@ -3,6 +3,7 @@
 SERIAL_PORT="/dev/ttyACM0"
 MQTT_FIFO="/tmp/mqtt_fifo"
 WG_CONF="/mnt/jffs2/etc/wireguard/wg0.conf"
+CLASSIFIER_TEMPLATES="/mnt/jffs2/classifier/templates.bin"
 
 folder=$(grep -rl 'ad9361-phy' /sys/bus/iio/devices/*/name 2>/dev/null | head -1 | xargs dirname)/
 if [ -z "$folder" ] || [ "$folder" = "/" ]; then
@@ -266,6 +267,8 @@ dump_data () {
 
   publish "vpn/enabled" "$([ "$(fw_printenv -n wireguard_enabled 2>/dev/null)" = "1" ] && echo on || echo off)"
   publish_vpn_status
+
+  publish "classifier/enabled" "$([ "$(fw_printenv -n classifier_enabled 2>/dev/null)" = "1" ] && echo on || echo off)"
 
   # Reference clock status. On boards with the vctcxo_lock IP (VCXO_BASE
   # set at startup — see top of file), read real registers per
@@ -904,6 +907,35 @@ parse_cmd () {
         /etc/init.d/S51wireguard restart
       fi
       publish_vpn_status &
+    ;;
+    classifier/enabled)
+      if [ "$val" = "on" ]; then
+        fw_setenv classifier_enabled "1" 2>/dev/null &
+        /etc/init.d/S61classifier start
+      else
+        fw_setenv classifier_enabled "0" 2>/dev/null &
+        /etc/init.d/S61classifier stop
+      fi
+      publish_force "classifier/enabled" "$val"
+    ;;
+    classifier/templates)
+      # Same one-shot base64-over-MQTT transport as vpn/config, for the
+      # same reason: the mosquitto_sub/read dispatch loop is line-based
+      # and templates.bin is binary. Not secret like a private key, so
+      # (unlike vpn/config) this is fine to be readable at 644.
+      [[ "$val" =~ ^[A-Za-z0-9+/=]+$ ]] || return
+      local tmp="/tmp/templates.bin.$$"
+      echo "$val" | base64 -d > "$tmp" 2>/dev/null || { rm -f "$tmp"; return; }
+      # Sanity-check the header (magic "SCFT" + version 1) before
+      # installing — classifier.c would just log and idle on a bad file,
+      # but rejecting garbage here avoids overwriting a working template
+      # set with a corrupt upload.
+      [ "$(head -c4 "$tmp")" = "SCFT" ] || { rm -f "$tmp"; return; }
+      install -D -m 644 -o root -g root "$tmp" "$CLASSIFIER_TEMPLATES"
+      rm -f "$tmp"
+      if [ "$(fw_printenv -n classifier_enabled 2>/dev/null)" = "1" ]; then
+        /etc/init.d/S61classifier restart
+      fi
     ;;
     operator/name)
       [[ "$val" =~ ^[a-zA-Z0-9\ ._-]*$ ]] || return

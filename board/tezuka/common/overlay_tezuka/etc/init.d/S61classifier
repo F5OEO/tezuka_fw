@@ -1,0 +1,55 @@
+#!/bin/sh
+#
+# Starts the onboard PSD spectral-shape signal classifier. Numbered after
+# S60maia-httpd (and S60ntp) since it depends on maia-httpd already
+# serving /waterfall — see app/classifier/classifier.c for what it does.
+
+NAME=classifier
+DAEMON=/usr/bin/$NAME
+PIDFILE=/var/run/$NAME.pid
+TEMPLATES="/mnt/jffs2/classifier/templates.bin"
+
+[ -x "$DAEMON" ] || exit 0
+
+start() {
+	printf "Starting classifier: "
+	# See S51wireguard's comment on why fw_printenv is bounded here — a
+	# slow/unavailable U-Boot env backing device must degrade to
+	# "disabled" rather than hang the whole boot sequence.
+	if [ "$(timeout 3 fw_printenv -n classifier_enabled 2>/dev/null)" != "1" ]; then
+		echo "disabled"
+		return 0
+	fi
+	# No config-file existence check here (unlike S51wireguard): the
+	# daemon itself handles a missing/not-yet-pushed templates file
+	# gracefully — it logs, publishes "unknown" and idles rather than
+	# failing, so there's nothing wrong with starting it ahead of the
+	# first `cmd/classifier/templates` push.
+	start-stop-daemon -S -q -b -m -p "$PIDFILE" --exec "$DAEMON" -- \
+		-f "$TEMPLATES" && echo "OK"
+}
+
+stop() {
+	printf "Stopping classifier: "
+	start-stop-daemon -K -q -p "$PIDFILE" && echo "OK" || echo "Failed"
+	rm -f "$PIDFILE"
+}
+
+restart() {
+	stop
+	start
+}
+
+case "$1" in
+	start)
+		start;;
+	stop)
+		stop;;
+	restart)
+		restart;;
+	*)
+		echo "Usage: $0 {start|stop|restart}"
+		exit 1
+esac
+
+exit $?
