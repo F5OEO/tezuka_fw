@@ -89,6 +89,9 @@ bootmenu_1=Boot from SD card Kuiper=mmc dev 1; run sdboot_kuiper
 bootmenu_2=Boot from QSPI=setenv modeboot qspiboot; run qspiboot
 
 baudrate=115200
+stdin=serial@e0001000,usbacm
+stdout=serial@e0001000,usbacm
+stderr=serial@e0001000,usbacm
 bitstream_image=system.bit.bin
 bitstream_size=0x400000
 bootcmd=if test -n "${modeboot}"; then run ${modeboot}; else adi_hwref; run ${modeboot}; fi
