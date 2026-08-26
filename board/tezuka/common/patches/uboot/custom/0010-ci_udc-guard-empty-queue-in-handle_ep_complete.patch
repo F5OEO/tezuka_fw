@@ -1,0 +1,58 @@
+usb: gadget: ci_udc: guard handle_ep_complete() against an empty queue
+
+udc_irq() decides which endpoints to service purely from the hardware
+epcomp completion bitmap (ci_udc.c, the "for (i = 0; i < NUM_ENDPOINTS
+&& n; i++)" loop). If a completion bit is set for an endpoint whose
+software-side ci_ep->queue is already empty -- e.g. stop_activity()
+ran during a disconnect/reset that raced with an in-flight transfer,
+or the hardware raises a duplicate/stale completion for a transfer
+already processed -- handle_ep_complete() is called anyway.
+
+It then does:
+
+	ci_req = list_first_entry(&ci_ep->queue, struct ci_req, queue);
+
+list_first_entry() is documented in include/linux/list.h as requiring
+a non-empty list. On an empty list it computes
+container_of(&ci_ep->queue, struct ci_req, queue) -- a valid-looking
+pointer, backward from ci_ep->queue itself (part of the static
+controller.ep[] array), not NULL and not obviously wild. The result
+is silent type confusion: ci_req->dtd_count, ->hw_buf etc. actually
+read other fields of struct ci_ep (or adjacent memory) instead of a
+real ci_req. Since ci_ep->queue's address and the surrounding struct
+layout are fixed at link time, this misread is deterministic given
+the same boot path -- which is why this reproduced with byte-for-byte
+identical register dumps across unrelated boots.
+
+The corrupted dtd_count then drives handle_ep_complete()'s
+queue-item walk (ci_invalidate_td(next_td), next_td = item->next)
+past any real descriptor chain into garbage, and free()s a bogus
+pointer on the next iteration -- observed on hardware as
+"CACHE: Misaligned operation at range [00000001, 00000041]" followed
+by a data abort inside free(), called from udc_irq().
+
+There's nothing to complete when the queue is empty, so just return.
+
+--- a/drivers/usb/gadget/ci_udc.c
++++ b/drivers/usb/gadget/ci_udc.c
+@@ -678,5 +678,20 @@
+ 	item = ci_get_qtd(num, in);
+ 	ci_invalidate_qtd(num);
+ 
++	/*
++	 * A hardware completion bit can fire for an endpoint whose software
++	 * queue was already emptied (e.g. by stop_activity() during a
++	 * disconnect/reset that raced with an in-flight transfer, or a
++	 * duplicate completion for a transfer already processed).
++	 * list_first_entry() is documented as unsafe on an empty list: it
++	 * computes container_of(&ci_ep->queue, struct ci_req, queue), which
++	 * silently reads ci_req fields from the wrong memory (here, other
++	 * fields of struct ci_ep) instead of crashing outright. That
++	 * misread dtd_count/hw_buf then drives an out-of-bounds queue-item
++	 * walk and a free() on a bogus pointer. Nothing to complete here.
++	 */
++	if (list_empty(&ci_ep->queue))
++		return;
++
+ 	ci_req = list_first_entry(&ci_ep->queue, struct ci_req, queue);
+ 	len = ci_req->req.length;

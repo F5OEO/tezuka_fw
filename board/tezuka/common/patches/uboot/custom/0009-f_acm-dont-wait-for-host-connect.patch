@@ -1,4 +1,4 @@
-usb: gadget: f_acm: don't wait for host connect in acm_stdio_start()
+usb: gadget: f_acm: don't wait for host connect, fix two UAFs
 
 acm_stdio_start() looped on `while (!acm_connected(dev))`, calling
 ctrlc() on every iteration. ctrlc() polls tstc() on the CURRENT
@@ -30,6 +30,44 @@ the console comes up right away, works normally once/if a host
 attaches, and degrades to "output silently buffered" rather than
 hanging or crashing when it doesn't.
 
+Second bug, same file: acm_stdio_stop() calls g_dnl_unregister(),
+which tears down the composite and frees the f_acm struct (via
+acm_unbind()) -- but it never clears the stdio_dev's dev->priv,
+which still points at that now-freed f_acm. acm_stdio_start() checks
+`if (dev->priv) return 0;` as its "already registered" fast path, so
+after any stop/start cycle it early-returns without calling
+g_dnl_register() again, leaving dev->priv dangling. The next
+putc()/tstc() on "usbacm" dereferences the freed f_acm via
+stdio_to_acm(dev) -- a use-after-free, seen on hardware as an
+"undefined instruction" fault jumping into freed heap.
+
+This stop/start cycle isn't hypothetical: adi_loadvals unconditionally
+reverts the console to serial-only right before its saveenv, which
+drops "usbacm" from the console set and calls acm_stdio_stop(); the
+next preboot's `env import` from uEnv.txt (which carries the
+"serial@e0001000,usbacm" default) re-adds it and calls
+acm_stdio_start() straight into the dangling pointer. Clearing
+dev->priv in acm_stdio_stop() makes the next start() re-register
+properly instead of resurrecting a freed pointer.
+
+Third bug, same file: drv_usbacm_init() builds its struct stdio_dev
+on the stack and never initializes .flush, then passes it to
+stdio_register() -> stdio_register_dev() -> stdio_clone(), which
+calloc()s a fresh copy and then memcpy()s the whole struct on top,
+carrying over whatever garbage happened to be on the stack at
+&stdio.flush into the permanently registered device. console_flush()
+(enabled by CONFIG_CONSOLE_FLUSH_SUPPORT=y here) later does
+`if (dev->flush != NULL) dev->flush(dev);` -- if that garbage byte
+pattern is non-NULL, it is called as a function pointer straight
+into whatever was left on the stack, producing an "undefined
+instruction" fault into an address that looks like heap/stack, not
+code. This matches hardware crashes with byte-for-byte identical
+register dumps across unrelated boots: the stack layout leading up
+to drv_usbacm_init() is itself deterministic given the same boot
+path, so the leftover garbage -- and thus the crash -- reproduces
+identically until the stack contents change. Zeroing the struct
+before use removes the depends-on-stack-garbage behavior entirely.
+
 --- a/drivers/usb/gadget/f_acm.c
 +++ b/drivers/usb/gadget/f_acm.c
 @@ -646,12 +646,12 @@
@@ -51,3 +89,20 @@ hanging or crashing when it doesn't.
  
  	return 0;
  }
+@@ -659,7 +659,8 @@
+ static int acm_stdio_stop(struct stdio_dev *dev)
+ {
+ 	g_dnl_unregister();
++	dev->priv = NULL;
+ 	g_dnl_clear_detach();
+ 
+ 	return 0;
+ }
+@@ -667,6 +668,7 @@
+ int drv_usbacm_init(void)
+ {
+ 	struct stdio_dev stdio;
+ 
++	memset(&stdio, 0, sizeof(stdio));
+ 	strcpy(stdio.name, "usbacm");
+ 	stdio.flags = DEV_FLAGS_INPUT | DEV_FLAGS_OUTPUT;
