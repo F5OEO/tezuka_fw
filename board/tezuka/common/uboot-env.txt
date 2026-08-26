@@ -68,6 +68,7 @@ adi_loadvals=\
   run adi_config_gpio_by_refclk; \
   run adi_config_rf_mode; \
   run adi_config_devicetree; \
+  setenv stdout serial@e0001000; setenv stdin serial@e0001000; setenv stderr serial@e0001000; \
   saveenv;
 
 banner=\
@@ -91,7 +92,7 @@ baudrate=115200
 bitstream_image=system.bit.bin
 bitstream_size=0x400000
 bootcmd=if test -n "${modeboot}"; then run ${modeboot}; else adi_hwref; run ${modeboot}; fi
-bootdelay=4
+bootdelay=10
 bootenv=uEnv.txt
 boot_image=BOOT.bin
 boot_size=0xF00000
@@ -279,3 +280,5 @@ usbboot=\
     setenv bootargs console=ttyPS0,115200 rootfstype=ramfs root=/dev/ram0 rw rootwait earlycon clk_ignore_unused cpuidle.off=1 uio_pdrv_genirq.of_id=uio_pdrv_genirq UBOOT_MODEBOOT=$modeboot UBOOT_VERSION='"\'${uboot-version}'\"' \
     && bootm ${fit_load_address} ${ramdisk_load_address} ${devicetree_load_address}; \
   fi
+
+usbacm_console=setenv stdout usbacm; setenv stdin usbacm; setenv stderr usbacm

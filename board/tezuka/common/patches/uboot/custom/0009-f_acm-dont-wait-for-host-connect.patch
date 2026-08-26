@@ -1,0 +1,53 @@
+usb: gadget: f_acm: don't wait for host connect in acm_stdio_start()
+
+acm_stdio_start() looped on `while (!acm_connected(dev))`, calling
+ctrlc() on every iteration. ctrlc() polls tstc() on the CURRENT
+stdin -- and stdin is already pointed at "usbacm" at this point,
+since acm_stdio_start() runs from inside console_assign()/iomux_doenv()
+while the device is being assigned. So ctrlc() re-enters
+acm_stdio_tstc() -> dm_usb_gadget_handle_interrupts(f_acm->udc),
+nested on top of the outer loop's own acm_connected() ->
+dm_usb_gadget_handle_interrupts(f_acm->udc) call on the same UDC.
+That nested/re-entrant interrupt servicing corrupts ci_udc's
+queue-head/endpoint state (observed as "CACHE: Misaligned operation
+at range [00000001, ...]" and a data abort a moment later).
+
+DFU's equivalent loop in common/dfu.c (run_usb_dnl_gadget()) also
+calls ctrlc(), but never hits this: its stdin stays on plain serial
+throughout, so its ctrlc() never touches the gadget it just
+registered. That's the actual difference between DFU (works) and
+ACM (crashed) -- not a missing init call, both use the identical
+udc_device_get_by_index() / g_dnl_clear_detach() / g_dnl_register()
+sequence.
+
+There's no need to wait here at all. acm_stdio_puts()/putc() already
+push into tx_buf before checking f_acm->connected and simply return
+without transmitting when not connected -- output is buffered and
+flushed by the next __acm_tx() once a host attaches. acm_stdio_tstc()
+returns 0 on an empty rx_buf with a single (non-reentrant) interrupt
+poll. So returning immediately after g_dnl_register() is sufficient:
+the console comes up right away, works normally once/if a host
+attaches, and degrades to "output silently buffered" rather than
+hanging or crashing when it doesn't.
+
+--- a/drivers/usb/gadget/f_acm.c
++++ b/drivers/usb/gadget/f_acm.c
+@@ -646,12 +646,12 @@
+ 	else
+ 		return -ENODEV;
+ 
+-	while (!acm_connected(dev)) {
+-		if (ctrlc())
+-			return -ECANCELED;
+-
+-		schedule();
+-	}
++	/*
++	 * Do not wait for a host here: ctrlc() would re-enter this same
++	 * UDC's interrupt handling while stdin is mid-assignment to this
++	 * device, corrupting ci_udc state. putc()/puts()/tstc() already
++	 * tolerate no host being attached yet.
++	 */
+ 
+ 	return 0;
+ }
