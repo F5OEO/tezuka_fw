@@ -40,7 +40,7 @@ adi_config_gpio_by_refclk=\
   fi;
 
 adi_config_rf_mode=\
-  if test -z "${mode}" || test ! "${mode}" = "1r1t" && test ! "${mode}" = "2r2t"; then \
+  if test "${mode}" != "1r1t" && test "${mode}" != "2r2t"; then \
     setenv mode 1r1t; \
     saveenv; \
   fi;
@@ -68,8 +68,7 @@ adi_loadvals=\
   run adi_config_gpio_by_refclk; \
   run adi_config_rf_mode; \
   run adi_config_devicetree; \
-  setenv stdout serial@e0001000; setenv stdin serial@e0001000; setenv stderr serial@e0001000; \
-  saveenv;
+  setenv stdout serial@e0001000; setenv stdin serial@e0001000; setenv stderr serial@e0001000;
 
 banner=\
   echo "___________                  __            "; \
@@ -86,11 +85,29 @@ banner=\
 
 bootmenu_0=Boot normaly=boot
 bootmenu_1=Reset Environment factory=run resetenv; bootmenu
-bootmenu_2=Boot from QSPI=setenv modeboot qspiboot; run qspiboot
-bootmenu_3=Boot from USB=run usbboot; bootmenu
-bootmenu_4=Update SD card=run ums_sd; bootmenu
-bootmenu_5=Set dfu mode=run dfu_sf
-bootmenu_6=Boot from SD card TezukaSumo=mmc dev 1; run sdboot_kuiper
+bootmenu_2=Boot mode=run bootmode_submenu
+bootmenu_3=Update SD card=run ums_sd; bootmenu
+bootmenu_4=Set dfu mode=run dfu_sf
+bootmenu_5=Allow boot udpate (Risky!)=sf probe && sf protect unlock 0 100000 ; bootmenu
+
+bootmenu_restore_top=\
+  setenv bootmenu_0 "Boot normaly (${modeboot})=boot"; \
+  setenv bootmenu_1 "Reset Environment factory=run resetenv; bootmenu"; \
+  setenv bootmenu_2 "Boot mode=run bootmode_submenu"; \
+  setenv bootmenu_3 "Update SD card=run ums_sd; bootmenu"; \
+  setenv bootmenu_4 "Set dfu mode=run dfu_sf"; \
+  setenv bootmenu_5 "Unprotect boot for udpate (Risky!)=sf probe && sf protect unlock 0 100000 ; bootmenu";
+
+bootmode_submenu=\
+  setenv bootmenu_0 "Boot from SD=setenv modeboot sdboot; run sdboot_ram"; \
+  setenv bootmenu_1 "Boot from QSPI=setenv modeboot qspiboot; run qspiboot"; \
+  setenv bootmenu_2 "Boot from USB=run usbboot"; \
+  setenv bootmenu_3 "Boot from SD card TezukaSumo=mmc dev 1; run sdboot_kuiper"; \
+  setenv bootmenu_4 "Back=echo"; \
+  setenv bootmenu_5; \
+  bootmenu; \
+  run bootmenu_restore_top; \
+  bootmenu;
 
 baudrate=115200
 stdin=serial@e0001000,usbacm
@@ -144,6 +161,7 @@ netmask=255.255.255.0
 
 preboot_main=\
   run banner; \
+  adi_hwref; \
   if test "${modeboot}" = "sdboot"; then \
     if env run sd_uEnvtxt_existence_test; then \
       if env run loadbootenv; then \
@@ -161,7 +179,8 @@ preboot_main=\
     fi; \
   elif test "${modeboot}" = "jtagboot" ; then \
     run jtagboot; \
-  fi;
+  fi; \
+  setenv bootmenu_0 "Boot normaly (${modeboot})=boot";
 
 soft_reboot_cause=itest *f8000258 == 480003 && run clear_reset_cause && run dfu_sf; \
 		itest *f8000258 == 480007 && run clear_reset_cause && run ramboot_verbose;  \
