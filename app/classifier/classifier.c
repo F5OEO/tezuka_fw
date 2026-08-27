@@ -195,8 +195,9 @@ static double cosine_sim(const float *a, const float *b, uint32_t n)
 struct match_result {
     bool     found;
     uint32_t template_idx;
-    double   score;      /* clamped to [0, 1] */
-    int32_t  bin_offset;  /* position (in live-frame bins) where the best window started */
+    double   score;          /* clamped to [0, 1] */
+    int32_t  bin_offset;     /* position (in live-frame bins) where the best window started */
+    uint32_t bandwidth_bins; /* width of the matched window, in live-frame bins */
 };
 
 /* Correlates `live` (already normalized, length live_n) against every
@@ -230,6 +231,7 @@ static struct match_result classify(const float *live, uint32_t live_n, const st
                     best.template_idx = ti;
                     best.score = s;
                     best.bin_offset = 0;
+                    best.bandwidth_bins = live_n; /* covers the whole frame in this branch */
                 }
             }
             free(resampled);
@@ -248,6 +250,7 @@ static struct match_result classify(const float *live, uint32_t live_n, const st
                 best.template_idx = ti;
                 best.score = s;
                 best.bin_offset = (int32_t)start;
+                best.bandwidth_bins = tn; /* the sliding window's own width */
             }
         }
     }
@@ -275,7 +278,12 @@ static void mqtt_pub(const char *topic, const char *value)
     system(cmd);
 }
 
-static void publish_result(const struct match_result *r, const struct templates *t, double threshold, bool verbose)
+/* live_n is published alongside bin_offset/bandwidth_bins rather than
+ * assumed shared knowledge: it's what those two are measured in units
+ * of, and publishing it removes any need for a subscriber (the
+ * Dashboard) to assume its own /waterfall connection saw the exact same
+ * frame size the daemon did at this instant. */
+static void publish_result(const struct match_result *r, const struct templates *t, uint32_t live_n, double threshold, bool verbose)
 {
     char buf[64];
 
@@ -292,6 +300,10 @@ static void publish_result(const struct match_result *r, const struct templates 
     mqtt_pub("confidence", buf);
     snprintf(buf, sizeof(buf), "%d", r->bin_offset);
     mqtt_pub("freq_offset", buf);
+    snprintf(buf, sizeof(buf), "%u", r->bandwidth_bins);
+    mqtt_pub("bandwidth_bins", buf);
+    snprintf(buf, sizeof(buf), "%u", live_n);
+    mqtt_pub("frame_bins", buf);
     snprintf(buf, sizeof(buf), "%u", tpl->id);
     mqtt_pub("template_id", buf);
 
@@ -363,7 +375,7 @@ static void handle_frame(struct app *a, const float *f, size_t n_floats)
     }
 
     struct match_result r = classify(live, live_n, &a->templates);
-    publish_result(&r, &a->templates, a->threshold, a->verbose);
+    publish_result(&r, &a->templates, live_n, a->threshold, a->verbose);
     free(live);
 }
 

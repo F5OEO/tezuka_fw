@@ -28,6 +28,30 @@ const BANDPLAN_COLORS = {
 };
 let bandplanNextId = 1; // client-side scratch id for newly-added, unsaved rows
 
+// Converts the daemon's bin-space match position (state/classifier/freq_offset
+// + bandwidth_bins, both measured against frame_bins — see
+// app/classifier/classifier.c's publish_result) into real Hz, using the same
+// freq math as pages1.jsx's spDrawCursor (freq = centerHz + (binFrac - 0.5) *
+// spanHz), just inverted/widened from a single bin to a bin range.
+function binMatchToHz(freqOffset, bandwidthBins, frameBins, centerHz, spanHz) {
+  const offset = Number(freqOffset), bw = Number(bandwidthBins), frame = Number(frameBins);
+  if (!frame || !isFinite(offset) || !isFinite(bw)) return null;
+  const centerBinFrac = (offset + bw / 2) / frame;
+  return {
+    centerFreqHz: centerHz + (centerBinFrac - 0.5) * spanHz,
+    bandwidthHz: (bw / frame) * spanHz,
+  };
+}
+
+function fmtHz(hz) {
+  if (hz == null || !isFinite(hz)) return '—';
+  const abs = Math.abs(hz);
+  if (abs >= 1e9) return (hz / 1e9).toFixed(3) + ' GHz';
+  if (abs >= 1e6) return (hz / 1e6).toFixed(3) + ' MHz';
+  if (abs >= 1e3) return (hz / 1e3).toFixed(1) + ' kHz';
+  return Math.round(hz) + ' Hz';
+}
+
 function ClassifierPage({ d }) {
   const canvasRef = useRCl(null);
   const binsRef   = useRCl(null);      // Float32Array dB, current live frame
@@ -173,12 +197,15 @@ function ClassifierPage({ d }) {
     const key = `${label}|${d.classifierTemplateId ?? ''}`;
     if (lastLoggedRef.current === key) return;
     lastLoggedRef.current = key;
+    const hz = binMatchToHz(d.classifierFreqOffset, d.classifierBandwidthBins, d.classifierFrameBins, centerHz, spanHz);
     setLog((prev) => {
       const entry = {
         t: Date.now(),
         label,
         confidence: Number(d.classifierConfidence) || 0,
         templateId: d.classifierTemplateId,
+        centerFreqHz: hz?.centerFreqHz ?? null,
+        bandwidthHz: hz?.bandwidthHz ?? null,
       };
       const next = [entry, ...prev];
       return next.length > 50 ? next.slice(0, 50) : next;
@@ -304,6 +331,8 @@ function ClassifierPage({ d }) {
               <span className="dim">{new Date(e.t).toLocaleTimeString()}</span>
               <span>{e.label}</span>
               <span className="dim">{Math.round(e.confidence * 100)}%</span>
+              <span className="dim">{fmtHz(e.centerFreqHz)}</span>
+              <span className="dim">± {fmtHz(e.bandwidthHz != null ? e.bandwidthHz / 2 : null)}</span>
               {e.templateId != null && <span className="dim">#{e.templateId}</span>}
             </div>
           ))}
