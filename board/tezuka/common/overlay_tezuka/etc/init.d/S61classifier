@@ -8,6 +8,7 @@ NAME=classifier
 DAEMON=/usr/bin/$NAME
 PIDFILE=/var/run/$NAME.pid
 TEMPLATES="/mnt/jffs2/classifier/templates.bin"
+SEED="/etc/classifier-default-templates.bin"
 
 [ -x "$DAEMON" ] || exit 0
 
@@ -20,11 +21,15 @@ start() {
 		echo "disabled"
 		return 0
 	fi
-	# No config-file existence check here (unlike S51wireguard): the
-	# daemon itself handles a missing/not-yet-pushed templates file
-	# gracefully — it logs, publishes "unknown" and idles rather than
-	# failing, so there's nothing wrong with starting it ahead of the
-	# first `cmd/classifier/templates` push.
+	# Seed a small starter set on first boot (FM broadcast, DAB+, CW/
+	# beacon — synthesized canonical shapes, see tools/classifier_templates/
+	# synthesize_template.py) so the classifier reports something other
+	# than "unknown" out of the box, same S59bandplan-style seed-if-
+	# missing pattern. A later cmd/classifier/templates push overwrites
+	# this permanently, same as S51wireguard/S59bandplan's persistence.
+	if [ ! -f "$TEMPLATES" ] && [ -f "$SEED" ]; then
+		install -D -m 644 "$SEED" "$TEMPLATES"
+	fi
 	start-stop-daemon -S -q -b -m -p "$PIDFILE" --exec "$DAEMON" -- \
 		-f "$TEMPLATES" && echo "OK"
 }
