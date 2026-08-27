@@ -191,26 +191,42 @@ function ClassifierPage({ d }) {
   // Append to the scrolling log on genuine change only (state/classifier/*
   // republishes at ~1/s even when nothing changed — logging every tick
   // would just be noise).
+  //
+  // The daemon publishes one classification result as SIX separate MQTT
+  // messages (label, confidence, freq_offset, bandwidth_bins, frame_bins,
+  // template_id — see app/classifier/classifier.c's publish_result),
+  // which arrive as a burst, not atomically. Logging immediately on the
+  // first field to change (label) raced ahead of the later ones — the
+  // entry got created before freq_offset/bandwidth_bins/frame_bins had
+  // actually arrived, logging blank frequency/bandwidth, and since the
+  // dedup key wouldn't change on a later, fully-populated update for the
+  // *same* label+template, that blank entry was stuck permanently.
+  // Debouncing lets this effect re-arm on every one of the six fields
+  // changing, only actually logging once ~200ms passes with no further
+  // updates for this burst — by then all six have settled.
   useECl(() => {
     const label = d.classifierLabel;
     if (label == null) return;
-    const key = `${label}|${d.classifierTemplateId ?? ''}`;
-    if (lastLoggedRef.current === key) return;
-    lastLoggedRef.current = key;
-    const hz = binMatchToHz(d.classifierFreqOffset, d.classifierBandwidthBins, d.classifierFrameBins, centerHz, spanHz);
-    setLog((prev) => {
-      const entry = {
-        t: Date.now(),
-        label,
-        confidence: Number(d.classifierConfidence) || 0,
-        templateId: d.classifierTemplateId,
-        centerFreqHz: hz?.centerFreqHz ?? null,
-        bandwidthHz: hz?.bandwidthHz ?? null,
-      };
-      const next = [entry, ...prev];
-      return next.length > 50 ? next.slice(0, 50) : next;
-    });
-  }, [d.classifierLabel, d.classifierTemplateId]);
+    const timer = setTimeout(() => {
+      const key = `${label}|${d.classifierTemplateId ?? ''}`;
+      if (lastLoggedRef.current === key) return;
+      lastLoggedRef.current = key;
+      const hz = binMatchToHz(d.classifierFreqOffset, d.classifierBandwidthBins, d.classifierFrameBins, centerHz, spanHz);
+      setLog((prev) => {
+        const entry = {
+          t: Date.now(),
+          label,
+          confidence: Number(d.classifierConfidence) || 0,
+          templateId: d.classifierTemplateId,
+          centerFreqHz: hz?.centerFreqHz ?? null,
+          bandwidthHz: hz?.bandwidthHz ?? null,
+        };
+        const next = [entry, ...prev];
+        return next.length > 50 ? next.slice(0, 50) : next;
+      });
+    }, 200);
+    return () => clearTimeout(timer);
+  }, [d.classifierLabel, d.classifierConfidence, d.classifierFreqOffset, d.classifierBandwidthBins, d.classifierFrameBins, d.classifierTemplateId]);
 
   // WebSocket: same /waterfall feed radioastro.jsx and the Spectrum page
   // use. f[0] is a structural step index (unused here); f[1..] are FFT
