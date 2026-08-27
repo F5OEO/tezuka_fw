@@ -120,6 +120,8 @@ function applyMqtt(prev, path, raw) {
     case 'classifier/label':           return { ...prev, classifierLabel: raw };
     case 'classifier/confidence':      return { ...prev, classifierConfidence: raw };
     case 'classifier/freq_offset':     return { ...prev, classifierFreqOffset: raw };
+    case 'classifier/bandwidth_bins':  return { ...prev, classifierBandwidthBins: raw };
+    case 'classifier/frame_bins':      return { ...prev, classifierFrameBins: raw };
     case 'classifier/template_id':     return { ...prev, classifierTemplateId: raw };
     case 'operator/name':               return { ...prev, opName: raw };
     case 'operator/callsign':           return { ...prev, opCallsign: raw };
