@@ -2,6 +2,7 @@
 
 SERIAL_PORT="/dev/ttyACM0"
 MQTT_FIFO="/tmp/mqtt_fifo"
+WG_CONF="/mnt/jffs2/etc/wireguard/wg0.conf"
 
 folder=$(grep -rl 'ad9361-phy' /sys/bus/iio/devices/*/name 2>/dev/null | head -1 | xargs dirname)/
 if [ -z "$folder" ] || [ "$folder" = "/" ]; then
@@ -206,6 +207,30 @@ prefix_to_mask () {
   echo "$m"
 }
 
+# Publishes non-secret WireGuard tunnel status only. The private key (and any
+# peer preshared-key) must NEVER reach a state/ topic — the dashboard's MQTT
+# broker is unauthenticated (allow_anonymous, no TLS on the WS port it uses),
+# and every state/ publish is retained, so anything sent here is effectively
+# permanent and world-readable. "wg show <iface> dump"'s first line is the
+# interface line whose first field is the actual PRIVATE key — it is
+# intentionally never read here. The device's own public key comes from the
+# separate "wg show <iface> public-key" call instead, and on the one peer
+# line we keep, field 2 (preshared-key) is explicitly discarded.
+publish_vpn_status () {
+  local up=0 pubkey="" peer_pubkey="" endpoint="" allowed_ips="" handshake=0 rx=0 tx=0 _psk _keepalive
+  if ip link show wg0 >/dev/null 2>&1; then
+    up=1
+    pubkey=$(wg show wg0 public-key 2>/dev/null)
+    read -r peer_pubkey _psk endpoint allowed_ips handshake rx tx _keepalive \
+      < <(wg show wg0 dump 2>/dev/null | tail -n +2 | head -1)
+  fi
+  local json
+  json=$(printf '{"up":%s,"pubkey":"%s","peer_pubkey":"%s","endpoint":"%s","allowed_ips":"%s","latest_handshake":%s,"rx_bytes":%s,"tx_bytes":%s}' \
+    "$([ "$up" = 1 ] && echo true || echo false)" \
+    "$pubkey" "${peer_pubkey:-}" "${endpoint:-}" "${allowed_ips:-}" "${handshake:-0}" "${rx:-0}" "${tx:-0}")
+  publish "vpn/status" "$json"
+}
+
 # ============================================================
 #  DATA PUBLISHING
 # ============================================================
@@ -238,6 +263,9 @@ dump_data () {
   publish "operator/name"     "$(fw_printenv -n operator_name 2>/dev/null)"
   publish "operator/callsign" "$(fw_printenv -n call          2>/dev/null)"
   publish "operator/locator"  "$(fw_printenv -n locator       2>/dev/null)"
+
+  publish "vpn/enabled" "$([ "$(fw_printenv -n wireguard_enabled 2>/dev/null)" = "1" ] && echo on || echo off)"
+  publish_vpn_status
 
   # Reference clock status. On boards with the vctcxo_lock IP (VCXO_BASE
   # set at startup — see top of file), read real registers per
@@ -838,6 +866,44 @@ parse_cmd () {
       [[ "$val" =~ ^[a-zA-Z0-9_.+-]+$ ]] || return
       ( fw_setenv overclock_profile "$val" 2>/dev/null
         /usr/bin/mosquitto_pub -r -i "tezuka_oc" -t "state/system/overclock" -m "$val" ) &
+    ;;
+    vpn/enabled)
+      if [ "$val" = "on" ]; then
+        if [ ! -f "$WG_CONF" ]; then
+          publish_force "vpn/enabled" "off"
+          return
+        fi
+        fw_setenv wireguard_enabled "1" 2>/dev/null &
+        /etc/init.d/S51wireguard start
+      else
+        fw_setenv wireguard_enabled "0" 2>/dev/null &
+        /etc/init.d/S51wireguard stop
+      fi
+      publish_force "vpn/enabled" "$val"
+      publish_vpn_status &
+    ;;
+    vpn/config)
+      # Payload is base64 (never raw conf text) — the mosquitto_sub/read loop
+      # that feeds parse_cmd is line-based, so a multi-line wg-quick conf
+      # would otherwise be shredded. This topic is a one-shot write: the
+      # decoded conf (private key included) is never echoed back to any
+      # state/ topic — see publish_vpn_status's comment on why.
+      [[ "$val" =~ ^[A-Za-z0-9+/=]+$ ]] || return
+      local tmp="/tmp/wg0.conf.$$"
+      echo "$val" | base64 -d > "$tmp" 2>/dev/null || { rm -f "$tmp"; return; }
+      # Sanitize artifacts commonly produced by third-party config
+      # exporters before handing this to wg-quick: CRLF line endings, and
+      # a trailing comma left on a comma-separated value (e.g.
+      # "AllowedIPs = 0.0.0.0/0," with nothing after it) — the latter
+      # makes wg setconf's address parser choke on an empty token.
+      sed -i -e $'s/\r$//' -e 's/[[:space:]]*,[[:space:]]*$//' "$tmp"
+      grep -q '^\[Interface\]' "$tmp" || { rm -f "$tmp"; return; }
+      install -D -m 600 -o root -g root "$tmp" "$WG_CONF"
+      rm -f "$tmp"
+      if [ "$(fw_printenv -n wireguard_enabled 2>/dev/null)" = "1" ]; then
+        /etc/init.d/S51wireguard restart
+      fi
+      publish_vpn_status &
     ;;
     operator/name)
       [[ "$val" =~ ^[a-zA-Z0-9\ ._-]*$ ]] || return

@@ -176,7 +176,7 @@ jobs:
         uses: actions/cache/restore@v5
         with:
           path: ${{ env.OUTPUT_DIR }}
-          key: output-${{ matrix.board }}-${{ hashFiles('package/**/*.mk', 'package/**/*.hash', 'buildroot.version', 'patches/buildroot/**', format('configs/{0}', matrix.defconfig)) }}
+          key: output-${{ matrix.board }}-${{ hashFiles('package/**/*.mk', 'package/**/*.hash', 'buildroot.version', 'patches/buildroot/**', 'board/tezuka/common/patches/**', 'board/tezuka/**/kernel/**', format('configs/{0}', matrix.defconfig)) }}
 
       # uboot-env-hook.mk writes this in the source tree at U-Boot
       # extract time; with output/ cached, extract is skipped and the

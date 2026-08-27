@@ -20,6 +20,7 @@
 * **Extended Bandwidth:** Complex 8-bit mode unlocks stable streaming up to **14 MHz over USB** and **45 MHz over GbE network**.
 * **Risk-Free Booting:** Built-in **SD Card boot support** for effortless updates with zero risk of bricking your flash memory.
 * **Integrated Apps:** Includes Maia-SDR transparently, fast sweep, and MQTT status publishing and more.
+* **Remote Access:** Built-in WireGuard VPN, configured from the Dashboard by pasting a `wg-quick` config — no SSH/CLI needed.
 
 ---
 
@@ -78,6 +79,17 @@ Enjoy extra features out-of-the-box with custom-tailored software branches:
 * [SDR++](https://github.com/F5OEO/SDRPlusPlus)
 * [SoapyPlutoPAPR](https://github.com/F5OEO/SoapyPlutoPAPR)
 *(Standard apps like SDRConsole and SDRAngel are also compatible).*
+
+### Remote Access (WireGuard VPN)
+
+Connect your board to a remote WireGuard server for secure remote access, configured entirely from the Dashboard — no SSH/CLI needed:
+
+* Open the Dashboard's **Network** tab and find the **VPN (WireGuard)** card.
+* Paste a complete `wg-quick`-style config (`[Interface]`/`[Peer]` blocks, private key included) into the text box and click **Save & apply**.
+* Toggle **Enabled** to bring the tunnel up. Live status (handshake time, transfer, peer public key) is shown on the same card.
+* Routing follows whatever `AllowedIPs` your config specifies — a scoped value gives split-tunnel access to just that network, while `0.0.0.0/0` routes all device traffic through the tunnel.
+
+**Security note:** the pasted config is sent once and never redisplayed or echoed back over MQTT. That said, the Dashboard's default MQTT channel (port 9001) is unauthenticated on the local network by design, same as every other Dashboard control — treat the WireGuard private key like any other credential on an open network segment, and avoid exposing the device's management interface to untrusted networks.
 
 ---
 

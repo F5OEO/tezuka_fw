@@ -111,6 +111,11 @@ function applyMqtt(prev, path, raw) {
     case 'system/kalibrate/log':        return { ...prev, kalibrateLog: [...prev.kalibrateLog, raw] };
     case 'system/gps/fix':             return { ...prev, gpsfix: raw };
     case 'system/gps/locator':         return { ...prev, gpsLocator: raw };
+    // vpn/config (the pasted conf, private key included) is intentionally
+    // never a state/ topic — nothing here should ever populate a raw config
+    // field from an incoming MQTT payload.
+    case 'vpn/enabled':                return { ...prev, vpnEnabled: raw };
+    case 'vpn/status': try { return { ...prev, vpnStatus: JSON.parse(raw) }; } catch { return prev; }
     case 'operator/name':               return { ...prev, opName: raw };
     case 'operator/callsign':           return { ...prev, opCallsign: raw };
     case 'operator/locator':            return { ...prev, opLocator: raw };
@@ -154,6 +159,7 @@ function useLiveData(running = true) {
     gainTableConfig: null,
     kalibrateStatus: '', kalibrateChannels: [], kalibrateResultPpm: null, kalibrateResultPpb: null, kalibrateLog: [],
     gpsfix: null, gpsLocator: null,
+    vpnEnabled: null, vpnStatus: null,
   }));
 
   // MQTT connection — ws://[hostname]:9001/mqtt  or  wss://[hostname]:9002/mqtt over HTTPS
@@ -301,6 +307,14 @@ function TextInput({ value, onChange, suffix, mono = true, invalid = false, ...r
   );
 }
 
+function TextArea({ value, onChange, rows = 8, mono = true, invalid = false, ...rest }) {
+  return (
+    <div className={"text-input text-area" + (invalid ? " invalid" : "")}>
+      <textarea value={value} onChange={(e) => onChange(e.target.value)} rows={rows} className={mono ? "mono" : ""} {...rest} />
+    </div>
+  );
+}
+
 function Checkbox({ checked, onChange, label }) {
   return (
     <label className="chk">
@@ -311,4 +325,4 @@ function Checkbox({ checked, onChange, label }) {
   );
 }
 
-Object.assign(window, { useLiveData, fmtUptime, Card, Pill, Toggle, Slider, Field, Select, TextInput, Checkbox });
+Object.assign(window, { useLiveData, fmtUptime, Card, Pill, Toggle, Slider, Field, Select, TextInput, TextArea, Checkbox });

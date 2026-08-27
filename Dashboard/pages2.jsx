@@ -674,6 +674,15 @@ function Network({ d }) {
   const gw   = net['gateway']  || '—';
   const dns  = net['dns']      || '—';
   const host = net['hostname'] || '—';
+
+  // VPN (WireGuard) — vpnConf is a write-only local buffer: it is sent once
+  // as base64 over cmd/vpn/config and cleared, and is never populated from
+  // any state/ topic (the private key must never round-trip through MQTT).
+  const [vpnOn, setVpnOn] = useS2(false);
+  const [vpnConf, setVpnConf] = useS2('');
+  useE2(() => { if (d.vpnEnabled != null) setVpnOn(d.vpnEnabled === 'on'); }, [d.vpnEnabled]);
+  const vpnStatus = d.vpnStatus;
+
   return (
     <div className="page">
       <div className="grid-12">
@@ -715,6 +724,30 @@ function Network({ d }) {
               { data: d.rxH, color: "var(--c-purple)", label: "RX rate", unit: " B/s", axis: "right" },
               { data: d.txH, color: "var(--c-pink)", label: "TX rate", unit: " B/s", axis: "right" },
             ]} />
+        </Card>
+
+        <Card title="VPN (WireGuard)" sub="Paste a wg-quick config to connect" className="span-12">
+          <Field label="Enabled">
+            <Toggle on={vpnOn} onChange={(on) => { setVpnOn(on); d.publish('vpn/enabled', on ? 'on' : 'off'); }} />
+          </Field>
+          <Field label="Config (wg-quick .conf)" hint="Sent once when you click Save & apply — never redisplayed afterward">
+            <TextArea rows={10} value={vpnConf} onChange={setVpnConf}
+              placeholder={"[Interface]\nPrivateKey = ...\nAddress = ...\n\n[Peer]\nPublicKey = ...\nEndpoint = ...\nAllowedIPs = ..."} />
+            <button className="btn primary mt" disabled={!vpnConf.trim()}
+              onClick={() => { d.publish('vpn/config', btoa(unescape(encodeURIComponent(vpnConf)))); setVpnConf(''); }}>
+              Save &amp; apply
+            </button>
+          </Field>
+          <Field label="Status">
+            <Pill tone={vpnStatus?.up ? "ok" : "warn"} dot>{vpnStatus?.up ? "Connected" : "Disconnected"}</Pill>
+            {vpnStatus && (
+              <span className="dim mono">
+                {' '}handshake {vpnStatus.latest_handshake ? new Date(vpnStatus.latest_handshake * 1000).toLocaleTimeString() : "never"}
+                {' · rx '}{vpnStatus.rx_bytes ?? 0}{' · tx '}{vpnStatus.tx_bytes ?? 0}
+                {vpnStatus.pubkey && <>{' · pubkey '}{vpnStatus.pubkey}</>}
+              </span>
+            )}
+          </Field>
         </Card>
       </div>
     </div>
