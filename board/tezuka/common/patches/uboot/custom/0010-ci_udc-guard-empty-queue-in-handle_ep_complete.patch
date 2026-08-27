@@ -35,10 +35,11 @@ There's nothing to complete when the queue is empty, so just return.
 
 --- a/drivers/usb/gadget/ci_udc.c
 +++ b/drivers/usb/gadget/ci_udc.c
-@@ -678,5 +678,20 @@
+@@ -677,6 +677,22 @@
+ 	in = (ci_ep->desc->bEndpointAddress & USB_DIR_IN) != 0;
  	item = ci_get_qtd(num, in);
  	ci_invalidate_qtd(num);
- 
++
 +	/*
 +	 * A hardware completion bit can fire for an endpoint whose software
 +	 * queue was already emptied (e.g. by stop_activity() during a
@@ -55,4 +56,5 @@ There's nothing to complete when the queue is empty, so just return.
 +		return;
 +
  	ci_req = list_first_entry(&ci_ep->queue, struct ci_req, queue);
- 	len = ci_req->req.length;
+ 
+ 	next_td = item;

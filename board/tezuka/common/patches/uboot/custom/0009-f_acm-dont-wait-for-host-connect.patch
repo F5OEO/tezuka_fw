@@ -98,11 +98,11 @@ before use removes the depends-on-stack-garbage behavior entirely.
  
  	return 0;
  }
-@@ -667,6 +668,7 @@
- int drv_usbacm_init(void)
+@@ -669,6 +670,7 @@
  {
  	struct stdio_dev stdio;
  
 +	memset(&stdio, 0, sizeof(stdio));
  	strcpy(stdio.name, "usbacm");
  	stdio.flags = DEV_FLAGS_INPUT | DEV_FLAGS_OUTPUT;
+ 	stdio.tstc = acm_stdio_tstc;
