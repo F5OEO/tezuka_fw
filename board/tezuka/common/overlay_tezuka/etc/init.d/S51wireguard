@@ -1,0 +1,64 @@
+#!/bin/sh
+
+WG_CONF="/mnt/jffs2/etc/wireguard/wg0.conf"
+
+start() {
+	printf "Starting wireguard: "
+	# fw_printenv can block if the U-Boot env backing device isn't ready
+	# yet at this point in boot (observed: a ~34s hang here took down the
+	# whole sequential boot chain until the hardware watchdog reset the
+	# board). Bound it so a slow/unavailable env device degrades to
+	# "disabled" instead of hanging boot.
+	if [ "$(timeout 3 fw_printenv -n wireguard_enabled 2>/dev/null)" != "1" ]; then
+		echo "disabled"
+		return 0
+	fi
+	if [ ! -f "$WG_CONF" ]; then
+		echo "no config"
+		return 0
+	fi
+	# Invoked as "bash /usr/bin/wg-quick" rather than "wg-quick" (letting
+	# its own #!/usr/bin/env bash shebang start the interpreter):
+	# confirmed on real hardware, repeatedly, that letting the shebang
+	# start bash reliably fails at the "ip address add" step right after
+	# "wg setconf" with "RTNETLINK answers: Network is unreachable" —
+	# whether invoked directly, via timeout(1) (see the now-reverted
+	# theory in pull/8), or from this script — while explicitly invoking
+	# bash on the script succeeds cleanly every time. Not wrapped in
+	# timeout(1) either way; that was a red herring, not the cause. See
+	# github.com/mbehn1976/tezuka_fw pull/9.
+	if bash /usr/bin/wg-quick up "$WG_CONF" 2>/tmp/wireguard.log; then
+		echo "OK"
+	else
+		echo "FAIL"
+		cat /tmp/wireguard.log
+		return 1
+	fi
+}
+
+stop() {
+	printf "Stopping wireguard: "
+	if ip link show wg0 >/dev/null 2>&1; then
+		bash /usr/bin/wg-quick down "$WG_CONF" 2>/tmp/wireguard.log
+	fi
+	echo "OK"
+}
+
+restart() {
+	stop
+	start
+}
+
+case "$1" in
+	start)
+		start;;
+	stop)
+		stop;;
+	restart)
+		restart;;
+	*)
+		echo "Usage: $0 {start|stop|restart}"
+		exit 1
+esac
+
+exit $?
