@@ -5,6 +5,14 @@ classifier daemon (`app/classifier/classifier.c`) loads from
 `/mnt/jffs2/classifier/templates.bin` on the device. **Not** part of the
 Buildroot rootfs; run these on your own machine.
 
+A small starter set (FM Broadcast, DAB+, CW/Beacon — the three
+synthetic shapes below) ships and is seeded automatically on first boot
+(`board/tezuka/common/overlay_tezuka/etc/classifier-default-templates.bin`,
+regenerate it with `synthesize_template.py` if you change it — see
+`S61classifier`), so a fresh device has *something* to match against
+immediately rather than reporting "unknown" until you push your own.
+Any `cmd/classifier/templates` push replaces it permanently.
+
 ## Quick start: bootstrap from real hardware
 
 Fastest way to get a first working template set, no GNU Radio/TorchSig
