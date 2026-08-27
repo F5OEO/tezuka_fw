@@ -84,9 +84,13 @@ banner=\
   meminfo; \
   echo "";
 
-bootmenu_0=Boot from SD card Tezuka=mmc dev 0; run sdboot
-bootmenu_1=Boot from SD card Kuiper=mmc dev 1; run sdboot_kuiper
+bootmenu_0=Boot normaly=boot
+bootmenu_1=Reset Environment factory=run resetenv; bootmenu
 bootmenu_2=Boot from QSPI=setenv modeboot qspiboot; run qspiboot
+bootmenu_3=Boot from USB=run usbboot; bootmenu
+bootmenu_4=Update SD card=run ums_sd; bootmenu
+bootmenu_5=Set dfu mode=run dfu_sf
+bootmenu_6=Boot from SD card TezukaSumo=mmc dev 1; run sdboot_kuiper
 
 baudrate=115200
 stdin=serial@e0001000,usbacm
@@ -107,7 +111,7 @@ dfu_mmc_info=set dfu_alt_info ${kernel_image} fat 0 1\\;${devicetree_image} fat 
 dfu_mmc=run dfu_mmc_info && dfu 0 mmc 0
 dfu_ram=echo Entering DFU RAM mode ... && run dfu_ram_info && dfu 0 ram 0
 dfu_ram_info=set dfu_alt_info dummy.dfu ram 0 0\\;firmware.dfu ram ${fit_load_address} 0x1E00000
-dfu_sf=run dfu_led;gpio set 0;set stdout serial;echo Entering DFU SF mode ... && run dfu_sf_info && dfu 0 sf 0:0:40000000:0 && if test -n ${dfu_alt_num} && test ${dfu_alt_num} = 1; then set fit_size ${filesize} && set dfu_alt_num && env save; fi;gpio clear 0;
+dfu_sf=run dfu_led;gpio set 0;setenv stdout serial@e0001000; setenv stdin serial@e0001000; setenv stderr serial@e0001000;echo Entering DFU SF mode ... && run dfu_sf_info && dfu 0 sf 0:0:40000000:0 && if test -n ${dfu_alt_num} && test ${dfu_alt_num} = 1; then set fit_size ${filesize} && set dfu_alt_num && env save; fi;setenv stdout serial@e0001000,usbacm; setenv stdin serial@e0001000,usbacm; setenv stderr serial@e0001000,usbacm;gpio clear 0;
 dfu_sf_info=set dfu_alt_info boot.dfu raw 0x0 0x100000\\;firmware.dfu raw 0x200000 0x1E00000\\;uboot-extra-env.dfu raw 0xFF000 0x1000\\;uboot-env.dfu raw 0x100000 0x20000\\;spare.dfu raw 0x120000 0xE0000
 extraenv_load_address=0x207E000
 fdt_high=0x20000000
@@ -267,6 +271,11 @@ uenvboot=\
     then echo Running uenvcmd ...; \
     run uenvcmd; \
   fi
+
+ums_sd=\
+  setenv stdout serial@e0001000; setenv stdin serial@e0001000; setenv stderr serial@e0001000; \
+  ums 0 mmc 0; \
+  setenv stdout serial@e0001000,usbacm; setenv stdin serial@e0001000,usbacm; setenv stderr serial@e0001000,usbacm;
 
 usbboot=\
   if usb start; then \

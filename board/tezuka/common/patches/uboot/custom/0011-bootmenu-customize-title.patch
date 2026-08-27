@@ -1,0 +1,16 @@
+cmd: bootmenu: customize boot menu title
+
+Brand the ANSI bootmenu header for tezuka_fw instead of the stock
+"U-Boot Boot Menu" string.
+
+--- a/cmd/bootmenu.c
++++ b/cmd/bootmenu.c
+@@ -441,7 +441,7 @@ static void menu_display_statusline(struct menu *m)
+ 	printf(ANSI_CURSOR_POSITION, 1, 1);
+ 	puts(ANSI_CLEAR_LINE);
+ 	printf(ANSI_CURSOR_POSITION, 2, 3);
+-	puts("*** U-Boot Boot Menu ***");
++	puts("*** Tezuka U-Boot Menu ***");
+ 	puts(ANSI_CLEAR_LINE_TO_END);
+ 	printf(ANSI_CURSOR_POSITION, 3, 1);
+ 	puts(ANSI_CLEAR_LINE);
