@@ -294,6 +294,9 @@ usbboot=\
     run pl_init; \
     setenv bootargs console=ttyPS0,115200 rootfstype=ramfs root=/dev/ram0 rw rootwait earlycon clk_ignore_unused cpuidle.off=1 uio_pdrv_genirq.of_id=uio_pdrv_genirq UBOOT_MODEBOOT=$modeboot UBOOT_VERSION='"\'${uboot-version}'\"' \
     && bootm ${fit_load_address} ${ramdisk_load_address} ${devicetree_load_address}; \
+   else \
+      usb stop; \
   fi
+
 
 usbacm_console=setenv stdout usbacm; setenv stdin usbacm; setenv stderr usbacm
