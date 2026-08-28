@@ -206,7 +206,6 @@ pl_init=\
 qspiboot_bootenv=sf probe && sf read ${extraenv_load_address} 0x100000 0x20000;
 qspiboot_extraenv=sf read ${extraenv_load_address} 0xFF000 0x1000;
 qspiboot=\
-  run usbboot; \
   adi_hwref; \
   echo Copying Linux from QSPI flash to RAM... && run read_sf && if run adi_loadvals; then \
     echo Loaded AD936x refclk frequency and model into devicetree; \
