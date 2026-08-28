@@ -19,9 +19,34 @@ instead of in probe(); do the same here: move the ULPI block into a
 zynq_init_after_reset() hook and register it via ehci_ops instead of
 passing NULL to ehci_register().
 
+Once that ordering bug is fixed, a bus-powered USB device attached
+directly to the root port (no self-powered hub in between, which is
+already enumerated and answers immediately) still fails to enumerate
+on a cold boot: EHCI successfully asserts VBUS and reaches the async
+schedule, but the very first control transfer times out ("EHCI timed
+out on TD") or the device doesn't accept its new address. This is a
+real device power-up/attach-debounce settle time, not a driver
+ordering bug: the same board and stick enumerate fine once the
+controller has already been running for a while (e.g. immediately
+after an earlier successful probe in the same power-on session), and
+fail identically regardless of the settle time inserted between "usb
+stop" and a warm "usb start" retry, since VBUS/DRVVBUS is never
+actually deasserted across a stop -- only a genuinely cold boot
+discriminates. Tested cold on real hardware: 300ms is not enough,
+1000ms enumerates reliably. Give the PHY/device a full second after
+VBUS is asserted before ehci_common_init() starts scanning.
+
 --- a/drivers/usb/host/ehci-zynq.c
 +++ b/drivers/usb/host/ehci-zynq.c
-@@ -31,21 +31,22 @@
+@@ -12,6 +12,7 @@
+ #include <asm/io.h>
+ #include <usb/ehci-ci.h>
+ #include <usb/ulpi.h>
++#include <linux/delay.h>
+ 
+ #include "ehci.h"
+ 
+@@ -31,21 +32,22 @@
  	return 0;
  }
  
@@ -53,11 +78,13 @@ passing NULL to ehci_register().
  	ulpi_vp.viewport_addr = (u32)&priv->ehci->ulpi_viewpoint;
  	ulpi_vp.port_num = 0;
  
-@@ -68,7 +69,26 @@
+@@ -68,7 +70,28 @@
  	ulpi_write(&ulpi_vp, &ulpi->otg_ctrl_set,
  		   ULPI_OTG_DRVVBUS | ULPI_OTG_DRVVBUS_EXT);
  
 -	return ehci_register(dev, hccr, hcor, NULL, 0, plat->init_type);
++	mdelay(1000);
++
 +	return 0;
 +}
 +
