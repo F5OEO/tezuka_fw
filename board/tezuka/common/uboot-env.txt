@@ -113,7 +113,7 @@ baudrate=115200
 stdin=serial@e0001000,usbacm
 stdout=serial@e0001000,usbacm
 stderr=serial@e0001000,usbacm
-bitstream_image=system.bit.bin
+bitstream_image=system_top.bin
 bitstream_size=0x400000
 bootcmd=if test -n "${modeboot}"; then run ${modeboot}; else adi_hwref; run ${modeboot}; fi
 bootdelay=10
@@ -135,8 +135,8 @@ fdt_high=0x20000000
 fit_config=config@0
 fit_load_address=0x2080000
 fit_size=0x1E00000
-fpgaload=fatload usb 0 0xF000000 system_top.bin;fpga load 0 0xF000000 ${filesize}
-importbootenv=echo Importing environment from SD ...; env import -t ${loadbootenv_addr} $filesize
+fpgaload=fatload usb 0 0xF000000 ${bitstream_image};fpga load 0 0xF000000 ${filesize}
+importbootenv=env import -t ${loadbootenv_addr} $filesize
 initrd_high=0x20000000
 ipaddr=192.168.2.1
 ipaddr_host=192.168.2.10
@@ -144,8 +144,8 @@ jtagboot=env default -a;sf probe && sf protect unlock 0 100000 ; run dfu_sf; run
 kernel_image=uImage
 loadbit_addr=0x100000
 loadbootenv_addr=0x2000000
-loadbootenv=load mmc 0 ${loadbootenv_addr} ${bootenv}
-loadbootenv_usb=load usb 0 ${loadbootenv_addr} ${bootenv}
+loadbootenv=echo Importing environment from SD ...; load mmc 0 ${loadbootenv_addr} ${bootenv}
+loadbootenv_usb=echo Importing environment from USB ...;load usb 0 ${loadbootenv_addr} ${bootenv}
 loaddfu=\
   if mmc rescan; then \
     fatload mmc 0 ${fit_load_address} pluto.dfu; \
@@ -184,7 +184,7 @@ preboot_main=\
 
 soft_reboot_cause=itest *f8000258 == 480003 && run clear_reset_cause && run dfu_sf; \
 		itest *f8000258 == 480007 && run clear_reset_cause && run ramboot_verbose;  \
-		itest *f8000258 == 480006 && run clear_reset_cause && run qspiboot_verbose;  \
+		itest *f8000258 == 480006 && run clear_reset_cause && run qspiboot;  \
 		itest *f8000258 == 480002 && run clear_reset_cause && exit;
 
 
@@ -206,6 +206,7 @@ pl_init=\
 qspiboot_bootenv=sf probe && sf read ${extraenv_load_address} 0x100000 0x20000;
 qspiboot_extraenv=sf read ${extraenv_load_address} 0xFF000 0x1000;
 qspiboot=\
+  run usbboot; \
   adi_hwref; \
   echo Copying Linux from QSPI flash to RAM... && run read_sf && if run adi_loadvals; then \
     echo Loaded AD936x refclk frequency and model into devicetree; \
@@ -213,24 +214,6 @@ qspiboot=\
   run pl_init; \
   setenv bootargs console=ttyPS0,115200 maxcpus=${maxcpus} rootfstype=ramfs root=/dev/ram0 rw earlyprintk clk_ignore_unused cpuidle.off=1 uio_pdrv_genirq.of_id=uio_pdrv_genirq UBOOT_MODEBOOT=$modeboot UBOOT_VERSION='\"'${uboot-version}'\"' \
   && bootm ${fit_load_address}#${fit_config} || echo BOOT failed entering DFU mode && run dfu_sf
-
-qspiboot_verbose=\
-  adi_hwref; \
-  echo Copying Linux from QSPI flash to RAM... && run read_sf && if run adi_loadvals; then \
-    echo Loaded AD936x refclk frequency and model into devicetree; \
-  fi; \
-  run pl_init; \
-  setenv bootargs console=ttyPS0,115200 maxcpus=${maxcpus} rootfstype=ramfs root=/dev/ram0 rw earlyprintk clk_ignore_unused cpuidle.off=1 uio_pdrv_genirq.of_id=uio_pdrv_genirq UBOOT_MODEBOOT=$modeboot UBOOT_VERSION='\"'${uboot-version}'\"' \
-  && bootm ${fit_load_address}#${fit_config} || echo BOOT failed entering DFU mode && run dfu_sf
-
-qspiboot_silent=\
-  set stdout serial && sf probe; \
-  echo Booting silently; \
-  set stdout nulldev; \
-  run read_sf; run adi_loadvals; run qspiboot_extraenv; \
-  run pl_init; \
-  setenv bootargs console=ttyPS0,115200 maxcpus=${maxcpus} rootfstype=ramfs root=/dev/ram0 rw quiet loglevel=4 clk_ignore_unused cpuidle.off=1 uio_pdrv_genirq.of_id=uio_pdrv_genirq UBOOT_MODEBOOT=$modeboot UBOOT_VERSION='\"'${uboot-version}'\"' \
-  && bootm ${fit_load_address}#${fit_config} || set stdout serial;
 
 ramboot_verbose=\
   adi_hwref; \
@@ -268,7 +251,7 @@ sdboot_ram=\
 
 bootargs=console=ttyPS0,115200 root=/dev/mmcblk0p2 rw earlycon rootfstype=ext4 rootwait clk_ignore_unused cpuidle.off=1 uio_pdrv_genirq.of_id=uio_pdrv_genirq UBOOT_MODEBOOT=$modeboot UBOOT_VERSION='\"'${uboot-version}'\"'
 
-sdboot_kuiper=if mmcinfo; then \
+sdboot_kuiper=if mmcinfo && fstype mmc 0:2 kuiper_fstype && test "${kuiper_fstype}" = "ext4"; then \
     run uenvboot; \
     echo Copying Linux from SD to RAM...\
     && load mmc 0 ${fit_load_address} ${kernel_image} \
@@ -276,7 +259,9 @@ sdboot_kuiper=if mmcinfo; then \
     && run adi_loadvals; \
     setenv bootargs console=ttyPS0,115200 rootfstype=ext4 root=/dev/mmcblk0p2 rootwait rw earlycon clk_ignore_unused cpuidle.off=1 uio_pdrv_genirq.of_id=uio_pdrv_genirq UBOOT_MODEBOOT=$modeboot UBOOT_VERSION='\"'${uboot-version}'\"' \
     && bootm ${fit_load_address} - ${devicetree_load_address}; \
-    fi
+  else \
+    echo "sdboot_kuiper: no ext4 partition on mmc 0:2, aborting"; \
+  fi
 
 sd_uEnvtxt_existence_test=test -e mmc 0 /uEnv.txt
 thor_mmc=run dfu_mmc_info && thordown 0 mmc 0
@@ -297,15 +282,14 @@ ums_sd=\
   setenv stdout serial@e0001000,usbacm; setenv stdin serial@e0001000,usbacm; setenv stderr serial@e0001000,usbacm;
 
 usbboot=\
-  if usb start; then \
-    run uenvboot; \
+  if usb start && usb storage; then \
+    env run loadbootenv_usb; \
+    env run importbootenv; \
     echo Copying Linux from USB to RAM... \
     && load usb 0 ${fit_load_address} ${kernel_image} \
     && load usb 0 ${devicetree_load_address} ${devicetree_image} \
     && load usb 0 ${ramdisk_load_address} ${ramdisk_image} \
     && run fpgaload \
-    && sf probe \
-    && run read_sf \
     && run adi_loadvals; \
     run pl_init; \
     setenv bootargs console=ttyPS0,115200 rootfstype=ramfs root=/dev/ram0 rw rootwait earlycon clk_ignore_unused cpuidle.off=1 uio_pdrv_genirq.of_id=uio_pdrv_genirq UBOOT_MODEBOOT=$modeboot UBOOT_VERSION='"\'${uboot-version}'\"' \
