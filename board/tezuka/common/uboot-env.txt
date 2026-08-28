@@ -282,6 +282,7 @@ ums_sd=\
   setenv stdout serial@e0001000,usbacm; setenv stdin serial@e0001000,usbacm; setenv stderr serial@e0001000,usbacm;
 
 usbboot=\
+  setenv stdout serial@e0001000; setenv stdin serial@e0001000; setenv stderr serial@e0001000; \
   if usb start && usb storage; then \
     env run loadbootenv_usb; \
     env run importbootenv; \
@@ -296,7 +297,8 @@ usbboot=\
     && bootm ${fit_load_address} ${ramdisk_load_address} ${devicetree_load_address}; \
    else \
       usb stop; \
-  fi
+  fi; \
+  setenv stdout serial@e0001000,usbacm; setenv stdin serial@e0001000,usbacm; setenv stderr serial@e0001000,usbacm;
 
 
 usbacm_console=setenv stdout usbacm; setenv stdin usbacm; setenv stderr usbacm
