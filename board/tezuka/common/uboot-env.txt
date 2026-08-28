@@ -284,12 +284,16 @@ ums_sd=\
 usbboot=\
   setenv stdout serial@e0001000; setenv stdin serial@e0001000; setenv stderr serial@e0001000; \
   if usb start && usb storage; then \
+    sleep 1; \
     if env run loadbootenv_usb; then env run importbootenv; fi; \
     if test -e usb 0 /${kernel_image} && test -e usb 0 /${devicetree_image} && test -e usb 0 /${ramdisk_image}; then \
       echo Copying Linux from USB to RAM... \
       && load usb 0 ${fit_load_address} ${kernel_image} \
+      && sleep 0.2 \
       && load usb 0 ${devicetree_load_address} ${devicetree_image} \
+      && sleep 0.2 \
       && load usb 0 ${ramdisk_load_address} ${ramdisk_image} \
+      && sleep 0.2 \
       && run fpgaload \
       && run adi_loadvals; \
       run pl_init; \
