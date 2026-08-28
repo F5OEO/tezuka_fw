@@ -284,17 +284,21 @@ ums_sd=\
 usbboot=\
   setenv stdout serial@e0001000; setenv stdin serial@e0001000; setenv stderr serial@e0001000; \
   if usb start && usb storage; then \
-    env run loadbootenv_usb; \
-    env run importbootenv; \
-    echo Copying Linux from USB to RAM... \
-    && load usb 0 ${fit_load_address} ${kernel_image} \
-    && load usb 0 ${devicetree_load_address} ${devicetree_image} \
-    && load usb 0 ${ramdisk_load_address} ${ramdisk_image} \
-    && run fpgaload \
-    && run adi_loadvals; \
-    run pl_init; \
-    setenv bootargs console=ttyPS0,115200 rootfstype=ramfs root=/dev/ram0 rw rootwait earlycon clk_ignore_unused cpuidle.off=1 uio_pdrv_genirq.of_id=uio_pdrv_genirq UBOOT_MODEBOOT=$modeboot UBOOT_VERSION='"\'${uboot-version}'\"' \
-    && bootm ${fit_load_address} ${ramdisk_load_address} ${devicetree_load_address}; \
+    if env run loadbootenv_usb; then env run importbootenv; fi; \
+    if test -e usb 0 /${kernel_image} && test -e usb 0 /${devicetree_image} && test -e usb 0 /${ramdisk_image}; then \
+      echo Copying Linux from USB to RAM... \
+      && load usb 0 ${fit_load_address} ${kernel_image} \
+      && load usb 0 ${devicetree_load_address} ${devicetree_image} \
+      && load usb 0 ${ramdisk_load_address} ${ramdisk_image} \
+      && run fpgaload \
+      && run adi_loadvals; \
+      run pl_init; \
+      setenv bootargs console=ttyPS0,115200 rootfstype=ramfs root=/dev/ram0 rw rootwait earlycon clk_ignore_unused cpuidle.off=1 uio_pdrv_genirq.of_id=uio_pdrv_genirq UBOOT_MODEBOOT=$modeboot UBOOT_VERSION='"\'${uboot-version}'\"' \
+      && bootm ${fit_load_address} ${ramdisk_load_address} ${devicetree_load_address}; \
+    else \
+      echo "usbboot: ${kernel_image}/${devicetree_image}/${ramdisk_image} not found on USB device, skipping USB boot"; \
+    fi; \
+    usb stop; \
    else \
       usb stop; \
   fi; \
