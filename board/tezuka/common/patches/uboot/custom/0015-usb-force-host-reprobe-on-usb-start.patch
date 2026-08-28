@@ -1,0 +1,56 @@
+usb: force a fresh host-mode probe in usb_init()
+
+On boards with a dual-role ChipIdea/ci_udc controller shared between
+USB host and a USB gadget function (e.g. a console running over
+usbacm, or CONFIG_USB_GADGET_DOWNLOAD's DFU), the gadget side claims
+the controller during boot via usb_setup_ehci_gadget(): it
+device_remove()s the UCLASS_USB device, sets plat->init_type =
+USB_INIT_DEVICE, and device_probe()s it again in that role.
+
+usb_remove_ehci_gadget() (called when that gadget function is done)
+only device_remove()s the device again -- it never restores
+init_type. So plat->init_type stays USB_INIT_DEVICE for that device
+for the rest of the boot. usb_init() (the "usb start" command) never
+touches init_type at all, and device_probe() is a no-op on a device
+that isn't currently removed/inactive, so a device-mode probe from
+earlier in boot is never replaced by a host probe: "usb start"
+registers u-boot's own root hub fine (that part doesn't depend on the
+controller's mode) but scans a controller still configured as a
+gadget, and any real transaction (e.g. the async schedule, STS_ASS)
+never comes up.
+
+"usb start" always means host. Force plat->init_type = USB_INIT_HOST
+for every USB bus device before probing it, and if the device is
+already active in some other mode, device_remove() it first so the
+new init_type actually takes effect on a fresh probe.
+
+--- a/drivers/usb/host/usb-uclass.c
++++ b/drivers/usb/host/usb-uclass.c
+@@ -305,10 +305,27 @@ int usb_init(void)
+ 	uc_priv = uclass_get_priv(uc);
+
+ 	uclass_foreach_dev(bus, uc) {
++		struct usb_plat *plat = dev_get_plat(bus);
++
+ 		/* init low_level USB */
+ 		printf("Bus %s: ", bus->name);
+
+ 		/*
++		 * A dual-role controller (e.g. ChipIdea/ci_udc) may already
++		 * be actively probed as a USB gadget via
++		 * usb_setup_ehci_gadget() for a console or DFU function.
++		 * device_probe() below is a no-op on an already-active
++		 * device, so without forcing a fresh probe here a device-mode
++		 * probe from earlier boot would never be replaced by a host
++		 * probe -- "usb start" would silently scan a controller still
++		 * configured as a gadget. "usb start" always means host, so
++		 * force both the type and a fresh probe here.
++		 */
++		if (device_active(bus) && plat->init_type != USB_INIT_HOST)
++			device_remove(bus, DM_REMOVE_NORMAL);
++		plat->init_type = USB_INIT_HOST;
++
++		/*
+ 		 * For Sandbox, we need scan the device tree each time when we
+ 		 * start the USB stack, in order to re-create the emulated USB
+ 		 * devices and bind drivers for them before we actually do the
