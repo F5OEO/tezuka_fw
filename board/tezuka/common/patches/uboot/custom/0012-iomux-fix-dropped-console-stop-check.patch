@@ -1,0 +1,34 @@
+iomux: fix "stop dropped consoles" check in iomux_doenv()
+
+iomux_match_device() returns the matching index (>= 0) when the old
+device is still present in the new set, or -ENOENT when it has been
+dropped. The "stop dropped consoles" loop compared that result against
+cs_idx (the new device count) instead of checking for a negative
+result, so console_stop() was never actually reached for a device
+removed from stdin/stdout/stderr: -ENOENT never equals cs_idx.
+
+This means switching a console stream away from a stdio device (e.g.
+setenv stdout serial@e0001000 to drop "usbacm" from the default
+"serial@e0001000,usbacm") never released that device: acm_stdio_stop()
+was never called, so the USB ACM gadget's g_dnl composite driver
+stayed registered forever. Any later command that also needs to
+register its own g_dnl composite driver (e.g. "ums") then failed with
+g_dnl_register: failed!, error: -22, since usb_composite_register()
+refuses to register a second composite driver while one is already
+active.
+
+Fix the comparison to check for a negative (not-found) result, so a
+device dropped from every console stream is actually stopped and its
+gadget released.
+
+--- a/common/iomux.c
++++ b/common/iomux.c
+@@ -131,7 +131,7 @@ int iomux_doenv(const int console, const char *arg)
+ 	/* Stop dropped consoles */
+ 	for (i = 0; i < repeat; i++) {
+ 		j = iomux_match_device(cons_set, cs_idx, old_set[i]);
+-		if (j == cs_idx)
++		if (j < 0)
+ 			console_stop(console, old_set[i]);
+ 	}
+

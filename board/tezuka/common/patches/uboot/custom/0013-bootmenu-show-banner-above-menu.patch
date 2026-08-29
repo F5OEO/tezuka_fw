@@ -1,0 +1,68 @@
+cmd: bootmenu: show the boot banner above the menu
+
+bootmenu_show() clears the whole console and redraws the menu at
+fixed absolute rows (title on row 2, entries starting at row 4,
+footer at count+5..7), so anything printed earlier by preboot's
+"run banner" is wiped the instant the menu draws itself.
+
+Print the banner as part of the menu's own initial draw, right after
+the screen is cleared and the cursor is homed, and shift every fixed
+row used by the title/entries/footer down by the banner's line count
+so the menu renders directly below it instead of overlapping it.
+
+--- a/cmd/bootmenu.c
++++ b/cmd/bootmenu.c
+@@ -20,6 +20,9 @@
+ /* maximum bootmenu entries */
+ #define MAX_COUNT	99
+
++/* lines printed by the "banner" env command, reserved above the menu */
++#define BOOTMENU_BANNER_LINES	11
++
+ /* maximal size of bootmenu env
+  *  9 = strlen("bootmenu_")
+  *  2 = strlen(MAX_COUNT)
+@@ -71,7 +74,7 @@
+ 	 * Move cursor to line where the entry will be drown (entry->num)
+ 	 * First 3 lines contain bootmenu header + 1 empty line
+ 	 */
+-	printf(ANSI_CURSOR_POSITION, entry->num + 4, 7);
++	printf(ANSI_CURSOR_POSITION, entry->num + 4 + BOOTMENU_BANNER_LINES, 7);
+
+ 	if (reverse)
+ 		puts(ANSI_COLOR_REVERSE);
+@@ -438,21 +441,21 @@
+
+ 	menu = entry->menu;
+
+-	printf(ANSI_CURSOR_POSITION, 1, 1);
++	printf(ANSI_CURSOR_POSITION, 1 + BOOTMENU_BANNER_LINES, 1);
+ 	puts(ANSI_CLEAR_LINE);
+-	printf(ANSI_CURSOR_POSITION, 2, 3);
++	printf(ANSI_CURSOR_POSITION, 2 + BOOTMENU_BANNER_LINES, 3);
+ 	puts("*** Tezuka U-Boot Menu ***");
+ 	puts(ANSI_CLEAR_LINE_TO_END);
+-	printf(ANSI_CURSOR_POSITION, 3, 1);
++	printf(ANSI_CURSOR_POSITION, 3 + BOOTMENU_BANNER_LINES, 1);
+ 	puts(ANSI_CLEAR_LINE);
+
+ 	/* First 3 lines are bootmenu header + 2 empty lines between entries */
+-	printf(ANSI_CURSOR_POSITION, menu->count + 5, 1);
++	printf(ANSI_CURSOR_POSITION, menu->count + 5 + BOOTMENU_BANNER_LINES, 1);
+ 	puts(ANSI_CLEAR_LINE);
+-	printf(ANSI_CURSOR_POSITION, menu->count + 6, 3);
++	printf(ANSI_CURSOR_POSITION, menu->count + 6 + BOOTMENU_BANNER_LINES, 3);
+ 	puts("Press UP/DOWN to move, ENTER to select, ESC to quit");
+ 	puts(ANSI_CLEAR_LINE_TO_END);
+-	printf(ANSI_CURSOR_POSITION, menu->count + 7, 1);
++	printf(ANSI_CURSOR_POSITION, menu->count + 7 + BOOTMENU_BANNER_LINES, 1);
+ 	puts(ANSI_CLEAR_LINE);
+ }
+
+@@ -537,6 +540,7 @@
+ 	puts(ANSI_CURSOR_HIDE);
+ 	puts(ANSI_CLEAR_CONSOLE);
+ 	printf(ANSI_CURSOR_POSITION, 1, 1);
++	run_command("run banner", 0);
+
+ 	init = 1;
