@@ -24,7 +24,7 @@
  fi
 
 +# Try to find specific image if not defined or build own
-+TEZUKA_IMAGE="br_tezuka:2025.02.3"
++TEZUKA_IMAGE="br_tezuka:2026.05.2" # keep in sync with BR_VERSION in buildroot.version
 +if test -z "${IMAGE}" ; then
 +    IMAGE=$(${DOCKER} image ls -q ${TEZUKA_IMAGE})
 +fi
