@@ -16,7 +16,7 @@ const { useState: useWtS, useEffect: useWtE, useRef: useWtR } = React;
 
 // Expected relative to wherever Tezuka Dashboard.html itself is served from
 // — mirrors the existing Dashboard/vendor/ convention already used for
-// react.js/babel.js/colormap.js.
+// react.js/babel.js.
 const H265WEB_BASE = './vendor/h265web/';
 const H265WEB_SCRIPT = H265WEB_BASE + 'h265web.js';
 
