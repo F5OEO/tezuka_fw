@@ -2,6 +2,15 @@
 ABSOLUTE_PATH="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 unset LD_LIBRARY_PATH
 
+# CMake 4.x (Buildroot's own host-cmake, bumped as part of the Buildroot
+# 2026.05.2 update) hard-errors on any CMakeLists.txt with an old
+# cmake_minimum_required() floor instead of just warning, per README's
+# "Compatibility with older build scripts" section. Several vendored
+# custom packages (e.g. SoapyPlutoPAPR) haven't been updated for that.
+# This was previously an opt-in workaround; it's now needed
+# unconditionally for a plain ./build.sh to succeed.
+export CMAKE_POLICY_VERSION_MINIMUM=3.5
+
 # Add this directory only if not already added to avoid problem
 # with Buildroot
 if [ -z "${BR2_EXTERNAL:-}" ] || ! echo "${BR2_EXTERNAL}" | grep -qF "${ABSOLUTE_PATH}"; then
