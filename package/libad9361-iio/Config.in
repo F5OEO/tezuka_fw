@@ -1,0 +1,15 @@
+config BR2_PACKAGE_LIBAD9361_IIO
+	bool "libad9361-iio"
+	depends on BR2_PACKAGE_LIBIIO
+	help
+	  AD9361 IIO helper library: fast-lock profile management,
+	  baseband rate / FIR filter setup, and other convenience
+	  calls on top of libiio for the AD9361/AD9364 transceiver
+	  used by this board.
+
+	  This symbol previously existed only as an inert reference
+	  inherited from ADI's own Buildroot fork (which carries its
+	  own package/libad9361-iio); this BR2_EXTERNAL package makes
+	  it real against vanilla Buildroot.
+
+	  https://github.com/analogdevicesinc/libad9361-iio
