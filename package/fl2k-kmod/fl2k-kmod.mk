@@ -4,9 +4,8 @@
 #
 ################################################################################
 
-FL2K_KMOD_VERSION = master
-FL2K_KMOD_SOURCE = master.tar.gz
-FL2K_KMOD_SITE = https://github.com/ReachableCEO/fl2000_drm/archive/refs/heads
+FL2K_KMOD_VERSION = b2423557f5e535a3723e998a1b9910c537fbdc90 # master, pinned 2026-08-29
+FL2K_KMOD_SITE = $(call github,ReachableCEO,fl2000_drm,$(FL2K_KMOD_VERSION))
 FL2K_KMOD_MODULE_DEPENDENCIES = linux
 FL2K_KMOD_MODULE_SUBDIRS = .
 FL2K_KMOD_MODULE_MAKE_OPTS = KVERSION=$(LINUX_VERSION_PROBED)

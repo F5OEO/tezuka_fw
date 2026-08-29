@@ -8,7 +8,7 @@
 # If fetching from a git repo, use PLUTO_STREAM_SITE + PLUTO_STREAM_SITE_METHOD.
 # If using a local tarball, use PLUTO_STREAM_SOURCE and drop the SITE lines.
 
-PLUTO_STREAM_VERSION =tezukadvb
+PLUTO_STREAM_VERSION = d76565f9ef17916739b6b2d2886a325eff496169 # tezukadvb, pinned 2026-08-29
 PLUTO_STREAM_SITE = https://github.com/F5OEO/pluto-ori-ps.git
 PLUTO_STREAM_SITE_METHOD = git
 PLUTO_STREAM_LICENSE = GPL-2.0+

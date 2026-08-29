@@ -4,7 +4,7 @@
 #
 ################################################################################
 
-SATDUMP_VERSION = master
+SATDUMP_VERSION = 29a86d5f674cec114bce07d9455c2325d5ba2c29 # master, pinned 2026-08-29
 SATDUMP_SITE = $(call github,SatDump,SatDump,$(SATDUMP_VERSION))
 SATDUMP_INSTALL_STAGING = YES
 
