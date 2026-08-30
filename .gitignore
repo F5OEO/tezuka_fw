@@ -8,3 +8,5 @@ f_uac2.c
 u_uac2.h
 *.swp
 board/tezuka/common/uboot-env.config
+Dashboard/node_modules
+Dashboard/vendor

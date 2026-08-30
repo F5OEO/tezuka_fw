@@ -83,6 +83,13 @@ The on-device backend is `api_controller.sh` (polling script, 2 s interval, `boa
 | `state/main/fw_version` | Firmware version string |
 | `state/main/freq_correction` | XO correction (ppb) |
 | `state/caps/<path>` | Capability ranges/options for the matching `state/<path>` |
+| `state/operator/name` | Operator name (u-boot env `operator_name`) |
+| `state/operator/callsign` | Operator callsign (u-boot env `call`) |
+| `state/operator/locator` | Operator Maidenhead locator (u-boot env `locator`) |
+| `state/system/clkref/source` | Reference source: `10mhz`/`pps`/`none` (real, from `vctcxo_lock` reg `0x0C` `dac_ref_sel` bits `[1:0]` — this IP has no auto-classification bit, unlike the old `axi_vcxo_ctrl`) on boards with that IP (currently libre only, detected live from `/sys/firmware/devicetree/base/amba_pl@0/vcxoctrl@*`); else falls back to u-boot env `refclk_source` (`internal`/`external`) |
+| `state/system/clkref/lock` | Reference lock (0/1) — real (`vctcxo_lock` reg `0x10` bit `[0]`) where the IP exists; else derived from `refclk_source` |
+| `state/system/clkref/frequency` | Nominal reference frequency in Hz implied by the selected mode (`10000000` for `10mhz`, `1` for `pps`) — not a measured value; this IP has no frequency register. `n/a` where the IP doesn't exist |
+| `state/system/clkref/correction` | Live 16-bit VCTCXO DAC setpoint (reg `0x08`); `n/a` where the IP doesn't exist |
 
 **Command topics** (`cmd/…`):
 
@@ -95,6 +102,10 @@ The on-device backend is `api_controller.sh` (polling script, 2 s interval, `boa
 | `cmd/rx/sweep/frequency` | Set sweep center frequency |
 | `cmd/rx/sweep/span` | Set sweep span |
 | `cmd/rx/sweep/activate` | Enable (1) / disable (0) sweep |
+| `cmd/operator/name` | Set operator name |
+| `cmd/operator/callsign` | Set operator callsign (device reboot required) |
+| `cmd/operator/locator` | Set operator Maidenhead locator |
+| `cmd/system/clkref/source` | Select reference clock mode (`10mhz`/`pps`/`none`) — writes `vctcxo_lock` reg `0x0C` `dac_ref_sel`; no-op on boards without that IP (no auto-detect, must be selected explicitly) |
 
 All payloads are plain text strings (numbers as decimal, flags as `0`/`1`). Messages are published with the retain flag (`-r`) so late-connecting clients get the last value immediately.
 
