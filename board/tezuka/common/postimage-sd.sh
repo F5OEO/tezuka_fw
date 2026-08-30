@@ -22,22 +22,24 @@ if ! "$BOOTGEN" -help >/dev/null 2>&1; then
 fi
 
 # ── SD card ───────────────────────────────────────────────────────────────────
-# BOOT.bin: FSBL + bitstream + U-Boot (bitstream embedded so FPGA is loaded at power-on)
+# BOOT.bin: FSBL + U-Boot only (no bitstream — U-Boot programs the FPGA at
+# runtime via `fpga load` from system_top.bin on the FAT partition, see
+# fpgaload_mmc/sdboot_ram in uboot-env.txt).
 # Kernel and rootfs are separate files loaded by U-Boot from the FAT partition.
-# Requires: fsbl.elf, u-boot.elf, system_top.bit, system_top.bit.bin, Image.lzma
+# Requires: fsbl.elf, u-boot.elf, system_top.bit.bin, Image.lzma
 # (produced by postimage-qspi.sh when called via post-image.sh)
 
 SDIMGDIR="$BIN_DIR/sdimg"
 
 
 echo "generating BOOT.bin"
-echo "img : {[bootloader] $BIN_DIR/fsbl.elf [load = 0x1000000] $BIN_DIR/system_top.bit $BIN_DIR/u-boot.elf}" > "$SDIMGDIR/boot.bif"
+echo "img : {[bootloader] $BIN_DIR/fsbl.elf $BIN_DIR/u-boot.elf}" > "$SDIMGDIR/boot.bif"
 "$BOOTGEN" -image "$SDIMGDIR/boot.bif" -w -o i "$SDIMGDIR/BOOT.bin"
 
 if [ -e "$BOARD_DIR/bitstream/overclock/" ]; then
     mkdir -p "$SDIMGDIR/overclock"
     for filename in "$BOARD_DIR/bitstream/overclock/"*.elf; do
-        echo "img : {[bootloader] $filename [load = 0x1000000] $BIN_DIR/system_top.bit $BIN_DIR/u-boot.elf}" > "$SDIMGDIR/boot.bif"
+        echo "img : {[bootloader] $filename $BIN_DIR/u-boot.elf}" > "$SDIMGDIR/boot.bif"
         NAME=$(basename -- "$filename" .elf)
         "$BOOTGEN" -image "$SDIMGDIR/boot.bif" -w -o i "$SDIMGDIR/overclock/BOOT_${NAME}"
     done

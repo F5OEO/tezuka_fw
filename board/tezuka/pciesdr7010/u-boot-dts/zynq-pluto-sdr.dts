@@ -82,7 +82,10 @@
 };
 
 &gem0 {
-	status = "okay";
+	/* Disabled: gmiitorgmii below lives in the PL, which U-Boot never
+	 * configures itself (bitstream is loaded by a boot script after
+	 * U-Boot starts) — probing it here would hang the PS-PL AXI bus. */
+	status = "disabled";
 
 	phy-handle = <&phy0>;
 	phy-mode = "rgmii-id";
