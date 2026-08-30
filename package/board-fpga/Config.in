@@ -8,5 +8,16 @@ config BR2_PACKAGE_BOARD_FPGA_BOARD
 	depends on BR2_PACKAGE_BOARD_FPGA
 	help
 	  Name of the board directory under board/tezuka/ containing
-	  the bitstream in bitstream/maia-iio/system_top.xsa.
+	  the bitstream in bitstream/<project>.xsa (see
+	  BR2_PACKAGE_BOARD_FPGA_PROJECT for <project>).
 	  Examples: pluto, plutoplus, e200, fishball7010, fishball7020
+
+config BR2_PACKAGE_BOARD_FPGA_PROJECT
+	string "Bitstream project name"
+	default "tezuka"
+	depends on BR2_PACKAGE_BOARD_FPGA
+	help
+	  Name of the maia-hdl project that produced the bitstream, used as
+	  the .xsa filename: board/tezuka/<board>/bitstream/<project>.xsa.
+	  Most boards use the default "tezuka" project; boards built from a
+	  different maia-hdl project (e.g. "ka9q") should set this to match.
