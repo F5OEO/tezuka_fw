@@ -49,6 +49,28 @@ rm "$SDIMGDIR/boot.bif"
 
 cp "$BIN_DIR/system_top.bit.bin" "$SDIMGDIR/system_top.bin"
 
+# Every .xsa in the board's bitstream/ folder also gets its own <name>_top.bin,
+# named after the project directory that produced it (tezuka.xsa -> tezuka_top.bin,
+# orf.xsa -> orf_top.bin, ...) - maia-sdr's per-project Makefile now names its
+# install output that way instead of always "tezuka.xsa", so a board's bitstream/
+# can carry more than one candidate bitstream side by side. system_top.bin above is
+# untouched and stays what U-Boot's $bitstream_image env var defaults to; these are
+# additional and selected manually with `setenv bitstream_image <name>_top.bin` at
+# the U-Boot prompt, so no boot-script change is needed to use one.
+for xsa in "$BOARD_DIR/bitstream/"*.xsa; do
+    [ -e "$xsa" ] || continue
+    NAME=$(basename -- "$xsa" .xsa)
+    # Extract straight to $NAME.bit via stdout, not via a fixed system_top.bit
+    # intermediate then a rename - a .xsa named system_top.xsa (one board's bitstream/
+    # folder carries a stale one) would rename that file onto itself and abort under
+    # set -e (mv exits 1 for "same file").
+    unzip -p "$xsa" system_top.bit > "$BIN_DIR/$NAME.bit"
+    echo "img : {$BIN_DIR/$NAME.bit }" > "$BIN_DIR/$NAME.bif"
+    "$BOOTGEN" -image "$BIN_DIR/$NAME.bif" -process_bitstream bin -arch zynq -w -o i "$BIN_DIR/$NAME.bit.bin"
+    cp "$BIN_DIR/$NAME.bit.bin" "$SDIMGDIR/${NAME}_top.bin"
+    rm -f "$BIN_DIR/$NAME.bif" "$BIN_DIR/$NAME.bit" "$BIN_DIR/$NAME.bit.bin"
+done
+
 # uboot does not decompress the ramdisk — kernel handles it
 mkimage -A arm -T ramdisk -C none -d "$BIN_DIR/rootfs.cpio.xz" "$SDIMGDIR/uramdisk.image.xz"
 mkimage -A arm -O linux -T kernel -C lzma -a 0x8000 -e 0x8000 \
