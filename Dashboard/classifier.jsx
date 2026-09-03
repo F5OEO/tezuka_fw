@@ -64,7 +64,14 @@ function ClassifierPage({ d }) {
   const [log, setLog] = useSCl([]);          // {t, label, confidence, templateId}
   const lastLoggedRef = useRCl(null);        // dedupe: only log on actual change
 
-  const refDb = 0, range = 100; // fixed display scale — this page isn't a general-purpose analyzer
+  // Fixed display scale — this page isn't a general-purpose analyzer, so it
+  // doesn't expose its own ref/range tuner. Must match the rest of the
+  // Dashboard's default window (pages1.jsx / radioastro.jsx both default to
+  // refDb=130, range=SP_ROWS*10=80): /waterfall's bins are raw-amplitude-to-
+  // dB, not calibrated dBm, so they land around 50-130, not 0..-100. The
+  // previous 0/-100 window clipped every real bin to the top pixel row,
+  // which read as an empty trace.
+  const refDb = 130, range = 80;
 
   // Band plan: fetched once from maia-httpd's static file serving (see
   // S59bandplan — /root/bandplan.json is a symlink to the persistent copy

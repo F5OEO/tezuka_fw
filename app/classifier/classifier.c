@@ -39,6 +39,9 @@
  * -P PATH   waterfall WS path        (default: /waterfall)
  * -f FILE   templates file           (default: /mnt/jffs2/classifier/templates.bin)
  * -c THRESH match confidence floor   (default: 0.6, below this publishes "unknown")
+ * -m MARGIN hysteresis hold margin   (default: 0.15 — once locked onto a
+ *           template, only drops back to "unknown" below THRESH - MARGIN,
+ *           so a borderline score doesn't flip found/unknown every cycle)
  * -i SEC    min seconds between correlate+publish cycles (default: 1.0)
  * -v        verbose (log every publish to stderr too)
  */
@@ -262,6 +265,43 @@ static struct match_result classify(const float *live, uint32_t live_n, const st
 }
 
 /* ------------------------------------------------------------------ */
+/* App state (moved ahead of publish_result below, which needs the full
+ * definition for its hysteresis bookkeeping — the WebSocket client code
+ * further down that owns the rest of this struct's fields follows later) */
+/* ------------------------------------------------------------------ */
+struct app {
+    struct templates templates;
+    const char *templates_path;
+    double      threshold;
+    double      hold_margin;
+    double      min_interval_s;
+    bool        verbose;
+
+    /* Hysteresis state: without this, a score that hovers right at
+     * `threshold` flips found/unknown on essentially every ~1s publish
+     * cycle (each cycle is evaluated from scratch, with no memory of the
+     * last one) — visible on the Dashboard as the label chip and the
+     * reference-match panel blinking in and out once a second. Once
+     * locked onto a template, we only drop back to "unknown" if the score
+     * falls below (threshold - hold_margin), not merely below threshold. */
+    bool        locked;
+    uint32_t    locked_template_id;
+
+    /* Per-connection message reassembly buffer (WS fragments can arrive
+     * across multiple RECEIVE callbacks; browsers hide this, raw lws
+     * doesn't) */
+    uint8_t  *msg_buf;
+    size_t    msg_len;
+    size_t    msg_cap;
+
+    struct timespec last_run;
+    volatile bool running;
+    volatile bool connected;   /* set true on ESTABLISHED, false on CLOSED/ERROR */
+};
+
+static struct app A;
+
+/* ------------------------------------------------------------------ */
 /* MQTT publish (shells out to mosquitto_pub, matching the convention
  * already used throughout board/tezuka/common/overlay_tezuka/root/
  * api_controller.sh — publishes here are throttled to ~1/s, so the
@@ -282,12 +322,31 @@ static void mqtt_pub(const char *topic, const char *value)
  * assumed shared knowledge: it's what those two are measured in units
  * of, and publishing it removes any need for a subscriber (the
  * Dashboard) to assume its own /waterfall connection saw the exact same
- * frame size the daemon did at this instant. */
-static void publish_result(const struct match_result *r, const struct templates *t, uint32_t live_n, double threshold, bool verbose)
+ * frame size the daemon did at this instant.
+ *
+ * Hysteresis (a->locked / a->locked_template_id): a borderline score that
+ * sits right around `threshold` would otherwise cross it in either
+ * direction on essentially every ~1s cycle, publishing found/"unknown"
+ * alternately — visible on the Dashboard as the label chip and reference-
+ * match panel blinking every second. Once locked onto a template id, we
+ * only let go if the score for that same template drops below
+ * (threshold - hold_margin); a clearly-better match for a *different*
+ * template still overrides immediately. */
+static void publish_result(struct app *a, const struct match_result *r, const struct templates *t, uint32_t live_n)
 {
     char buf[64];
+    double threshold = a->threshold;
+    bool verbose = a->verbose;
 
-    if (!r->found || r->score < threshold) {
+    bool accept = r->found && r->score >= threshold;
+    if (!accept && a->locked && r->found &&
+        r->template_idx < t->count && t->items[r->template_idx].id == a->locked_template_id &&
+        r->score >= threshold - a->hold_margin) {
+        accept = true; /* holding the existing lock through a brief dip */
+    }
+
+    if (!accept) {
+        a->locked = false;
         mqtt_pub("label", "unknown");
         mqtt_pub("confidence", "0.0");
         if (verbose) fprintf(stderr, "classify: unknown (best=%.3f)\n", r->found ? r->score : 0.0);
@@ -295,6 +354,8 @@ static void publish_result(const struct match_result *r, const struct templates 
     }
 
     const struct template *tpl = &t->items[r->template_idx];
+    a->locked = true;
+    a->locked_template_id = tpl->id;
     mqtt_pub("label", tpl->label);
     snprintf(buf, sizeof(buf), "%.3f", r->score);
     mqtt_pub("confidence", buf);
@@ -315,26 +376,6 @@ static void publish_result(const struct match_result *r, const struct templates 
 /* ------------------------------------------------------------------ */
 /* WebSocket client                                                    */
 /* ------------------------------------------------------------------ */
-struct app {
-    struct templates templates;
-    const char *templates_path;
-    double      threshold;
-    double      min_interval_s;
-    bool        verbose;
-
-    /* Per-connection message reassembly buffer (WS fragments can arrive
-     * across multiple RECEIVE callbacks; browsers hide this, raw lws
-     * doesn't) */
-    uint8_t  *msg_buf;
-    size_t    msg_len;
-    size_t    msg_cap;
-
-    struct timespec last_run;
-    volatile bool running;
-    volatile bool connected;   /* set true on ESTABLISHED, false on CLOSED/ERROR */
-};
-
-static struct app A;
 
 static void ensure_msg_cap(struct app *a, size_t need)
 {
@@ -375,7 +416,7 @@ static void handle_frame(struct app *a, const float *f, size_t n_floats)
     }
 
     struct match_result r = classify(live, live_n, &a->templates);
-    publish_result(&r, &a->templates, live_n, a->threshold, a->verbose);
+    publish_result(a, &r, &a->templates, live_n);
     free(live);
 }
 
@@ -441,6 +482,9 @@ static void usage(const char *prog)
         "  -P PATH   waterfall WS path      (default: /waterfall)\n"
         "  -f FILE   templates file         (default: /mnt/jffs2/classifier/templates.bin)\n"
         "  -c THRESH match confidence floor (default: 0.6)\n"
+        "  -m MARGIN hysteresis hold margin (default: 0.15; holds a lock until\n"
+        "            score < THRESH - MARGIN, so a borderline score doesn't\n"
+        "            flip found/unknown every cycle)\n"
         "  -i SEC    min correlate interval (default: 1.0)\n"
         "  -v        verbose\n"
         "  -h        this help\n", prog);
@@ -453,17 +497,20 @@ int main(int argc, char **argv)
     const char *path = "/waterfall";
     A.templates_path = "/mnt/jffs2/classifier/templates.bin";
     A.threshold       = 0.6;
+    A.hold_margin     = 0.15;
     A.min_interval_s  = 1.0;
     A.verbose         = false;
+    A.locked          = false;
 
     int opt;
-    while ((opt = getopt(argc, argv, "H:p:P:f:c:i:vh")) != -1) {
+    while ((opt = getopt(argc, argv, "H:p:P:f:c:m:i:vh")) != -1) {
         switch (opt) {
         case 'H': host              = optarg;      break;
         case 'p': port              = atoi(optarg); break;
         case 'P': path              = optarg;      break;
         case 'f': A.templates_path  = optarg;      break;
         case 'c': A.threshold       = atof(optarg); break;
+        case 'm': A.hold_margin     = atof(optarg); break;
         case 'i': A.min_interval_s  = atof(optarg); break;
         case 'v': A.verbose         = true;         break;
         case 'h': usage(argv[0]); return 0;
