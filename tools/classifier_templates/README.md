@@ -80,6 +80,40 @@ GNU Radio/TorchSig setup you're targeting); `templates_format.py`'s
 `Template`/`write_templates` are the integration point once you have PSD
 arrays from your own flowgraphs.
 
+## Feature-gated matching (experimental, work in progress)
+
+Beyond the shape-correlation score, both generator scripts now compute four
+scalar features per template — occupied bandwidth, peak-to-average ratio,
+spectral flatness, and local peak count (`features.py`, kept in lockstep
+with `classifier.c`'s `extract_frame_features()`) — and write them as an
+expected range into a version-2 `templates.bin`. On-device, `classify()`
+uses that range as a *soft* penalty on top of the shape score (see
+`template_gate_factor()` in `classifier.c`), so two classes with a similar
+curve but different real bandwidth or peakiness can still be told apart.
+
+- `synthesize_template.py` derives the range from the one idealized curve it
+  generates, widened generously (`--gate-margin`, default `0.25`) since it's
+  a single synthetic sample, not several real captures.
+- `capture_from_device.py` derives it from the actual spread *across* the
+  captured frames it already grabs (min/max, widened a bit further —
+  `--gate-margin`, default `0.15`) — genuinely data-driven, since it already
+  has several live samples to work with.
+- Pass `--no-gate` to either script for a plain shape-only (version 1)
+  template, same as before this feature existed.
+
+Version 1 files (and version-1-shaped entries in a mixed file) are
+unaffected — `has_gate` is simply false for them, so they classify exactly
+as they did before. Cross-validated end to end: `features.py` produces
+identical numbers to the C implementation across several hand-built and
+random test frames, and a version-2 file written by `templates_format.py`
+loads correctly (gate ranges included) through the actual cross-compiled
+`templates_load()`/`classify()`.
+
+**Status:** this whole feature-gate mechanism is a separate, more
+experimental layer on top of the already-experimental base classifier — not
+yet tuned against real captured signals, and the default margins above are
+starting points, not calibrated values.
+
 ## File format
 
 See the docstring at the top of `templates_format.py` — kept in lockstep
