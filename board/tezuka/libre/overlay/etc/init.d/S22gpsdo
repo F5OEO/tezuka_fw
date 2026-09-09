@@ -1,0 +1,26 @@
+#!/bin/sh
+#
+# Copyright (C) 2026 Christos Nikolaou (SV1EIA)
+# Christos Nikolaou can be reached by email at : sv1eia@gmail.com
+#
+# libre board: acquire the external 10 MHz reference for the vctcxo_lock
+# loop right after the PL is reachable (see /usr/sbin/gpsdo_boot.sh).
+# Runs in the background; boot is not delayed.
+
+case "$1" in
+  start)
+	printf "Starting GPSDO acquisition (gpsdo_boot): "
+	/usr/sbin/gpsdo_boot.sh >/dev/null 2>&1 &
+	echo "OK"
+	;;
+  stop)
+	;;
+  restart|reload)
+	"$0" start
+	;;
+  *)
+	echo "Usage: $0 {start|stop|restart}"
+	exit 1
+esac
+
+exit 0

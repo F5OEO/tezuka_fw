@@ -1,0 +1,5 @@
+# Tunables for /usr/sbin/gpsdo_boot.sh (libre board). Sourced by the script;
+# the values below are the measured ones for LibreSDR Rev.5 with the fixed
+# dacxx11_spi driver. Adjust CENTER_DEFAULT if a unit's zero crossing differs.
+CENTER_DEFAULT=35570
+CODES_PER_COUNT=52
