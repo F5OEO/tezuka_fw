@@ -1,0 +1,242 @@
+#!/bin/sh
+# Fixed 40 MHz TCXO, TX only. BusyBox ash + awk; no LO/XO writes.
+export LC_ALL=C
+CONFIG=${NCO_CONFIG:-/etc/libresdr-tx-nco.conf}
+[ ! -f "$CONFIG" ] || . "$CONFIG"
+FPGA_NCO_SUPPORTED=${FPGA_NCO_SUPPORTED:-0}
+AUTOSTART=${AUTOSTART:-0}
+SAMPLE_SECONDS=${SAMPLE_SECONDS:-2}
+MIN_SAMPLES=${MIN_SAMPLES:-5}
+FILTER_SAMPLES=${FILTER_SAMPLES:-16}
+THRESHOLD_HZ=${THRESHOLD_HZ:-2}
+MAX_SPREAD_HZ=${MAX_SPREAD_HZ:-5}
+MAX_ERROR_HZ=${MAX_ERROR_HZ:-10000}
+RUN=${NCO_RUN_DIR:-/run/libresdr-tx-nco}
+IIO=${NCO_IIO_ROOT:-/sys/bus/iio/devices}
+MEM=${NCO_DEVMEM:-devmem}
+SELF=$0
+BASE=$((0x43c00000))
+die() { echo "libresdr-tx-nco: $*" >&2; exit 1; }
+uint() { case "$1" in ''|*[!0-9]*) return 1;; esac; }
+reg() {
+    raw=$("$MEM" "$((BASE + $1))" 32) || return 1
+    case "$raw" in
+        0x*|0X*) digits=${raw#??}; case "$digits" in ''|*[!0-9a-fA-F]*) return 1;; esac;;
+        *) uint "$raw" || return 1;;
+    esac
+    printf '%s\n' "$((raw))"
+}
+write() { "$MEM" "$((BASE + $1))" 32 "$2" >/dev/null; }
+calculate_ftw() {
+    awk -v e="$1" -v lo="$2" -v fs="$3" -v old="$4" -v t="$5" 'BEGIN {
+        actual=fs*(40000000+e)/40000000; shift=-lo*e/40000000;
+        x=shift*4294967296/actual; w=(x<0 ? -int(-x+0.5) : int(x+0.5));
+        delta=(w-old)*actual/4294967296; if(delta<0)delta=-delta;
+        if(w < -2147483648 || w > 2147483647) {printf "OUT_OF_RANGE"; exit 2;}
+        # Parentheses prevent BusyBox awk parsing the comparison as redirection.
+        printf "%.0f %.6f %d",w,shift,(delta>=t)
+    }'
+}
+self_test() {
+    # No register/IIO access: exercise the actual calculator with the installed awk.
+    [ "$(calculate_ftw -123.875 2450000000 30720000 0 2)" = '1060791 7587.343750 1' ] || die 'Negative-error regression failed.'
+    [ "$(calculate_ftw 123.875 2450000000 30720000 0 2)" = '-1060784 -7587.343750 1' ] || die 'Positive-error regression failed.'
+    [ "$(calculate_ftw 0 2450000000 30720000 0 2)" = '0 -0.000000 0' ] ||
+        [ "$(calculate_ftw 0 2450000000 30720000 0 2)" = '0 0.000000 0' ] || die 'Zero-error regression failed.'
+    [ "$(calculate_ftw -123.875 2450000000 30720000 1060791 2)" = '1060791 7587.343750 0' ] || die 'Threshold regression failed.'
+    calculate_ftw -10000 2450000000 100000 0 2 >/dev/null
+    [ "$?" = 2 ] || die 'Range regression failed.'
+    echo 'PASS: FTW calculation, both signs, zero, threshold and range (no hardware writes).'
+}
+alive() {
+    [ -r "$RUN/lock/pid" ] || return 1
+    pid=$(cat "$RUN/lock/pid")
+    uint "$pid" && [ "$pid" -gt 1 ] && kill -0 "$pid" 2>/dev/null
+}
+event() {
+    printf '%s  %s\n' "$(date '+%H:%M:%S')" "$*" >> "$RUN/events"
+    tail -n 8 "$RUN/events" > "$RUN/events.tmp"
+    mv "$RUN/events.tmp" "$RUN/events"
+}
+snapshot() {
+    {
+        printf 'LibreSDR TX NCO\n\nStatus          %s\nReason          %s\n' "$state" "$reason"
+        printf 'Reference       %s\nTCXO error Hz   %s\nTX LO Hz        %s\nNCO rate Hz     %s\n' "$ref" "${filtered:---}" "${lo:---}" "${fs:---}"
+        printf 'NCO shift Hz    %s\nTX FTW          %s\nLast apply      %s\nLast good ref   %s\n' "${shift:---}" "${applied:---}" "${last_apply:---}" "${last_good:---}"
+        printf '\nRecent events\n'
+        [ ! -f "$RUN/events" ] || cat "$RUN/events"
+    } > "$RUN/status.tmp"
+    mv "$RUN/status.tmp" "$RUN/status"
+}
+apply() {
+    ctl=$(reg 40) || return 1
+    # Shadow registers first. Preserve reserved bits, disable RX, no phase reset.
+    next=$(( (ctl & ~15) | 2 | ((ctl ^ 4) & 4) ))
+    word=$(( ($1 + 4294967296) % 4294967296 ))
+    write 32 0 && write 36 "$word" && write 40 "$next" || return 1
+    [ "$(reg 32)" = 0 ] && [ "$(reg 36)" = "$word" ] && [ "$(reg 40)" = "$next" ]
+}
+setup() {
+    [ "$FPGA_NCO_SUPPORTED" = 1 ] || die "Set FPGA_NCO_SUPPORTED=1 in $CONFIG after loading the NCO bitstream."
+    for value in "$SAMPLE_SECONDS" "$MIN_SAMPLES" "$FILTER_SAMPLES" "$MAX_SPREAD_HZ" "$MAX_ERROR_HZ"; do
+        uint "$value" && [ "$value" -gt 0 ] || die 'Invalid positive integer setting.'
+    done
+    [ "$FILTER_SAMPLES" -ge "$MIN_SAMPLES" ] || die 'FILTER_SAMPLES must be >= MIN_SAMPLES.'
+    awk -v t="$THRESHOLD_HZ" 'BEGIN {exit !(t ~ /^[0-9]+([.][0-9]+)?$/ && t > 0)}' || die 'Invalid THRESHOLD_HZ.'
+    command -v "$MEM" >/dev/null || die 'devmem unavailable.'
+    phy=
+    for name in "$IIO"/iio:device*/name; do
+        [ -r "$name" ] || continue
+        [ "$(cat "$name")" != ad9361-phy ] || { phy=${name%/name}; break; }
+    done
+    [ -n "$phy" ] || die 'ad9361-phy unavailable.'
+    [ "$(cat "$phy/xo_correction" 2>/dev/null)" = 40000000 ] || die 'xo_correction must already be 40000000; prepare it before starting.'
+    LO_ATTR=$phy/out_altvoltage1_TX_LO_frequency
+    FS_ATTR=${TX_RATE_ATTR:-$phy/out_voltage_sampling_frequency}
+    [ -r "$LO_ATTR" ] && [ -r "$FS_ATTR" ] || die 'TX LO or converter sample-rate attribute unavailable.'
+}
+controller() {
+    setup
+    mkdir -p "$RUN" || die 'Cannot create runtime directory.'
+    mkdir "$RUN/lock" 2>/dev/null || die 'Controller lock exists; use status/stop, or remove a stale lock after checking its PID.'
+    echo $$ > "$RUN/lock/pid"
+    trap 'rm -f "$RUN/lock/pid"; rmdir "$RUN/lock"; exit' EXIT
+    trap 'exit 0' INT TERM HUP
+    ctl=$(reg 0) || die 'Cannot read FPGA control.'
+    applied=$(reg 36) || die 'Cannot read TX FTW.'
+    [ "$applied" -lt 2147483648 ] || applied=$((applied - 4294967296))
+    nctl=$(reg 40) || die 'Cannot read NCO control.'
+    enabled=$((nctl & 2))
+    write 4 "$((0x28002800))" && write 0 "$((ctl | 1))" || die 'Cannot set manual DAC mode.'
+    source=$(reg 12) || die 'Cannot read reference source.'
+    [ "$source" = 0 ] || write 12 0 || die 'Cannot select 10 MHz.'
+    history=; count=0; tick=0; settle=2; connected=0; fault=0
+    state=WAITING; reason='Collecting new reference windows'; ref=unknown
+    event 'Controller started; existing TX correction retained until valid measurements.'
+    while :; do
+        reason=''; ref=absent
+        status=$(reg 16) || { status=0; reason='Reference register read failed'; }
+        lo=$(cat "$LO_ATTR" 2>/dev/null); fs=$(cat "$FS_ATTR" 2>/dev/null)
+        valid_radio=1
+        uint "$lo" && uint "$fs" && [ "$lo" -gt 0 ] && [ "$fs" -gt 0 ] || valid_radio=0
+        if [ "$(cat "$phy/xo_correction" 2>/dev/null)" != 40000000 ]; then
+            state=FAULT; reason='xo_correction changed; no further applies'; fault=1
+        fi
+        if [ $((status & 2)) -eq 0 ]; then
+            [ "$connected" = 0 ] || event 'Reference lost; holding last oscillator estimate.'
+            connected=0; history=; count=0; settle=2
+            state=WAITING
+            [ -z "${filtered:-}" ] || state=HOLDOVER
+            reason=${reason:-'Waiting for 10 MHz'}
+        else
+            ref=present
+            if [ "$connected" = 0 ]; then
+                connected=1; event '10 MHz present; discarding initial partial window.'
+            fi
+            if [ "$settle" -gt 0 ]; then
+                settle=$((settle - 1)); state=WARMUP; reason='Waiting for full measurement window'
+            elif [ "$tick" -eq 0 ]; then
+                error=$(reg 24) || error=invalid
+                if [ "$error" != invalid ]; then
+                    [ "$error" -lt 2147483648 ] || error=$((error - 4294967296))
+                fi
+                if [ "$error" = invalid ] || [ "$error" -gt "$MAX_ERROR_HZ" ] || [ "$error" -lt "$((-MAX_ERROR_HZ))" ]; then
+                    history=; count=0; state=FAULT; reason='Invalid oscillator measurement'
+                else
+                    history=$(printf '%s\n%s\n' "$history" "$error" | tail -n "$FILTER_SAMPLES")
+                    stats=$(printf '%s\n' "$history" | awk 'NF {if (!n || $1<min) min=$1; if (!n || $1>max) max=$1; sum+=$1; n++} END {printf "%d %.6f %.0f",n,sum/n,max-min}')
+                    set -- $stats; count=$1; mean=$2; spread=$3
+                    if [ "$count" -lt "$MIN_SAMPLES" ]; then
+                        state=WARMUP; reason="Collecting samples: $count/$MIN_SAMPLES"
+                    elif [ "$spread" -gt "$MAX_SPREAD_HZ" ]; then
+                        state=TRACKING; reason="Measurement spread too large: $spread Hz"
+                    else
+                        filtered=$mean; last_good=$(date '+%H:%M:%S')
+                        state=TRACKING; [ "$count" -lt "$FILTER_SAMPLES" ] || state=STABLE
+                        reason='Filtered reference measurement valid'
+                    fi
+                fi
+            fi
+        fi
+        tick=$(( (tick + 1) % SAMPLE_SECONDS ))
+        # Holdover retunes use the last valid error. Reference recovery waits for new samples.
+        ready=0
+        case "$state" in STABLE|TRACKING) [ "$reason" != 'Filtered reference measurement valid' ] || ready=1;; HOLDOVER) ready=1;; esac
+        if [ "$valid_radio" = 0 ]; then
+            state=FAULT; reason='Invalid TX LO or converter rate'
+        elif [ "$fault" = 1 ]; then
+            state=FAULT; reason=${fault_reason:-'Writes inhibited; stop, fix fault, then restart'}
+        elif [ "$ready" = 1 ] && [ -n "${filtered:-}" ]; then
+            result=$(calculate_ftw "$filtered" "$lo" "$fs" "$applied" "$THRESHOLD_HZ")
+            calculation_status=$?
+            if [ "$calculation_status" = 2 ] && [ "$result" = OUT_OF_RANGE ]; then
+                state=FAULT; reason='Calculated FTW outside signed 32-bit range'
+            elif [ "$calculation_status" -ne 0 ]; then
+                fault=1; state=FAULT; reason='FTW calculation failed; see daemon.log'; fault_reason=$reason; event "$reason"
+            else
+                set -- $result; target=$1; wanted_shift=$2; changed=$3
+                if [ "$enabled" = 0 ] || [ "$changed" = 1 ] || [ "$lo/$fs" != "${previous_radio:-}" ]; then
+                    # A client can retune while we calculate. Defer if our inputs changed.
+                    if [ "$(cat "$LO_ATTR" 2>/dev/null)/$(cat "$FS_ATTR" 2>/dev/null)" != "$lo/$fs" ]; then
+                        reason='Radio settings changed during calculation; retrying'
+                    elif apply "$target"; then
+                        applied=$target; shift=$wanted_shift; enabled=2; previous_radio=$lo/$fs
+                        last_apply=$(date '+%H:%M:%S'); event "Applied TX FTW $applied (shift $shift Hz)"
+                    else
+                        fault=1; state=FAULT; reason='NCO write/readback failed; restart required'; event "$reason"
+                    fi
+                fi
+            fi
+        fi
+        snapshot
+        sleep 1
+    done
+}
+start() {
+    alive && return 0
+    mkdir -p "$RUN" || die 'Cannot create runtime directory.'
+    nohup /bin/sh "$SELF" run </dev/null > "$RUN/daemon.log" 2>&1 &
+    sleep 1
+    alive || { cat "$RUN/daemon.log" >&2; return 1; }
+}
+stop() {
+    if alive; then
+        kill "$pid" || return 1
+        attempts=0
+        while alive; do
+            attempts=$((attempts + 1)); [ "$attempts" -lt 10 ] || die 'Controller did not stop.'
+            sleep 1
+        done
+    fi
+}
+case "${1:-console}" in
+    self-test) self_test;;
+    run) controller;;
+    start) start;;
+    boot) [ "$AUTOSTART" != 1 ] || start;;
+    stop) stop;;
+    status) alive && echo 'Controller running' || echo 'Controller stopped'; cat "$RUN/status" 2>/dev/null;;
+    disable)
+        stop || exit 1
+        setup
+        ctl=$(reg 40) || die 'Cannot read NCO control.'
+        next=$(( (ctl & ~15) | ((ctl ^ 4) & 4) ))
+        write 40 "$next" && [ "$(reg 40)" = "$next" ] || die 'Disable readback failed.'
+        echo 'NCO disabled.';;
+    console)
+        [ -t 0 ] && [ -t 1 ] || die 'Use start or run without an interactive terminal.'
+        start || exit 1
+        trap 'printf "\033[?25h\033[0m\n"' EXIT
+        trap 'exit 0' INT TERM HUP
+        printf '\033[2J\033[?25l'
+        while :; do
+            printf '\033[H\033[J'
+            cat "$RUN/status" 2>/dev/null
+            printf '\033[J\n[q] Close console (keeps running)  [d] Disable and stop\n'
+            alive || { echo 'Controller stopped; see daemon.log'; break; }
+            key=
+            read -r -n 1 -t 1 key || :
+            case "$key" in q|Q) break;; d|D) /bin/sh "$SELF" disable; break;; esac
+        done;;
+    *) echo 'Usage: libresdr-tx-nco [console|start|stop|status|run|disable|self-test]'; exit 1;;
+esac

@@ -1,0 +1,4 @@
+*.sh text eol=lf
+overlay/usr/sbin/libresdr-tx-nco text eol=lf
+overlay/etc/init.d/S95tx-nco text eol=lf
+overlay/etc/libresdr-tx-nco.conf text eol=lf

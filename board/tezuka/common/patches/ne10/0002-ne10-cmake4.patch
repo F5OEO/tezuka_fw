@@ -1,0 +1,28 @@
+
+Subject: [PATCH] ne10: allow configuring under CMake 4
+
+Buildroot 2026.02 builds host-cmake 4.2.3, which removed support for
+cmake_minimum_required(VERSION <3.5). Ne10 1.2.1 declares 2.6 at
+CMakeLists.txt:27, so it now fails to configure:
+
+  CMake Error at CMakeLists.txt:27 (cmake_minimum_required):
+    Compatibility with CMake < 3.5 has been removed from CMake.
+
+Ne10 is upstream-dead (last release 2018), so bumping the declaration in
+the source is not going to come from there. Raise it to 3.5, the lowest
+version CMake 4 still accepts; Ne10's CMakeLists.txt does not rely on
+anything dropped between 2.6 and 3.5, so this is a no-op for the actual
+build. Ne10 is selected by package/DATV, so without this fix any
+defconfig that enables DATV cannot build.
+
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -24,7 +24,7 @@
+ #  (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
+ #  SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ #
+-cmake_minimum_required(VERSION 2.6)
++cmake_minimum_required(VERSION 3.5)
+
+ project(NE10 C ASM)
