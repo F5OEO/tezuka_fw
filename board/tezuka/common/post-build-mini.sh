@@ -2,7 +2,12 @@
 set -e
 
 #rm -f "${TARGET_DIR}/usr/lib/libxml2.*" -> USED BY IIO
-#rm -f "${TARGET_DIR}/usr/lib/libasound.*"
+# No package in this tree calls into ALSA (no asoundlib/snd_pcm reference
+# anywhere in-tree) and tezuka_tools' Config.in deliberately leaves
+# BR2_PACKAGE_ALSA_UTILS unselected, so libasound here is only ever a
+# transitive dependency some other enabled package links against
+# optionally -- unlike libxml2 above, nothing on mini builds calls it.
+rm -f "${TARGET_DIR}/usr/lib/libasound.*"
 rm -f "${TARGET_DIR}/usr/lib/libstdc++."*
 # Mini builds exclude Maia -- safe to remove libgfortran to save space
 rm -f "${TARGET_DIR}/usr/lib/libgfortran."*
