@@ -111,6 +111,12 @@ jobs:
       BR2_EXTERNAL: ${{ github.workspace }}
       BR2_DL_DIR: /home/runner/br-dl
       OUTPUT_DIR: ${{ github.workspace }}/output/${{ matrix.board }}
+      # CMake 4.x (Buildroot's own host-cmake, bumped as part of the
+      # Buildroot 2026.05.2 update) hard-errors on any CMakeLists.txt with
+      # an old cmake_minimum_required() floor instead of just warning (see
+      # sourceme.first). CI calls `make -C buildroot` directly rather than
+      # through build.sh/sourceme.first, so it needs its own copy of this.
+      CMAKE_POLICY_VERSION_MINIMUM: "3.5"
 
     steps:
       - uses: actions/checkout@v6
