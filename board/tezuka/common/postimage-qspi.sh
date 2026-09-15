@@ -49,6 +49,15 @@ FIT_MAX="${4:-$(grep "^fit_size=" "$BOARD_DIR/uboot-env.txt" 2>/dev/null | cut -
 FIT_MAX=$(printf '%d' "$FIT_MAX")
 FRM_SIZE=$(stat -c%s "$BIN_DIR/pluto.frm")
 echo "pluto.frm: ${FRM_SIZE} / ${FIT_MAX} bytes ($((FRM_SIZE * 100 / FIT_MAX))% of QSPI budget)"
+if [ $((FRM_SIZE * 100 / FIT_MAX)) -ge 95 ] && [ -n "${TARGET_DIR:-}" ]; then
+	# Diagnostic only, no functional effect: near/over budget, so dump the
+	# biggest rootfs contents to make the next trim evidence-based instead
+	# of guesswork. TARGET_DIR still reflects post-build-mini.sh's removals
+	# at this point (target-finalize runs before this post-image script).
+	echo "--- rootfs size breakdown (TARGET_DIR, top 30) ---"
+	du -sh "$TARGET_DIR"/usr/lib/* "$TARGET_DIR"/lib/* "$TARGET_DIR"/usr/bin/* \
+		"$TARGET_DIR"/usr/sbin/* "$TARGET_DIR"/lib/modules 2>/dev/null | sort -rh | head -30
+fi
 if [ "$FRM_SIZE" -gt "$FIT_MAX" ]; then
 	echo "ERROR: pluto.frm exceeds the QSPI budget by $((FRM_SIZE - FIT_MAX)) bytes" >&2
 	exit 1
