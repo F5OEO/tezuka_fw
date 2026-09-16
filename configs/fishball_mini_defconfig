@@ -140,3 +140,12 @@ BR2_PACKAGE_BOARD_FPGA=y
 BR2_PACKAGE_BOARD_FPGA_BOARD="fishball7010"
 BR2_PACKAGE_BOARD_FPGA_PROJECT="tezuka"
 
+
+# Buildroot >= 2026.05 moved mosquitto's websocket support into a choice
+# (see package/mosquitto/Config.in) that defaults to "none". A plain
+# "select" of a choice member from tezuka_tools_mini's Config.in does not
+# reliably override that default, so it must be set explicitly here
+# instead -- without it the broker builds and starts fine but refuses
+# the mosquitto.conf websocket listeners the dashboard depends on.
+# See plutoplus_maiasdr_defconfig / commit b7b03a3 for the original fix.
+BR2_PACKAGE_MOSQUITTO_WS_LIBWS=y
