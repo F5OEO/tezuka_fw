@@ -20,10 +20,6 @@ config BR2_PACKAGE_TEZUKA_COMMON_TOOLS_MINI
 	select BR2_PACKAGE_MOSQUITTO
 	select BR2_PACKAGE_LIBWEBSOCKETS
 	select BR2_PACKAGE_MOSQUITTO_BROKER
-	# Buildroot >= 2026.05 split mosquitto's websocket support out of
-	# the generic LIBWEBSOCKETS flag above into its own choice; without
-	# this the broker builds fine but drops websockets silently.
-	select BR2_PACKAGE_MOSQUITTO_WS_LIBWS
 	select BR2_PACKAGE_PV
 #Console
 select BR2_PACKAGE_BUSYBOX_SHOW_OTHERS
