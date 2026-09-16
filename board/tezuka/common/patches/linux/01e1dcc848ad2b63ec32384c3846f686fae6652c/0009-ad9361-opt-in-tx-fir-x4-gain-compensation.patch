@@ -1,0 +1,66 @@
+Subject: [PATCH] iio: ad9361: add opt-in TX FIR x4 gain compensation
+
+Compensate low TX FIR x4 gain on LibreSDR with an opt-in DT property.
+Double the TX taps when representable, otherwise apply the largest common
+gain up to two that fits signed 16-bit coefficients. Preserve the filter
+shape instead of clipping individual taps. RX and TX x1/x2 are unchanged.
+
+Scale a local copy so repeated uploads do not accumulate gain and the
+existing hardware readback verification sees the programmed coefficients.
+
+diff --git a/drivers/iio/adc/ad9361.c b/drivers/iio/adc/ad9361.c
+--- a/drivers/iio/adc/ad9361.c
++++ b/drivers/iio/adc/ad9361.c
+@@ -10,6 +10,7 @@
+ #include <linux/module.h>
+ #include <linux/device.h>
+ #include <linux/kernel.h>
++#include <linux/limits.h>
+ #include <linux/slab.h>
+ #include <linux/spi/spi.h>
+ #include <linux/err.h>
+@@ -5387,6 +5388,7 @@ static int ad9361_load_fir_filter_coef(struct ad9361_rf_phy *phy,
+ {
+ 	struct ad9361_rf_phy_state *st = phy->state;
+ 	struct spi_device *spi = phy->spi;
++	short scaled_coef[128];
+ 	u32 val, offs = 0, fir_conf = 0, fir_enable = 0;
+ 	int ret;
+ 
+@@ -5401,6 +5403,36 @@ static int ad9361_load_fir_filter_coef(struct ad9361_rf_phy *phy,
+ 		return -EINVAL;
+ 	}
+ 
++	/* Keep a common gain for all taps; clipping would change the filter. */
++	if (!(dest & FIR_IS_RX) && st->tx_fir_int == 4 &&
++	    of_property_read_bool(spi->dev.of_node,
++				  "adi,tx-fir-x4-gain-compensation-enable")) {
++		int gain_num = 2, gain_den = 1;
++
++		for (val = 0; val < ntaps; val++) {
++			int tap = coef[val];
++
++			if (tap * gain_num > S16_MAX * gain_den) {
++				gain_num = S16_MAX;
++				gain_den = tap;
++			} else if (tap * gain_num < S16_MIN * gain_den) {
++				gain_num = -S16_MIN;
++				gain_den = -tap;
++			}
++		}
++
++		for (val = 0; val < ntaps; val++)
++			scaled_coef[val] = (int)coef[val] * gain_num / gain_den;
++
++		if (gain_num != 2)
++			dev_warn_ratelimited(&spi->dev,
++				"TX FIR x4 gain limited to %d/%d by coefficient headroom\n",
++				gain_num, gain_den);
++
++		/* Leave the uploaded taps untouched; verify the scaled copy. */
++		coef = scaled_coef;
++	}
++
+ 	ad9361_ensm_force_state(phy, ENSM_STATE_ALERT);
+ 
+ 	if (dest & FIR_IS_RX) {
