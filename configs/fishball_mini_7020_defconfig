@@ -138,4 +138,13 @@ BR2_PACKAGE_BOARD_FPGA_PROJECT="tezuka"
 # instead -- without it the broker builds and starts fine but refuses
 # the mosquitto.conf websocket listeners the dashboard depends on.
 # See plutoplus_maiasdr_defconfig / commit b7b03a3 for the original fix.
-BR2_PACKAGE_MOSQUITTO_WS_LIBWS=y
+#
+# This board uses WS_BUILTIN, not WS_LIBWS like the other 13 boards:
+# WS_LIBWS pulls in libwebsockets.so.21 + LIBWEBSOCKETS_EXT_POLL, which
+# pushed this QSPI-flash-boot board's pluto.frm 873695 bytes over its
+# 14680064-byte budget (CI run 35147183998, "ERROR: pluto.frm exceeds
+# the QSPI budget"). WS_BUILTIN selects only BR2_PACKAGE_OPENSSL, no
+# libwebsockets at all -- the broker (not just the CLI clients) fully
+# supports websockets under either implementation per Buildroot's own
+# Config.in, so this is not a functional downgrade for this board.
+BR2_PACKAGE_MOSQUITTO_WS_BUILTIN=y
