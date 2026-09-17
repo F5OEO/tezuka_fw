@@ -1,25 +1,62 @@
-Subject: [PATCH] iio: ad9361: add opt-in TX FIR x4 gain compensation
+Subject: [PATCH] iio: ad9361: compensate the known SDR Console TX FIR x4
 
-Compensate low TX FIR x4 gain on LibreSDR with an opt-in DT property.
-Double the TX taps when representable, otherwise apply the largest common
-gain up to two that fits signed 16-bit coefficients. Preserve the filter
-shape instead of clipping individual taps. RX and TX x1/x2 are unchanged.
+Add an opt-in DT property for LibreSDR to replace the exact 128-tap
+SDR Console TX interpolation-4 profile with a compensated FIR. The
+replacement has approximately twice the DC gain and a different response;
+all coefficients fit the signed 16-bit hardware format.
 
-Scale a local copy so repeated uploads do not accumulate gain and the
-existing hardware readback verification sees the programmed coefficients.
+Leave RX, TX x1/x2, other tap counts and nonmatching profiles unchanged.
+Use a local copy so uploads remain unmodified and the existing hardware
+readback verification checks the coefficients actually programmed.
 
 diff --git a/drivers/iio/adc/ad9361.c b/drivers/iio/adc/ad9361.c
 --- a/drivers/iio/adc/ad9361.c
 +++ b/drivers/iio/adc/ad9361.c
-@@ -10,6 +10,7 @@
- #include <linux/module.h>
- #include <linux/device.h>
- #include <linux/kernel.h>
-+#include <linux/limits.h>
- #include <linux/slab.h>
- #include <linux/spi/spi.h>
- #include <linux/err.h>
-@@ -5387,6 +5388,7 @@ static int ad9361_load_fir_filter_coef(struct ad9361_rf_phy *phy,
+@@ -5381,12 +5381,51 @@ static int ad9361_verify_fir_filter_coef(struct ad9361_rf_phy *phy,
+ 	return ret;
+ }
+ 
++static const short sdrconsole_tx_fir_128_x4[128] = {
++	0, 0, 1, 3, 5, 3, -3, -6,
++	0, 9, 6, -8, -14, 1, 21, 13,
++	-21, -31, 7, 47, 20, -49, -57, 29,
++	91, 19, -105, -87, 81, 157, -8, -200,
++	-107, 185, 238, -89, -343, -87, 367, 315,
++	-265, -531, 20, 651, 343, -592, -747, 295,
++	1072, 245, -1170, -964, 900, 1718, -149, -2293,
++	-1150, 2404, 3073, -1610, -5953, -1326, 12778, 25643,
++	25643, 12778, -1326, -5953, -1610, 3073, 2404, -1150,
++	-2293, -149, 1718, 900, -964, -1170, 245, 1072,
++	295, -747, -592, 343, 651, 20, -531, -265,
++	315, 367, -87, -343, -89, 238, 185, -107,
++	-200, -8, 157, 81, -87, -105, 19, 91,
++	29, -57, -49, 20, 47, 7, -31, -21,
++	13, 21, 1, -14, -8, 6, 9, 0,
++	-6, -3, 3, 5, 3, 1, 0, 0
++};
++
++static const short tx_fir_128_x4_gain2[128] = {
++	-30, -54, -46, -12, 34, 66, 62, 18,
++	-46, -94, -90, -26, 68, 138, 134, 42,
++	-98, -204, -198, -64, 138, 292, 286, 96,
++	-192, -408, -400, -138, 258, 556, 550, 194,
++	-340, -744, -742, -270, 444, 988, 994, 374,
++	-576, -1308, -1330, -516, 752, 1750, 1804, 726,
++	-1000, -2402, -2530, -1060, 1398, 3496, 3812, 1690,
++	-2178, -5844, -6848, -3394, 4652, 15428, 25642, 31842,
++	31842, 25642, 15428, 4652, -3394, -6848, -5844, -2178,
++	1690, 3812, 3496, 1398, -1060, -2530, -2402, -1000,
++	726, 1804, 1750, 752, -516, -1330, -1308, -576,
++	374, 994, 988, 444, -270, -742, -744, -340,
++	194, 550, 556, 258, -138, -400, -408, -192,
++	96, 286, 292, 138, -64, -198, -204, -98,
++	42, 134, 138, 68, -26, -90, -94, -46,
++	18, 62, 66, 34, -12, -46, -54, -30
++};
++
+ static int ad9361_load_fir_filter_coef(struct ad9361_rf_phy *phy,
+ 				       enum fir_dest dest, int gain_dB,
+ 				       u32 ntaps, short *coef)
  {
  	struct ad9361_rf_phy_state *st = phy->state;
  	struct spi_device *spi = phy->spi;
@@ -27,37 +64,23 @@ diff --git a/drivers/iio/adc/ad9361.c b/drivers/iio/adc/ad9361.c
  	u32 val, offs = 0, fir_conf = 0, fir_enable = 0;
  	int ret;
  
-@@ -5401,6 +5403,36 @@ static int ad9361_load_fir_filter_coef(struct ad9361_rf_phy *phy,
+@@ -5401,6 +5440,22 @@ static int ad9361_load_fir_filter_coef(struct ad9361_rf_phy *phy,
  		return -EINVAL;
  	}
  
-+	/* Keep a common gain for all taps; clipping would change the filter. */
++	/* Leave all FIR profiles except this exact SDR Console TX x4 unchanged. */
 +	if (!(dest & FIR_IS_RX) && st->tx_fir_int == 4 &&
++	    ntaps == ARRAY_SIZE(sdrconsole_tx_fir_128_x4) &&
 +	    of_property_read_bool(spi->dev.of_node,
-+				  "adi,tx-fir-x4-gain-compensation-enable")) {
-+		int gain_num = 2, gain_den = 1;
++				  "adi,tx-fir-x4-gain-compensation-enable") &&
++	    !memcmp(coef, sdrconsole_tx_fir_128_x4,
++		    sizeof(sdrconsole_tx_fir_128_x4))) {
++		dev_info(&spi->dev,
++			 "SDR Console TX INT4 FIR detected, applying compensated FIR\n");
++		memcpy(scaled_coef, tx_fir_128_x4_gain2,
++		       sizeof(tx_fir_128_x4_gain2));
 +
-+		for (val = 0; val < ntaps; val++) {
-+			int tap = coef[val];
-+
-+			if (tap * gain_num > S16_MAX * gain_den) {
-+				gain_num = S16_MAX;
-+				gain_den = tap;
-+			} else if (tap * gain_num < S16_MIN * gain_den) {
-+				gain_num = -S16_MIN;
-+				gain_den = -tap;
-+			}
-+		}
-+
-+		for (val = 0; val < ntaps; val++)
-+			scaled_coef[val] = (int)coef[val] * gain_num / gain_den;
-+
-+		if (gain_num != 2)
-+			dev_warn_ratelimited(&spi->dev,
-+				"TX FIR x4 gain limited to %d/%d by coefficient headroom\n",
-+				gain_num, gain_den);
-+
-+		/* Leave the uploaded taps untouched; verify the scaled copy. */
++		/* Preserve the uploaded taps; verify the replacement copy. */
 +		coef = scaled_coef;
 +	}
 +

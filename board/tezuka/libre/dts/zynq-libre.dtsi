@@ -335,7 +335,7 @@
 		//adi,update-tx-gain-in-alert-enable;
 		adi,tx-attenuation-mdB = <10000>;
 		adi,tx-lo-powerdown-managed-enable;
-		/* Restore TX FIR x4 gain, bounded by coefficient headroom. */
+		/* Compensate the known SDR Console 128-tap TX FIR x4 profile. */
 		adi,tx-fir-x4-gain-compensation-enable;
 
 		adi,rf-rx-bandwidth-hz = <18000000>;
