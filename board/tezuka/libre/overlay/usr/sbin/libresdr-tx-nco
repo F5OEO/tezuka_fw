@@ -1,10 +1,13 @@
 #!/bin/sh
-# Fixed 40 MHz TCXO, TX only. BusyBox ash + awk; no LO/XO writes.
+# Fixed 40 MHz TCXO. TX correction always active; RX correction is optional
+# via RX_ENABLE. BusyBox ash + awk; no LO/XO writes.
 export LC_ALL=C
 CONFIG=${NCO_CONFIG:-/etc/libresdr-tx-nco.conf}
 [ ! -f "$CONFIG" ] || . "$CONFIG"
 FPGA_NCO_SUPPORTED=${FPGA_NCO_SUPPORTED:-0}
 AUTOSTART=${AUTOSTART:-0}
+RX_ENABLE=${RX_ENABLE:-0}
+RX_SIGN=${RX_SIGN:-1}
 SAMPLE_SECONDS=${SAMPLE_SECONDS:-2}
 MIN_SAMPLES=${MIN_SAMPLES:-5}
 FILTER_SAMPLES=${FILTER_SAMPLES:-16}
@@ -28,8 +31,8 @@ reg() {
 }
 write() { "$MEM" "$((BASE + $1))" 32 "$2" >/dev/null; }
 calculate_ftw() {
-    awk -v e="$1" -v lo="$2" -v fs="$3" -v old="$4" -v t="$5" 'BEGIN {
-        actual=fs*(40000000+e)/40000000; shift=-lo*e/40000000;
+    awk -v e="$1" -v lo="$2" -v fs="$3" -v old="$4" -v t="$5" -v sgn="$6" 'BEGIN {
+        actual=fs*(40000000+e)/40000000; shift=sgn*lo*e/40000000;
         x=shift*4294967296/actual; w=(x<0 ? -int(-x+0.5) : int(x+0.5));
         delta=(w-old)*actual/4294967296; if(delta<0)delta=-delta;
         if(w < -2147483648 || w > 2147483647) {printf "OUT_OF_RANGE"; exit 2;}
@@ -39,14 +42,16 @@ calculate_ftw() {
 }
 self_test() {
     # No register/IIO access: exercise the actual calculator with the installed awk.
-    [ "$(calculate_ftw -123.875 2450000000 30720000 0 2)" = '1060791 7587.343750 1' ] || die 'Negative-error regression failed.'
-    [ "$(calculate_ftw 123.875 2450000000 30720000 0 2)" = '-1060784 -7587.343750 1' ] || die 'Positive-error regression failed.'
-    [ "$(calculate_ftw 0 2450000000 30720000 0 2)" = '0 -0.000000 0' ] ||
-        [ "$(calculate_ftw 0 2450000000 30720000 0 2)" = '0 0.000000 0' ] || die 'Zero-error regression failed.'
-    [ "$(calculate_ftw -123.875 2450000000 30720000 1060791 2)" = '1060791 7587.343750 0' ] || die 'Threshold regression failed.'
-    calculate_ftw -10000 2450000000 100000 0 2 >/dev/null
+    # sgn=-1 is the TX convention, sgn=+1 (RX_SIGN default) is the opposite RX convention.
+    [ "$(calculate_ftw -123.875 2450000000 30720000 0 2 -1)" = '1060791 7587.343750 1' ] || die 'Negative-error regression failed.'
+    [ "$(calculate_ftw 123.875 2450000000 30720000 0 2 -1)" = '-1060784 -7587.343750 1' ] || die 'Positive-error regression failed.'
+    [ "$(calculate_ftw 0 2450000000 30720000 0 2 -1)" = '0 -0.000000 0' ] ||
+        [ "$(calculate_ftw 0 2450000000 30720000 0 2 -1)" = '0 0.000000 0' ] || die 'Zero-error regression failed.'
+    [ "$(calculate_ftw -123.875 2450000000 30720000 1060791 2 -1)" = '1060791 7587.343750 0' ] || die 'Threshold regression failed.'
+    calculate_ftw -10000 2450000000 100000 0 2 -1 >/dev/null
     [ "$?" = 2 ] || die 'Range regression failed.'
-    echo 'PASS: FTW calculation, both signs, zero, threshold and range (no hardware writes).'
+    [ "$(calculate_ftw -123.875 2450000000 30720000 0 2 1)" = '-1060791 -7587.343750 1' ] || die 'RX sign regression failed.'
+    echo 'PASS: FTW calculation, both signs, RX sign, zero, threshold and range (no hardware writes).'
 }
 alive() {
     [ -r "$RUN/lock/pid" ] || return 1
@@ -63,6 +68,9 @@ snapshot() {
         printf 'LibreSDR TX NCO\n\nStatus          %s\nReason          %s\n' "$state" "$reason"
         printf 'Reference       %s\nTCXO error Hz   %s\nTX LO Hz        %s\nNCO rate Hz     %s\n' "$ref" "${filtered:---}" "${lo:---}" "${fs:---}"
         printf 'NCO shift Hz    %s\nTX FTW          %s\nLast apply      %s\nLast good ref   %s\n' "${shift:---}" "${applied:---}" "${last_apply:---}" "${last_good:---}"
+        if [ "$RX_ENABLE" = 1 ]; then
+            printf 'RX LO Hz        %s\nRX rate Hz      %s\nRX NCO shift Hz %s\nRX FTW          %s\n' "${rx_lo:---}" "${rx_fs:---}" "${rx_shift:---}" "${applied_rx:---}"
+        fi
         printf '\nRecent events\n'
         [ ! -f "$RUN/events" ] || cat "$RUN/events"
     } > "$RUN/status.tmp"
@@ -70,11 +78,14 @@ snapshot() {
 }
 apply() {
     ctl=$(reg 40) || return 1
-    # Shadow registers first. Preserve reserved bits, disable RX, no phase reset.
-    next=$(( (ctl & ~15) | 2 | ((ctl ^ 4) & 4) ))
-    word=$(( ($1 + 4294967296) % 4294967296 ))
-    write 32 0 && write 36 "$word" && write 40 "$next" || return 1
-    [ "$(reg 32)" = 0 ] && [ "$(reg 36)" = "$word" ] && [ "$(reg 40)" = "$next" ]
+    rx_bit=0
+    [ "$RX_ENABLE" != 1 ] || rx_bit=1
+    # Shadow registers first. Preserve reserved bits, no phase reset.
+    next=$(( (ctl & ~15) | 2 | rx_bit | ((ctl ^ 4) & 4) ))
+    tx_word=$(( ($1 + 4294967296) % 4294967296 ))
+    rx_word=$(( (${2:-0} + 4294967296) % 4294967296 ))
+    write 32 "$rx_word" && write 36 "$tx_word" && write 40 "$next" || return 1
+    [ "$(reg 32)" = "$rx_word" ] && [ "$(reg 36)" = "$tx_word" ] && [ "$(reg 40)" = "$next" ]
 }
 setup() {
     [ "$FPGA_NCO_SUPPORTED" = 1 ] || die "Set FPGA_NCO_SUPPORTED=1 in $CONFIG after loading the NCO bitstream."
@@ -83,6 +94,7 @@ setup() {
     done
     [ "$FILTER_SAMPLES" -ge "$MIN_SAMPLES" ] || die 'FILTER_SAMPLES must be >= MIN_SAMPLES.'
     awk -v t="$THRESHOLD_HZ" 'BEGIN {exit !(t ~ /^[0-9]+([.][0-9]+)?$/ && t > 0)}' || die 'Invalid THRESHOLD_HZ.'
+    case "$RX_ENABLE" in 0|1) ;; *) die 'RX_ENABLE must be 0 or 1.';; esac
     command -v "$MEM" >/dev/null || die 'devmem unavailable.'
     phy=
     for name in "$IIO"/iio:device*/name; do
@@ -94,6 +106,11 @@ setup() {
     LO_ATTR=$phy/out_altvoltage1_TX_LO_frequency
     FS_ATTR=${TX_RATE_ATTR:-$phy/out_voltage_sampling_frequency}
     [ -r "$LO_ATTR" ] && [ -r "$FS_ATTR" ] || die 'TX LO or converter sample-rate attribute unavailable.'
+    if [ "$RX_ENABLE" = 1 ]; then
+        RX_LO_ATTR=$phy/out_altvoltage0_RX_LO_frequency
+        RX_FS_ATTR=${RX_RATE_ATTR:-$phy/in_voltage_sampling_frequency}
+        [ -r "$RX_LO_ATTR" ] && [ -r "$RX_FS_ATTR" ] || die 'RX LO or converter sample-rate attribute unavailable.'
+    fi
 }
 controller() {
     setup
@@ -105,6 +122,11 @@ controller() {
     ctl=$(reg 0) || die 'Cannot read FPGA control.'
     applied=$(reg 36) || die 'Cannot read TX FTW.'
     [ "$applied" -lt 2147483648 ] || applied=$((applied - 4294967296))
+    applied_rx=0; rx_shift=0
+    if [ "$RX_ENABLE" = 1 ]; then
+        applied_rx=$(reg 32) || die 'Cannot read RX FTW.'
+        [ "$applied_rx" -lt 2147483648 ] || applied_rx=$((applied_rx - 4294967296))
+    fi
     nctl=$(reg 40) || die 'Cannot read NCO control.'
     enabled=$((nctl & 2))
     write 4 "$((0x28002800))" && write 0 "$((ctl | 1))" || die 'Cannot set manual DAC mode.'
@@ -112,13 +134,21 @@ controller() {
     [ "$source" = 0 ] || write 12 0 || die 'Cannot select 10 MHz.'
     history=; count=0; tick=0; settle=2; connected=0; fault=0
     state=WAITING; reason='Collecting new reference windows'; ref=unknown
-    event 'Controller started; existing TX correction retained until valid measurements.'
+    if [ "$RX_ENABLE" = 1 ]; then
+        event 'Controller started; existing TX/RX correction retained until valid measurements.'
+    else
+        event 'Controller started; existing TX correction retained until valid measurements.'
+    fi
     while :; do
         reason=''; ref=absent
         status=$(reg 16) || { status=0; reason='Reference register read failed'; }
         lo=$(cat "$LO_ATTR" 2>/dev/null); fs=$(cat "$FS_ATTR" 2>/dev/null)
         valid_radio=1
         uint "$lo" && uint "$fs" && [ "$lo" -gt 0 ] && [ "$fs" -gt 0 ] || valid_radio=0
+        if [ "$RX_ENABLE" = 1 ]; then
+            rx_lo=$(cat "$RX_LO_ATTR" 2>/dev/null); rx_fs=$(cat "$RX_FS_ATTR" 2>/dev/null)
+            uint "$rx_lo" && uint "$rx_fs" && [ "$rx_lo" -gt 0 ] && [ "$rx_fs" -gt 0 ] || valid_radio=0
+        fi
         if [ "$(cat "$phy/xo_correction" 2>/dev/null)" != 40000000 ]; then
             state=FAULT; reason='xo_correction changed; no further applies'; fault=1
         fi
@@ -167,23 +197,46 @@ controller() {
         elif [ "$fault" = 1 ]; then
             state=FAULT; reason=${fault_reason:-'Writes inhibited; stop, fix fault, then restart'}
         elif [ "$ready" = 1 ] && [ -n "${filtered:-}" ]; then
-            result=$(calculate_ftw "$filtered" "$lo" "$fs" "$applied" "$THRESHOLD_HZ")
+            result=$(calculate_ftw "$filtered" "$lo" "$fs" "$applied" "$THRESHOLD_HZ" -1)
             calculation_status=$?
             if [ "$calculation_status" = 2 ] && [ "$result" = OUT_OF_RANGE ]; then
-                state=FAULT; reason='Calculated FTW outside signed 32-bit range'
+                state=FAULT; reason='Calculated TX FTW outside signed 32-bit range'
             elif [ "$calculation_status" -ne 0 ]; then
                 fault=1; state=FAULT; reason='FTW calculation failed; see daemon.log'; fault_reason=$reason; event "$reason"
             else
                 set -- $result; target=$1; wanted_shift=$2; changed=$3
-                if [ "$enabled" = 0 ] || [ "$changed" = 1 ] || [ "$lo/$fs" != "${previous_radio:-}" ]; then
-                    # A client can retune while we calculate. Defer if our inputs changed.
-                    if [ "$(cat "$LO_ATTR" 2>/dev/null)/$(cat "$FS_ATTR" 2>/dev/null)" != "$lo/$fs" ]; then
-                        reason='Radio settings changed during calculation; retrying'
-                    elif apply "$target"; then
-                        applied=$target; shift=$wanted_shift; enabled=2; previous_radio=$lo/$fs
-                        last_apply=$(date '+%H:%M:%S'); event "Applied TX FTW $applied (shift $shift Hz)"
+                rx_target=0; rx_wanted_shift=0; rx_changed=0
+                if [ "$RX_ENABLE" = 1 ]; then
+                    rx_result=$(calculate_ftw "$filtered" "$rx_lo" "$rx_fs" "$applied_rx" "$THRESHOLD_HZ" "$RX_SIGN")
+                    rx_calculation_status=$?
+                    if [ "$rx_calculation_status" = 2 ] && [ "$rx_result" = OUT_OF_RANGE ]; then
+                        state=FAULT; reason='Calculated RX FTW outside signed 32-bit range'
+                    elif [ "$rx_calculation_status" -ne 0 ]; then
+                        fault=1; state=FAULT; reason='RX FTW calculation failed; see daemon.log'; fault_reason=$reason; event "$reason"
                     else
-                        fault=1; state=FAULT; reason='NCO write/readback failed; restart required'; event "$reason"
+                        set -- $rx_result; rx_target=$1; rx_wanted_shift=$2; rx_changed=$3
+                    fi
+                fi
+                if [ "$state" != FAULT ]; then
+                    radio=$lo/$fs; [ "$RX_ENABLE" != 1 ] || radio=$radio/$rx_lo/$rx_fs
+                    if [ "$enabled" = 0 ] || [ "$changed" = 1 ] || [ "$rx_changed" = 1 ] || [ "$radio" != "${previous_radio:-}" ]; then
+                        # A client can retune while we calculate. Defer if our inputs changed.
+                        current_radio=$(cat "$LO_ATTR" 2>/dev/null)/$(cat "$FS_ATTR" 2>/dev/null)
+                        [ "$RX_ENABLE" != 1 ] || current_radio=$current_radio/$(cat "$RX_LO_ATTR" 2>/dev/null)/$(cat "$RX_FS_ATTR" 2>/dev/null)
+                        if [ "$current_radio" != "$radio" ]; then
+                            reason='Radio settings changed during calculation; retrying'
+                        elif apply "$target" "$rx_target"; then
+                            applied=$target; shift=$wanted_shift; enabled=2; previous_radio=$radio
+                            [ "$RX_ENABLE" != 1 ] || { applied_rx=$rx_target; rx_shift=$rx_wanted_shift; }
+                            last_apply=$(date '+%H:%M:%S')
+                            if [ "$RX_ENABLE" = 1 ]; then
+                                event "Applied TX FTW $applied (shift $shift Hz), RX FTW $applied_rx (shift $rx_shift Hz)"
+                            else
+                                event "Applied TX FTW $applied (shift $shift Hz)"
+                            fi
+                        else
+                            fault=1; state=FAULT; reason='NCO write/readback failed; restart required'; event "$reason"
+                        fi
                     fi
                 fi
             fi

@@ -103,3 +103,23 @@ writes=$(wc -l < "$tmp/writes")
 if /bin/sh "$script" start; then echo 'Unexpected startup with nonnominal XO'; exit 1; fi
 [ "$(wc -l < "$tmp/writes")" = "$writes" ]
 echo 'PASS: signed errors, FTW formula, apply toggle/order, LO/rate changes, holdover, recovery, zero, stop/disable and XO guard.'
+
+# RX correction: opt-in via RX_ENABLE, own LO/rate attribute, opposite default sign.
+echo 40000000 > "$phy/xo_correction"
+echo 50000000 > "$phy/out_altvoltage0_RX_LO_frequency"
+echo 30720000 > "$phy/in_voltage_sampling_frequency"
+printf 'RX_ENABLE=1\n' >> "$tmp/config"
+echo 4294967163 > "$tmp/regs/24" # -133 Hz
+/bin/sh "$script" start
+wait_for STABLE
+rx_expected=$(awk -v e=-133 -v lo=50000000 -v fs=30720000 -v sgn=1 'BEGIN {
+    actual=fs*(40000000+e)/40000000; shift=sgn*lo*e/40000000;
+    x=shift*4294967296/actual; w=(x<0 ? -int(-x+0.5) : int(x+0.5));
+    w=(w+4294967296)%4294967296; printf "%.0f", w
+}')
+[ "$(cat "$tmp/regs/32")" = "$rx_expected" ]
+[ "$(( $(cat "$tmp/regs/40") & 3 ))" = 3 ]
+/bin/sh "$script" stop
+/bin/sh "$script" disable
+[ "$(( $(cat "$tmp/regs/40") & 3 ))" = 0 ]
+echo 'PASS: RX correction opt-in via RX_ENABLE, independent LO/rate, opposite default sign.'

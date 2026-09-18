@@ -21,6 +21,11 @@ that it is no longer adjusting things.
    the TX-NCO data path. For a different integration, you can set
    `TX_RATE_ATTR` to the correct converter rate attribute, after
    interpolation.
+6. Optional: set `RX_ENABLE=1` to also correct the RX carrier from the same
+   TCXO error measurement. This uses `out_altvoltage0_RX_LO_frequency` and,
+   by default, `in_voltage_sampling_frequency` (override with
+   `RX_RATE_ATTR` for a different integration; use the ADC rate before
+   Maia/host decimation). RX is off by default.
 
 Start as root:
 
@@ -66,10 +71,12 @@ manually, after checking that the corresponding PID is no longer running.
   lock.
 - Only apply with at least a 2 Hz difference on the TX output, on first
   enable, or on a changed LO/rate. No five-minute wait time.
-- Write new TX-FTW and RX-FTW=0, then toggle the apply bit. No phase reset.
-  Register readback checks the written configuration, not independently the
-  processing in the data path. On a write error, further writes stay
-  blocked until a restart; the state may then be partially applied.
+- Write new TX-FTW (and RX-FTW, if `RX_ENABLE=1`; otherwise RX-FTW stays 0
+  and RX rotation stays disabled), then toggle the apply bit. No phase
+  reset. Register readback checks the written configuration, not
+  independently the processing in the data path. On a write error, further
+  writes stay blocked until a restart; the state may then be partially
+  applied.
 - Without a reference: `WAITING`, or `HOLDOVER` if a valid estimate exists.
   In holdover, the FTW is retained; only an LO/rate change recalculates it
   using the last valid TCXO error. After recovery, it waits for new valid
@@ -84,12 +91,31 @@ shift     = -tx_lo * e / 40000000
 tx_ftw    = round(shift * 2^32 / actual_fs)
 ```
 
-The correction targets the TX center. An NCO does not restore the physical
-sample rate: for signals away from the center, the small proportional
-timing and frequency error remains. The internal AXI-DDS bypasses this NCO;
-use the DMA/DVB path instead. RX stays untouched. The old analog lock bit is
-not a requirement; `ref_present` is. Do not change the clock source/DAC
-control via other software while this is in use.
+The correction targets the TX (and, with `RX_ENABLE=1`, RX) center. An NCO
+does not restore the physical sample rate: for signals away from the
+center, the small proportional timing and frequency error remains. The
+internal AXI-DDS bypasses this NCO; use the DMA/DVB path instead. RX stays
+untouched unless `RX_ENABLE=1`. The old analog lock bit is not a
+requirement; `ref_present` is. Do not change the clock source/DAC control
+via other software while this is in use.
+
+### RX correction
+
+Set `RX_ENABLE=1` in the configuration to also compute and apply an RX-FTW
+from the same TCXO error measurement, using the RX LO
+(`out_altvoltage0_RX_LO_frequency`) and RX converter rate
+(`in_voltage_sampling_frequency`, or `RX_RATE_ATTR` for a different
+integration). RX and TX use independent LO/rate readings but share the
+oscillator error measurement, filter, and apply cadence; either FTW being
+due for an update (2 Hz threshold, first enable, or a changed LO/rate)
+triggers a combined apply of both.
+
+Per the FPGA convention, the RX FTW sign is the opposite of the TX FTW for
+the same error (`RX_SIGN=1` by default). As with the manual `devmem`
+procedure, verify against a known RX carrier: if the error approximately
+doubles instead of vanishing, an I/Q swap in the hardware chain reversed
+the convention — set `RX_SIGN=-1`. RX is off by default; existing
+deployments are unaffected.
 
 ## Firmware and boot
 
