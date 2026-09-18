@@ -223,16 +223,32 @@ jobs:
       - name: Build U-Boot
         run: make -C buildroot O="${OUTPUT_DIR}" uboot
 
-      # A real fresh kernel build is CPU/disk-heavy in a way U-Boot
-      # isn't (full source extract + object tree). If "Build kernel"
-      # below ever fails instantly with no compiler output again,
-      # this is what tells us whether it was actually disk exhaustion
-      # rather than something in the kernel/dts change itself.
+      # Ruled out disk exhaustion here: runs 35377178709/35382993872/
+      # 35390925732 all failed identically -- ">>> linux custom
+      # Building" then an instant, zero-output "Error 1" -- but
+      # 35390925732 ran with large-packages: true and still had 107G
+      # free right before this exact step (its own df -h, captured
+      # below, proved it). Also ruled out: local reproduction of this
+      # exact isolated step sequence (configure, then `make uboot`,
+      # then `make linux`, each a separate invocation matching this
+      # workflow) built the kernel fine both times tried. Kept this
+      # diagnostic since it's cheap and free-disk-space is a real
+      # improvement regardless.
       - name: Disk space before kernel build
         run: df -h /
 
+      # V=1: Buildroot's LINUX_BUILD_CMDS package-level recipe gives
+      # no output at all before failing on this runner, so the
+      # default pretty CC/HOSTCC/DTC lines aren't enough -- need the
+      # literal commands to see what actually fails. `set -x` too, in
+      # case the failure happens before make even reaches the point
+      # V=1 would normally start echoing (recipe/variable expansion,
+      # not command execution) -- belt and suspenders, this step's
+      # log is the only place either matters.
       - name: Build kernel
-        run: make -C buildroot O="${OUTPUT_DIR}" linux
+        run: |
+          set -x
+          make -C buildroot O="${OUTPUT_DIR}" linux V=1
 
       - name: Build rootfs
         run: make -C buildroot O="${OUTPUT_DIR}" target-finalize
