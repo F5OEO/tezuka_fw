@@ -128,7 +128,22 @@ jobs:
           android: true
           dotnet: true
           haskell: true
-          large-packages: false
+          # Was false. A real fresh build (not the usual cache-hit
+          # re-finalize -- see "Restore Buildroot output" above) has
+          # been seen to fail instantly and silently at "Build kernel"
+          # on this runner, immediately after the kernel dts fix
+          # (35377178709, 35382993872) made these builds genuinely
+          # compile again instead of skipping via a stale per-board
+          # output/ cache. Never confirmed as disk exhaustion (no df
+          # output existed to check -- that's what the two diagnostic
+          # steps below are for), but it's the leading candidate:
+          # large-packages reclaims several more GB of preinstalled
+          # apt packages (google-cloud-cli, firefox, etc.) this job
+          # never uses, at negligible risk.
+          large-packages: true
+
+      - name: Disk space after cleanup
+        run: df -h /
 
       - name: Install build dependencies
         run: |
@@ -207,6 +222,14 @@ jobs:
 
       - name: Build U-Boot
         run: make -C buildroot O="${OUTPUT_DIR}" uboot
+
+      # A real fresh kernel build is CPU/disk-heavy in a way U-Boot
+      # isn't (full source extract + object tree). If "Build kernel"
+      # below ever fails instantly with no compiler output again,
+      # this is what tells us whether it was actually disk exhaustion
+      # rather than something in the kernel/dts change itself.
+      - name: Disk space before kernel build
+        run: df -h /
 
       - name: Build kernel
         run: make -C buildroot O="${OUTPUT_DIR}" linux
