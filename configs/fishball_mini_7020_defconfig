@@ -49,10 +49,17 @@ BR2_PACKAGE_MTD=y
 BR2_PACKAGE_INPUT_EVENT_DAEMON=y
 BR2_PACKAGE_UBOOT_TOOLS=y
 BR2_PACKAGE_ZLIB=y
-BR2_PACKAGE_AVAHI=y
-BR2_PACKAGE_AVAHI_DAEMON=y
-BR2_PACKAGE_AVAHI_LIBDNSSD_COMPATIBILITY=y
-BR2_PACKAGE_AVAHI_AUTOIPD=n
+# mDNS discovery (avahi) disabled on this board only, per Tobias's
+# explicit go-ahead (2026-09-19), to help close the QSPI overflow --
+# fishball_mini_7020's bitstream is ~1.57MB bigger than fishball_mini's
+# own (see b066322's commit message), and 12748b4's opkg+libarchive cut
+# alone left ~1.03MB still over budget. dbus is not selected separately
+# anywhere in this tree; it comes in purely as avahi's own hard
+# `select BR2_PACKAGE_DBUS` (confirmed against the real upstream
+# package/avahi/Config.in), so disabling avahi here removes it too.
+# fishball_mini (7010) is untouched -- it's already at 0 bytes of slack
+# and doesn't need this, so it keeps mDNS discovery.
+# BR2_PACKAGE_AVAHI is not set
 
 BR2_PACKAGE_DROPBEAR=y
 BR2_PACKAGE_DROPBEAR_LOCALOPTIONS_FILE="$(BR2_EXTERNAL_PLUTOSDR_PATH)/board/tezuka/common/dropbear_localoptions.h"
