@@ -123,6 +123,36 @@ BR2_PACKAGE_LIBIIO_TESTS=y
 ##FISHBALL 7020_MINI
 BR2_LINUX_KERNEL_CUSTOM_CONFIG_FILE="$(BR2_EXTERNAL_PLUTOSDR_PATH)/board/tezuka/common/kernel/zynq_pluto_linux_mini_defconfig"
 BR2_LINUX_KERNEL_CONFIG_FRAGMENT_FILES="$(BR2_EXTERNAL_PLUTOSDR_PATH)/board/tezuka/fishball7010/kernel/fragment/frag1.config"
+# fishball_mini_7020 only: no board here ever set a kernel compression
+# choice, so Buildroot silently defaulted every board to gzip. Switched
+# this one to lzma -- pure size win, no functional loss -- to help close
+# its QSPI overflow (fishball7020's own bitstream is ~1.57MB bigger than
+# fishball7010's, see b066322/90ff3a2's commit messages).
+#
+# This board boots via the classic self-decompressing ARM zImage
+# (plutomaia.its /incbin/s a file literally named "zImage", with FIT-level
+# compression="none" -- U-Boot just loads and jumps to it), NOT a
+# U-Boot-wrapped uImage, so what actually matters is the kernel's own
+# arch/arm/boot/compressed/ stub, not U-Boot's decompressor. Confirmed
+# directly against the real pinned kernel source (already extracted
+# locally): arch/arm/boot/compressed/decompress.c has a real
+# `#ifdef CONFIG_KERNEL_LZMA` branch pulling in lib/decompress_unlzma.c
+# -- genuine, kernel-internal, zero U-Boot dependency.
+#
+# Actually built and measured locally, not just reasoned about: rebuilt
+# this exact kernel/defconfig's zImage with CONFIG_KERNEL_LZMA=y (via
+# Buildroot's own oldconfig fixup) -- `file` confirms the result is a
+# valid "Linux kernel ARM boot executable zImage", 4,005,992 bytes vs
+# the gzip build's 5,357,528 bytes: a real 1,351,536-byte (~1.29MB)
+# reduction. Since the FIT wraps it uncompressed, that reduction carries
+# straight into pluto.frm 1:1 -- more than double the ~613KB gap
+# remaining after the opkg/avahi/passwd fixes (12748b4/03f5453/6c23a05).
+#
+# CI green here only confirms the image builds and fits the QSPI budget,
+# not that it boots on real hardware -- worth an actual flash-and-boot
+# test before trusting this on a real board, same as every other
+# not-yet-hardware-verified change in this tree.
+BR2_LINUX_KERNEL_LZMA=y
 BR2_TARGET_UBOOT_CUSTOM_CONFIG_FILE="$(BR2_EXTERNAL_PLUTOSDR_PATH)/board/tezuka/common/uboot.config"
 BR2_TARGET_UBOOT_CUSTOM_DTS_PATH="$(BR2_EXTERNAL_PLUTOSDR_PATH)/board/tezuka/fishball7010/u-boot-dts/zynq-pluto-sdr.dts"
 BR2_PACKAGE_HOST_UBOOT_TOOLS_ENVIMAGE_SOURCE="${BR2_EXTERNAL_PLUTOSDR_PATH}/board/tezuka/common/uboot-env.txt"
