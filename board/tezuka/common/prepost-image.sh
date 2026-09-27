@@ -36,7 +36,12 @@ dd if="$BIN_DIR/zImage" bs=1 skip="$skip" | gunzip > "$BIN_DIR/Image" 2>/dev/nul
 KERNEL_CORRUPT_OFFSET=$((0xE88000))   # 15237120 bytes / ~14.53 MiB
 KERNEL_WARN_MARGIN=$((512 * 1024))    # heads-up 512 KiB before the cliff
 IMAGE_SIZE=$(wc -c < "$BIN_DIR/Image")
-if [ "$IMAGE_SIZE" -ge "$KERNEL_CORRUPT_OFFSET" ]; then
+# Boards whose plutomaia.its already ships Image.lzma/compression=lzma
+# (see PR #449) let U-Boot do the decompression instead of the kernel's
+# own self-extracting zImage stub, so this offset never applies to them.
+if grep -q '"lzma"' "$BOARD_DIR/plutomaia.its" 2>/dev/null; then
+    :
+elif [ "$IMAGE_SIZE" -ge "$KERNEL_CORRUPT_OFFSET" ]; then
     echo "ERROR: kernel Image is $IMAGE_SIZE bytes, at or past the known" >&2
     echo "       zImage self-decompression corruption offset 0xE88000" >&2
     echo "       (~14.53 MiB, see issue #450). Any board booting this" >&2
