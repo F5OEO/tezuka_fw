@@ -1476,8 +1476,17 @@ function _sgBuild(type, fs, amp, p) {
 }
 
 // ---- Signal generator -----------------------------------------------------
-function SigGen({ d }) {
+function SigGen({ d, callsign }) {
   const G = window._sigGen;
+  // Signal Generator and the DATV Controller share the same physical TX
+  // mute gate (see #408/#428): DATV already publishes pluto/<call>/tx/mute,
+  // but Signal Generator never did, so its RF output silently depended on
+  // whatever mute state DATV last left behind. Mirror DATV's own call/pub
+  // convention here instead of the generic cmd/<path> one data.jsx's d.publish
+  // uses, since tx/mute is handled by the separate pluto-ori-ps DATV backend,
+  // not api_controller.sh.
+  const call = callsign || 'F5OEO';
+  const pub = (path, val) => d.publish('pluto/' + call + '/' + path, String(val));
 
   const [txFreq,   setTxFreq]   = useS2(null);
   const [txGain,   setTxGain]   = useS2(null);
@@ -1556,6 +1565,7 @@ function SigGen({ d }) {
     G.iqBuf = buf; G.active = true;
     setOn(true); setPreview(buf);
     connectWs();
+    pub('tx/mute', '0');
   };
 
   const stop = async () => {
@@ -1568,6 +1578,7 @@ function SigGen({ d }) {
     G.active = false;
     if (ws) { ws.onopen = ws.onclose = ws.onerror = null; try { ws.close(); } catch (_) {} G.ws = null; }
     setOn(false); setWsConn(false);
+    pub('tx/mute', '1');
   };
 
   // Rebuild the live buffer (and preview) whenever waveform params change,
