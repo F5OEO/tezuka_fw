@@ -67,6 +67,12 @@ while getopts "j:ch" opt; do
 done
 shift $((OPTIND - 1))
 
+# Default to all available cores when -j wasn't given explicitly, instead of
+# leaving it to make's own default (-j1 unless MAKEFLAGS is already set).
+if [ -z "${JOBS}" ] && command -v nproc >/dev/null 2>&1; then
+    JOBS="-j$(nproc)"
+fi
+
 [ $# -eq 0 ] && usage
 
 # Source BR2_EXTERNAL if not already set
@@ -124,6 +130,18 @@ build_board() {
     fi
 
     make -C "${BUILDROOT_DIR}" O="${output_dir}" "${defconfig}"
+
+    # Enable ccache locally, matching CI (see .github/workflows/main.yml).
+    # BR2_CCACHE_USE_BASEDIR makes cache hits portable across boards'
+    # separate OUTPUT_DIRs, so pluto/plutoplus builds reuse each other's
+    # compiled objects instead of rebuilding the shared toolchain/packages
+    # from scratch every time.
+    if ! grep -q '^BR2_CCACHE=y' "${output_dir}/.config" 2>/dev/null; then
+        echo 'BR2_CCACHE=y' >> "${output_dir}/.config"
+        echo 'BR2_CCACHE_USE_BASEDIR=y' >> "${output_dir}/.config"
+        make -C "${BUILDROOT_DIR}" O="${output_dir}" olddefconfig
+    fi
+
     # shellcheck disable=SC2086
     make -C "${BUILDROOT_DIR}" O="${output_dir}" ${JOBS}
 
