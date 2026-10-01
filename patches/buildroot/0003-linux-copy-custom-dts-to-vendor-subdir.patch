@@ -33,6 +33,6 @@ xilinx/ path when installing built DTBs.
  	$(foreach dts,$(call qstrip,$(BR2_LINUX_KERNEL_CUSTOM_DTS_PATH)), \
  		cp -f $(dts) $(LINUX_ARCH_PATH)/boot/dts/
  	)
-+	$(Q)if [ -d $(LINUX_ARCH_PATH)/boot/dts/xilinx ]; then for f in $(LINUX_ARCH_PATH)/boot/dts/*.dts $(LINUX_ARCH_PATH)/boot/dts/*.dtsi; do [ -f "$$f" ] && cp -f "$$f" $(LINUX_ARCH_PATH)/boot/dts/xilinx/; done; for f in $(LINUX_ARCH_PATH)/boot/dts/*.dts; do [ -f "$$f" ] && echo "dtb-y += $$(basename $$f .dts).dtb" >> $(LINUX_ARCH_PATH)/boot/dts/xilinx/Makefile; done; fi
++	$(Q)if [ -d $(LINUX_ARCH_PATH)/boot/dts/xilinx ]; then for f in $(LINUX_ARCH_PATH)/boot/dts/*.dts $(LINUX_ARCH_PATH)/boot/dts/*.dtsi; do [ -f "$$f" ] && cp -f "$$f" $(LINUX_ARCH_PATH)/boot/dts/xilinx/; done; for f in $(LINUX_ARCH_PATH)/boot/dts/*.dts; do [ -f "$$f" ] && echo "dtb-y += $$(basename $$f .dts).dtb" >> $(LINUX_ARCH_PATH)/boot/dts/xilinx/Makefile; done; true; fi
  	$(LINUX_COPY_CUSTOM_DTS_FILES)
  	$(LINUX_MAKE_ENV) $(BR2_MAKE) $(LINUX_MAKE_FLAGS) -C $(@D) all

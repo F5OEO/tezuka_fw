@@ -16,9 +16,20 @@ config BR2_PACKAGE_TEZUKA_COMMON_TOOLS_MINI
 	select BR2_PACKAGE_UTIL_LINUX_LIBMOUNT
 	select BR2_PACKAGE_UTIL_LINUX_LIBUUID
 	
-#MOSQUITTO MQTT	
+#MOSQUITTO MQTT
 	select BR2_PACKAGE_MOSQUITTO
-	select BR2_PACKAGE_LIBWEBSOCKETS
+	# Do NOT select BR2_PACKAGE_LIBWEBSOCKETS here: it predates Buildroot
+	# 2026.05's mosquitto rewrite (see 0b8885c/b7b03a3) and is now dead
+	# weight, not just ineffective -- mosquitto's own WS_LIBWS choice
+	# member (set per-board via BR2_PACKAGE_MOSQUITTO_WS_LIBWS=y) already
+	# selects BR2_PACKAGE_LIBWEBSOCKETS when a board actually needs it.
+	# Keeping this plain top-level select forced libwebsockets.so.21 +
+	# LIBWEBSOCKETS_EXT_POLL into every board's rootfs even when nothing
+	# links against it (WS_BUILTIN/WS_NONE boards) -- confirmed the real
+	# cause of fishball_mini{,_7020}'s QSPI overflow after switching
+	# those two to WS_BUILTIN (CI run 35147183998) still showed
+	# LIBWEBSOCKETS=y in a defconfig-only dry run until this select was
+	# removed.
 	select BR2_PACKAGE_MOSQUITTO_BROKER
 	select BR2_PACKAGE_PV
 #Console
