@@ -39,7 +39,10 @@ IMAGE_SIZE=$(wc -c < "$BIN_DIR/Image")
 # Boards whose plutomaia.its already ships Image.lzma/compression=lzma
 # (see PR #449) let U-Boot do the decompression instead of the kernel's
 # own self-extracting zImage stub, so this offset never applies to them.
-if grep -q '"lzma"' "$BOARD_DIR/plutomaia.its" 2>/dev/null; then
+# Boards with no plutomaia.its at all (e.g. pciesdr7010) never generate a
+# flash FIT in the first place -- SD boot uses the uImage path, which
+# U-Boot also decompresses itself -- so the corruption guard is moot there.
+if [ ! -f "$BOARD_DIR/plutomaia.its" ] || grep -q '"lzma"' "$BOARD_DIR/plutomaia.its" 2>/dev/null; then
     :
 elif [ "$IMAGE_SIZE" -ge "$KERNEL_CORRUPT_OFFSET" ]; then
     echo "ERROR: kernel Image is $IMAGE_SIZE bytes, at or past the known" >&2
