@@ -1,4 +1,6 @@
 #!/bin/bash
+# Modified by Christos Nikolaou (SV1EIA) 2026.
+# Christos Nikolaou can be reached by email at : sv1eia@gmail.com
 
 SERIAL_PORT="/dev/ttyACM0"
 MQTT_FIFO="/tmp/mqtt_fifo"
@@ -39,6 +41,62 @@ for _vn in /sys/firmware/devicetree/base/amba_pl@0/vcxoctrl@*; do
   break
 done
 unset _vn _vst
+
+# ADF4001 reference control (PlutoSky R2 and boards built the same way).
+# The board overlay describes the EMIO lines in /etc/refclk.conf; without
+# that file, or without the libgpiod tools, this block stays inert and
+# dump_data() falls back to the refclk_source-only reporting.
+REFCLK_HW=""
+REFCLK_CHIP=""
+if [ -r /etc/refclk.conf ]; then
+  . /etc/refclk.conf
+fi
+if [ "$REFCLK_HW" = adf4001 ] && command -v gpioget >/dev/null 2>&1; then
+  REFCLK_CHIP=$(gpiodetect 2>/dev/null | sed -n "s/^\(gpiochip[0-9]*\) \[${REFCLK_CHIP_LABEL:-zynq_gpio}\].*/\1/p" | head -n 1)
+  [ -n "$REFCLK_CHIP" ] || REFCLK_HW=""
+else
+  REFCLK_HW=""
+fi
+
+# Reads every reference line in one gpioget call and sets REF_PRESENT REF_CP
+# REF_LOCK REF_STATE REF_COUNT. Returns 1 when the lines cannot be read.
+refclk_read () {
+  local base=${REFCLK_EMIO_BASE:-54} offs i vals w b
+  offs="$(( base + ${REFCLK_I_PRESENT:-33} )) $(( base + ${REFCLK_I_CP:-35} )) $(( base + ${REFCLK_I_LOCK:-52} )) $(( base + ${REFCLK_I_STATE:-53} )) $(( base + ${REFCLK_I_STATE:-53} + 1 ))"
+  i=0
+  while [ $i -lt 16 ]; do
+    offs="$offs $(( base + ${REFCLK_I_COUNT:-36} + i ))"
+    i=$((i + 1))
+  done
+  vals=$(gpioget "$REFCLK_CHIP" $offs 2>/dev/null) || return 1
+  set -- $vals
+  [ $# -eq 21 ] || return 1
+  REF_PRESENT=$1; REF_CP=$2; REF_LOCK=$3
+  case "$4$5" in
+    00) REF_STATE=absent ;;
+    10) REF_STATE=acquire ;;
+    01) REF_STATE=locked ;;
+    11) REF_STATE=recheck ;;
+    *)  REF_STATE=unknown ;;
+  esac
+  shift 5
+  REF_COUNT=0; w=1
+  for b in "$@"; do
+    REF_COUNT=$(( REF_COUNT + b * w )); w=$(( w * 2 ))
+  done
+  return 0
+}
+
+# auto | external | internal, from the u-boot environment (see S22refclk)
+refclk_mode () {
+  local a s
+  a=$(fw_printenv -n refclk_auto 2>/dev/null | tr -cd '[a-zA-Z0-9]')
+  s=$(fw_printenv -n refclk_source 2>/dev/null | tr -cd '[a-zA-Z0-9]')
+  case "$a" in
+    off|no|0) if [ "$s" = external ]; then echo external; else echo internal; fi ;;
+    *) echo auto ;;
+  esac
+}
 
 _init_freq=$(<"${folder}out_altvoltage0_RX_LO_frequency" 2>/dev/null)
 _init_sr=$(<"${folder}in_voltage_sampling_frequency" 2>/dev/null)
@@ -310,6 +368,23 @@ dump_data () {
     else
       publish "system/clkref/correction" "n/a"
     fi
+  elif [ "$REFCLK_HW" = adf4001 ] && refclk_read; then
+    # ADF4001 boards: everything comes from the FPGA controller
+    publish "system/clkref/hw"         "adf4001"
+    publish "system/clkref/mode"       "$(refclk_mode)"
+    publish "system/clkref/present"    "$REF_PRESENT"
+    publish "system/clkref/lock"       "$REF_LOCK"
+    publish "system/clkref/cp"         "$REF_CP"
+    publish "system/clkref/state"      "$REF_STATE"
+    publish "system/clkref/count"      "$REF_COUNT"
+    if [ "$REF_PRESENT" = 1 ]; then
+      publish "system/clkref/source"    "10mhz"
+      publish "system/clkref/frequency" "${REFCLK_NOMINAL_HZ:-10000000}"
+    else
+      publish "system/clkref/source"    "none"
+      publish "system/clkref/frequency" "n/a"
+    fi
+    publish "system/clkref/correction" "n/a"
   else
     local _clkref_src; _clkref_src=$(fw_printenv -n refclk_source 2>/dev/null)
     _clkref_src=${_clkref_src:-internal}
@@ -847,6 +922,17 @@ parse_cmd () {
       [[ "$_cur" =~ ^(0x)?[0-9a-fA-F]+$ ]] || _cur=0
       devmem "$(( VCXO_BASE + 0x0C ))" 32 "$(( (_cur & ~0x3) | _sel ))" >/dev/null 2>&1
       publish_force "system/clkref/source" "$val"
+    ;;
+    system/clkref/mode)
+      # ADF4001 boards: auto | external | internal, stored in the u-boot
+      # environment and applied by S22refclk (see /etc/refclk.conf)
+      [ "$REFCLK_HW" = adf4001 ] || return
+      case "$val" in
+        auto|external|internal) ;;
+        *) return ;;
+      esac
+      /etc/init.d/S22refclk set "$val" >/dev/null 2>&1
+      publish_force "system/clkref/mode" "$val"
     ;;
     system/reboot)
       if [ "$val" = "poweroff" ]; then poweroff; else reboot; fi
