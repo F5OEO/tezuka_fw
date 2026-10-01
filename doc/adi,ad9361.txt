@@ -62,6 +62,17 @@ Rate & BW Control
 		in this order: IGNORE, DAC, T2, T1, CLKTF, TX_SAMPL
 	- adi,rf-rx-bandwidth-hz: RX RF Bandwidth power-up setting
 	- adi,rf-tx-bandwidth-hz: TX RF Bandwidth power-up setting
+	- adi,tx-fir-x4-gain-compensation-enable: Optional Tezuka extension.
+		Replace the known SDR Console 128-tap TX interpolation-4 FIR
+		only when all coefficients match the profile in the driver.
+		The fixed replacement has approximately twice the DC gain
+		(+6 dB) and a different filter response; its taps fit signed
+		16-bit range without clipping. This is not generic tap scaling.
+		RX, TX interpolation 1/2, other tap counts and nonmatching
+		profiles are unchanged, including an already compensated FIR.
+		Disabled when absent; enabled only in the LibreSDR device tree.
+		Requires both the patched kernel and the updated LibreSDR DTB.
+		Recognition also applies to manually uploaded matching profiles.
 
 RF Port Control
 	- adi,rx-rf-port-input-select: RF Port Input Select. Values are:
