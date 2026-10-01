@@ -4,7 +4,9 @@
 #
 ################################################################################
 
-# Must match MAIA_HTTPD_VERSION -- both live in the same monorepo
+# Must match MAIA_HTTPD_VERSION -- both live in the same monorepo.
+# (maia-kmod deliberately does NOT follow this rule -- see
+# package/maia-kmod/maia-kmod.mk for why that's correct.)
 MAIA_WASM_VERSION = 2637b59891bdfe38d8c5bf52c84984b3da68064e
 MAIA_WASM_SITE = https://github.com/F5OEO/maia-sdr/archive
 MAIA_WASM_SOURCE = $(MAIA_WASM_VERSION).tar.gz

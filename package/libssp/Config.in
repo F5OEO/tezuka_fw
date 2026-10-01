@@ -1,6 +1,0 @@
-config BR2_PACKAGE_LIBSSP
-	bool "libssp"
-	help
-	  Libssp.
-
-	  https://www.openmamba.org/pub/openmamba/devel/RPMS.arm/libssp-8.2.0-1mamba.arm.rpm

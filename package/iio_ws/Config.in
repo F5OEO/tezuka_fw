@@ -1,6 +1,21 @@
 config BR2_PACKAGE_IIO_WS
 	bool "iio_ws"
+	select BR2_PACKAGE_LIBIIO
+	select BR2_PACKAGE_LIBWEBSOCKETS
 	help
 	  IIO stream to WebSocket Proxy
-	  
-	  
+
+	  iio_ws_proxy.c links directly against -liio and -lwebsockets
+	  (see app/iio_ws/Makefile) but this Config.in never declared
+	  either as a real Buildroot dependency. It "worked" only by
+	  accident: every board building this so far also happened to
+	  pull in BR2_PACKAGE_LIBIIO itself and, separately,
+	  BR2_PACKAGE_LIBWEBSOCKETS via tezuka_tools_mini's own select
+	  list (a mosquitto-websockets leftover, unrelated to this
+	  package -- see that Config.in's comment). Removing that
+	  leftover select exposed this: "fatal error: libwebsockets.h:
+	  No such file or directory" building fishball_mini{,_7020} in
+	  CI run 35263057480. Declaring both selects here, where the
+	  real dependency actually lives, fixes it properly instead of
+	  restoring the accidental one.
+

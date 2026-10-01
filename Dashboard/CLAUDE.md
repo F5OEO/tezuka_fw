@@ -4,17 +4,22 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-A **no-build, browser-only** React dashboard for Tezuka SDR boards (Zynq-7020/AD9363). There is no npm, no bundler, no package.json. React 18 and Babel standalone are loaded from CDN in the HTML file; JSX is transpiled in the browser at runtime.
+A React dashboard for Tezuka SDR boards (Zynq-7020/AD9363), with two build paths that share the same `.jsx` source files:
+
+- **Dev mode** (`Tezuka Dashboard.html`): no-build, browser-only. React 18 and Babel standalone are loaded from CDN; JSX is transpiled in the browser at runtime. Fast edit-and-refresh loop, no npm needed.
+- **Shipped artifact** (`bundle.py`, what actually ends up on the device as `index.html`): precompiles and minifies every `.jsx` file at build time via esbuild (no bundling — each file stays a separate classic `<script>`, preserving the `Object.assign(window, ...)` global-sharing pattern below) and inlines everything into one self-contained HTML file. No Babel-in-browser runtime ships on-device — that alone was ~3 MB of the old shipped page. Needs `npm ci` once (uses the pinned `package-lock.json`; never rewrites it).
 
 ## Running the dashboard
 
-Open `Tezuka Dashboard.html` directly in a browser (served from a local HTTP server or opened as `file://`). All `.jsx` files are loaded as `<script type="text/babel">` tags — they must be served, not opened via `file://` in Chrome (CORS restriction on script src).
+**For editing** — open `Tezuka Dashboard.html` directly in a browser (served from a local HTTP server or opened as `file://`). All `.jsx` files are loaded as `<script type="text/babel">` tags — they must be served, not opened via `file://` in Chrome (CORS restriction on script src).
 
 ```bash
 # Any static server works:
 python3 -m http.server 8080
 # Then open http://localhost:8080/Tezuka%20Dashboard.html
 ```
+
+**For the shipped build** — `python3 bundle.py output.html` (this is what `board/tezuka/common/post-build.sh` runs into `target/root/index.html` for every board). After changing which `.jsx` loader/minify flags are used, or after editing `signals-entry.js`, re-run it and spot-check the page in a browser before committing — there's no automated test suite for this page.
 
 `Tezuka Dashboard (standalone).html` is a self-contained single-file export (all JS inlined) for distribution. Edit source files, not the standalone.
 
