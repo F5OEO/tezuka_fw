@@ -1,0 +1,43 @@
+Fix RADE's vendored Opus cross-compilation: real CC/CXX, no NE10
+
+vendor/rade_c/cmake/BuildOpus.cmake already adds --host=/--target= when
+cross-compiling (see 0002-rade-cross-compile-host-target.patch, which makes
+CMAKE_C_COMPILER_TARGET non-empty), which gets Opus's autoconf past its
+"cannot run C compiled programs" cross-detection check. Two problems remained
+even so:
+
+1. autoconf's --host=<triple> only *implies* a cross-compiler name to search
+   PATH for (<triple>-gcc); it does not know about CMAKE_C_COMPILER. This
+   toolchain's gcc is literally named arm-linux-gcc, which does not match the
+   armv7-unknown-linux-gnueabihf-gcc autoconf goes looking for, so it
+   silently fell back to plain `cc`/`gcc` off $PATH -- the host's own x86_64
+   compiler, still under a --host= that makes configure believe it's cross-
+   compiling. The result wasn't a configure failure; it was ARM inline-asm
+   source (e.g. silk/arm/macros_armv4.h's `smull` template) compiled by an
+   x86_64 compiler, which the assembler then rejected. Passing CC=/CXX=
+   explicitly removes any dependency on the cross-compiler's binary name
+   matching the --host triple.
+
+2. With a real cross-compiler now in play and NEON enabled (see the .mk's
+   -mfpu=neon), Opus's ./configure decides NE10 (an optional ARM NEON DSP
+   library upstream Opus is willing to call into for celt/silk FFTs, unlike
+   the *_neon_intr.c files that always compile in either case) is available,
+   generating code that calls into it whether or not it can actually find or
+   link libNE10 -- there is no NE10 in the sysroot, so this fails at final
+   link with an undefined reference to `ne10_fft_c2c_1d_float32_neon`. This
+   board's toolchain isn't even built with a NEON libc/libgcc (BR2_ARM_FPU is
+   VFPV3D16, not NEON -- a toolchain-wide setting well out of scope for this
+   package), so BR2_PACKAGE_NE10 isn't selectable here regardless.
+   --with-NE10=no opts out and falls back to Opus's portable FFT.
+
+--- a/vendor/rade_c/cmake/BuildOpus.cmake
++++ b/vendor/rade_c/cmake/BuildOpus.cmake
+@@ -3,7 +3,7 @@ message(STATUS "Will build opus with FARGAN")
+ set(CONFIGURE_COMMAND ./autogen.sh && ./configure --with-pic --enable-osce --enable-dred --disable-shared --disable-doc --disable-extra-programs)
+
+ if (CMAKE_CROSSCOMPILING)
+-set(CONFIGURE_COMMAND ${CONFIGURE_COMMAND} --host=${CMAKE_C_COMPILER_TARGET} --target=${CMAKE_C_COMPILER_TARGET})
++set(CONFIGURE_COMMAND ${CONFIGURE_COMMAND} --host=${CMAKE_C_COMPILER_TARGET} --target=${CMAKE_C_COMPILER_TARGET} --with-NE10=no CC=${CMAKE_C_COMPILER} CXX=${CMAKE_CXX_COMPILER})
+ endif (CMAKE_CROSSCOMPILING)
+
+ if (NOT DEFINED OPUS_URL)

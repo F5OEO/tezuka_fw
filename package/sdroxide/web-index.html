@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<!--
+  Hand-derived from upstream's crates/sdroxide-web/index.html: this repo
+  builds the web client with `wasm-bindgen` directly (see sdroxide.mk)
+  rather than `trunk`, which Buildroot has no package for. This is what
+  trunk's own templating (the `<link data-trunk rel="rust">` tag, replaced
+  with a `<script type="module">` loader placed at the end of body) and
+  `--target web`'s relative-asset addressing (Trunk.toml's `public_url =
+  "./"`) already produce; re-check this file against upstream's on every
+  SDROXIDE_VERSION bump.
+-->
+<html>
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>sdroxide</title>
+    <!-- Must run before the wasm opens its socket. -->
+    <script src="ws_arraybuffer.js"></script>
+    <script src="audio_bridge.js"></script>
+    <style>
+        html, body {
+            margin: 0;
+            padding: 0;
+            height: 100%;
+            overflow: hidden;
+            background: #0a0a0a;
+            /* A drag across the canvas is a waterfall pan, not a text
+               selection. Without this WebKit starts selecting the document and
+               washes the whole page in the blue selection tint. */
+            -webkit-user-select: none;
+            user-select: none;
+            -webkit-touch-callout: none;
+            -webkit-tap-highlight-color: transparent;
+            /* No rubber-banding or pull-to-refresh on a full-screen app. */
+            overscroll-behavior: none;
+        }
+        canvas {
+            width: 100%;
+            height: 100%;
+            display: block;
+            /* Every gesture belongs to egui: no panning, pinch-zoom or
+               double-tap-zoom stolen by the browser. */
+            touch-action: none;
+        }
+        /* eframe drives the on-screen keyboard through a hidden input, which
+           still needs real selection to edit text in. */
+        input, textarea {
+            -webkit-user-select: text;
+            user-select: text;
+        }
+    </style>
+</head>
+<body>
+    <canvas id="sdroxide_canvas"></canvas>
+    <script type="module">
+        import init from './sdroxide-web.js';
+        init();
+    </script>
+</body>
+</html>

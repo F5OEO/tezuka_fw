@@ -1,0 +1,31 @@
+Skip opusic-sys's ARM NEON runtime-dispatch build
+
+`opus` doesn't forward opusic-sys's Cargo features, so this adds opusic-sys
+directly to unify the feature set Cargo actually builds. The .mk forces
+-mfpu=neon for this whole target (see sdroxide.mk -- the Zynq-7000 PS has
+NEON, rustc's armv7-unknown-linux-gnueabihf baseline assumes it doesn't, and
+vendored Opus's CMakeLists.txt adds its ARM NEON-intrinsic source files
+whenever <arm_neon.h> exists, regardless of any of its own NEON-related CMake
+options -- so without a target-wide -mfpu=neon those intrinsics fail to
+compile at all). With NEON forced on for every translation unit in this
+build, opusic-sys's runtime CPU-feature dispatch (build both a generic and a
+NEON code path, pick one at startup) has nothing left to switch between;
+`no-runtime-feature-detection` skips building the redundant generic path.
+
+--- a/crates/sdroxide-server/Cargo.toml
++++ b/crates/sdroxide-server/Cargo.toml
+@@ -9,6 +9,14 @@ crossbeam-channel.workspace = true
+ futures-util = "0.3.34"
+ mime_guess = "2.0.5"
+ opus = "0.4.0"
++# Feature-unification shim: `opus` doesn't forward opusic-sys's features, and
++# opusic-sys's default runtime NEON detection compiles ARM NEON intrinsics
++# unconditionally. rustc's armv7-unknown-linux-gnueabihf baseline target
++# builds everything else with -mfpu=vfpv3-d16 (no NEON), so those intrinsics
++# fail to inline ("target specific option mismatch"). This pulls in the same
++# opusic-sys version with NEON detection off, which Cargo's feature
++# unification applies to the one actually built for `opus`.
++opusic-sys = { version = "0.7.3", features = ["no-runtime-feature-detection"] }
+ rtrb.workspace = true
+ rust-embed = { version = "8.12.0", features = ["interpolate-folder-path"], optional = true }
+ sdroxide-proto = { path = "../sdroxide-proto" }

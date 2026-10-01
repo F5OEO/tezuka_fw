@@ -1,0 +1,45 @@
+Fix RADE/Opus cross-compilation: pass CMAKE_C_COMPILER_TARGET
+
+sdroxide-rade's build.rs invokes vendor/rade_c's CMake project, whose own
+cmake/BuildOpus.cmake passes `--host=${CMAKE_C_COMPILER_TARGET}` to the
+bundled Opus's autotools ./configure when CMAKE_CROSSCOMPILING is set. The
+`cmake` crate sets CMAKE_C_COMPILER to the prefixed cross-gcc binary but never
+sets CMAKE_C_COMPILER_TARGET -- that variable is a clang `--target=`
+convention, not something GNU cross toolchains need for themselves. Left
+unset, `--host=` is empty, so Opus's ./configure silently falls back to a
+native (non-cross) configure and then aborts outright the first time it tries
+to run a cross-compiled test binary ("cannot run C compiled programs").
+Cargo's own TARGET triple is close enough to a GNU triple for autoconf's
+config.sub to parse correctly.
+
+--- a/crates/sdroxide-rade/build.rs
++++ b/crates/sdroxide-rade/build.rs
+@@ -33,11 +33,23 @@ fn main() {
+
+     // Always Release: the neural encoder/decoder is unusably slow unoptimized,
+     // including under a plain `cargo build`.
+-    let dst = cmake::Config::new(&wrapper)
+-        .define("RADE_C_DIR", rade_c.to_string_lossy().as_ref())
+-        .profile("Release")
+-        .build_target("rade_static")
+-        .build();
++    let mut cmake_cfg = cmake::Config::new(&wrapper);
++    cmake_cfg.define("RADE_C_DIR", rade_c.to_string_lossy().as_ref()).profile("Release").build_target("rade_static");
++    // rade_c's BuildOpus.cmake passes `--host=${CMAKE_C_COMPILER_TARGET}` to
++    // the vendored Opus's ./configure when CMAKE_CROSSCOMPILING is set, but
++    // the `cmake` crate never sets CMAKE_C_COMPILER_TARGET itself for a GNU
++    // cross toolchain (it only sets CMAKE_C_COMPILER to the prefixed gcc
++    // binary) -- that variable is a clang `--target=` convention. Left unset,
++    // `--host=` is empty and Opus's autoconf falls back to a native
++    // configure, which then fails outright when it tries to run a
++    // cross-compiled test binary. Cargo's own TARGET is close enough to a GNU
++    // triple for config.sub to parse.
++    let target = std::env::var("TARGET").unwrap();
++    let host = std::env::var("HOST").unwrap();
++    if target != host {
++        cmake_cfg.define("CMAKE_C_COMPILER_TARGET", &target);
++    }
++    let dst = cmake_cfg.build();
+
+     let build = dst.join("build");
+     // ExternalProject's default layout for rade_c's `build_opus` target, which

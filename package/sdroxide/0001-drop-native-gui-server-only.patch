@@ -1,0 +1,59 @@
+Drop the native desktop GUI (eframe/sdroxide-ui), server mode only
+
+The root `sdroxide` binary always links eframe/egui for its native GUI mode,
+even when only ever run with `--server`. Two problems for an embedded target:
+eframe 0.36.1 requires rustc >=1.95 (this toolchain builds it fine, but the
+dependency is otherwise dead weight), and this firmware only ever runs
+sdroxide headless as `sdroxide --server`, driving the board's own Pluto-
+compatible IIOD locally. `mod gui_main` and its two call sites (native
+`--connect` remote GUI, and the no-flag-given desktop fallback) are cut;
+`--server` was already GUI-free and is unaffected.
+
+--- a/Cargo.toml
++++ b/Cargo.toml
+@@ -196,19 +196,6 @@ sdroxide-limerfe.workspace = true
+ sdroxide-relay.workspace = true
+ sdroxide-spyserver.workspace = true
+ sdroxide-kiwisdr.workspace = true
+-sdroxide-ui = { workspace = true, features = ["remote"] }
+-# `accesskit` is one of eframe's defaults, and turning the defaults off
+-# silently switched it back off: without it the whole widget tree is
+-# invisible to NVDA, Orca and VoiceOver. It is native-only (it maps to
+-# egui-winit), so it costs the browser build nothing.
+-eframe = { version = "0.36.1", default-features = false, features = [
+-    "accesskit",
+-    "default_fonts",
+-    "wgpu",
+-    "wayland",
+-    "x11",
+-    "persistence",
+-] }
+ anyhow.workspace = true
+ clap.workspace = true
+ tracing.workspace = true
+diff --git a/src/main.rs b/src/main.rs
+--- a/src/main.rs
++++ b/src/main.rs
+@@ -7,7 +7,6 @@ mod devices;
+ mod dial;
+ mod elad_source;
+ mod fobos_source;
+-mod gui_main;
+ mod hackrf_source;
+ mod hpsdr_source;
+ mod hydrasdr_source;
+@@ -335,12 +334,10 @@ fn main() -> anyhow::Result<()> {
+             t if t.contains('/') => format!("ws://{t}"),
+             t => format!("ws://{t}/ws"),
+         };
+-        return gui_main::run_remote(&url);
++        bail!("native remote GUI mode is not available in this build; use --server");
+     }
+
+-    let radios = boot_radios(&mut cli, &settings)?;
+-    let factory_cli = secondary_cli(&cli);
+-    gui_main::run_multi(radios, &settings, cli.tx_ham_only(&settings), factory_cli)
++    bail!("this build has no native GUI; pass --server");
+ }
+
+ /// Everything `main` resolved for one radio before it is put on screen or on

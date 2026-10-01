@@ -1,0 +1,26 @@
+config BR2_PACKAGE_SDROXIDE
+	bool "sdroxide"
+	depends on BR2_PACKAGE_HOST_RUSTC_TARGET_ARCH_SUPPORTS
+	select BR2_PACKAGE_HOST_RUSTC
+	select BR2_PACKAGE_ALSA_LIB
+	select BR2_PACKAGE_RUST_WASM
+	select BR2_PACKAGE_STUNNEL
+	help
+	  SDRoxide (https://github.com/dividebysandwich/sdroxide), built
+	  headless (native GUI dropped -- see 0001-drop-native-gui-server-only)
+	  for `sdroxide --server`: drives this board's own Pluto-compatible
+	  IIOD locally and serves TCI/OpenHPSDR/rigctld plus a WebSocket API
+	  for a browser client (crates/sdroxide-web, built here too -- see
+	  sdroxide.mk). The server binary is large (tens of MB) -- it embeds
+	  several neural-net models (CW decode, noise reduction, the
+	  FreeDV/RADE vocoder) that ship with upstream regardless of which
+	  radio backend is used -- so neither it nor the web client's ~35MB
+	  wasm bundle goes into the ramdisk rootfs; both ship on the SD
+	  card's FAT boot partition instead (see postimage-sd.sh /
+	  S65sdroxide). Only meaningful on an SD-booting board.
+
+	  sdroxide-server has no TLS of its own, and browsers withhold Web
+	  Audio (microphone / audio playback) outside a secure context. A
+	  stunnel front end (S45sdroxide-tls-cert, stunnel-sdroxide.conf)
+	  wraps it in TLS with a throwaway self-signed cert on port 4951,
+	  alongside the plain HTTP port 4950.

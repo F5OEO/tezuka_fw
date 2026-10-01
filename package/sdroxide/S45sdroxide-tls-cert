@@ -1,0 +1,47 @@
+#!/bin/sh
+
+# Throwaway self-signed certificate for stunnel (see stunnel-sdroxide.conf) --
+# sdroxide-server has no TLS of its own (a plain tokio::net::TcpListener,
+# see sdroxide-server's run_blocking), and Chrome/Firefox refuse Web Audio
+# API access (microphone, and audio playback in some versions) outside a
+# secure context -- HTTPS, or the http://localhost/http://127.0.0.1 special
+# case, neither of which a LAN IP like http://10.0.0.x:4950 qualifies for.
+#
+# Regenerated fresh into /tmp on every boot rather than persisted: unlike
+# overlay_maia's S50maia-sdr-certificates (which keeps a CA in /mnt/jffs2 so
+# a re-flashed board keeps the same identity), this only has to make the
+# browser treat the connection as HTTPS -- it is not standing in for a CA
+# anyone is meant to trust, so there is no persistent-storage dependency to
+# get right, and it works the same whether or not a board has a JFFS2/MTD
+# partition at all.
+#
+# This board has no RTC (no /dev/misc/rtc, no NTP client either), so the
+# clock reads the Unix epoch at this point in boot -- S45 runs long before
+# any network interface, let alone an NTP sync, could correct it. `-days`
+# would bake that in as notBefore, leaving the cert permanently "not yet
+# valid" as far as a real browser's clock is concerned once it syncs.
+# -not_before/-not_after pin an explicit, wide-enough-either-way window
+# instead of trusting whatever the clock says right now.
+
+CERTDIR=/tmp/sdroxide-tls
+
+case "$1" in
+    start)
+        [ -f "$CERTDIR/sdroxide.crt" ] && exit 0
+        mkdir -p "$CERTDIR"
+        printf "Generating sdroxide TLS certificate: "
+        openssl req -x509 -nodes -newkey rsa:2048 \
+            -subj "/O=sdroxide/CN=sdroxide" \
+            -not_before 20200101000000Z -not_after 20991231235959Z \
+            -keyout "$CERTDIR/sdroxide.key" -out "$CERTDIR/sdroxide.crt" \
+            >/dev/null 2>&1
+        [ $? = 0 ] && echo "OK" || echo "FAIL"
+        ;;
+    stop|restart|reload)
+        ;;
+    *)
+        echo "Usage: $0 {start|stop|restart}"
+        exit 1
+esac
+
+exit $?

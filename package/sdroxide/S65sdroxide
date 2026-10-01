@@ -1,0 +1,37 @@
+#!/bin/sh
+
+# sdroxide and sdroxide-web/ live on the SD card's FAT boot partition, not in
+# the rootfs (see sdroxide.mk) -- S20fat-mount mounts it at /boot before this
+# script runs.
+
+case "$1" in
+    start)
+        printf "Starting sdroxide: "
+        if [ ! -x /boot/sdroxide ]; then
+            echo "FAIL (/boot/sdroxide not found -- SD card not mounted, or built without it)"
+            exit 1
+        fi
+        if [ -d /boot/sdroxide-web ]; then
+            start-stop-daemon -S -b -q -m -p /var/run/sdroxide.pid -x /boot/sdroxide -- --server --web-root /boot/sdroxide-web
+        else
+            start-stop-daemon -S -b -q -m -p /var/run/sdroxide.pid -x /boot/sdroxide -- --server
+        fi
+        ;;
+    stop)
+        printf "Stopping sdroxide: "
+        if start-stop-daemon -K -q -p /var/run/sdroxide.pid 2>/dev/null; then
+            echo "OK"
+        else
+            echo "FAIL"
+        fi
+        ;;
+    restart|reload)
+        $0 stop
+        $0 start
+        ;;
+    *)
+        echo "Usage: $0 {start|stop|restart}"
+        exit 1
+esac
+
+exit $?
