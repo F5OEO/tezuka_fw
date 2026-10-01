@@ -807,7 +807,7 @@ parse_cmd () {
           killall iio_ws_proxy 2>/dev/null
           while pgrep -x iio_ws_proxy >/dev/null 2>&1; do sleep 0.1; done
         fi
-        /usr/bin/iio_ws_proxy &
+        /usr/bin/iio_ws_proxy -1 &
         publish_force "system/iqtape" "on"
         publish_force "system/siggen" "on"
       else

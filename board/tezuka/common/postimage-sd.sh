@@ -79,4 +79,19 @@ mkimage -A arm -O linux -T kernel -C lzma -a 0x8000 -e 0x8000 \
 cp "$BIN_DIR/$DTB_NAME" "$SDIMGDIR/devicetree.dtb"
 cp "$BIN_DIR/uboot-env.txt" "$SDIMGDIR/uEnv.txt"
 
+# sdroxide (package/sdroxide): too large for the ramdisk rootfs, so it's built
+# as an image (BINARIES_DIR) instead of a target install -- see sdroxide.mk.
+# Copied here onto the SD card's FAT partition itself, which
+# overlay_tezuka's S20fat-mount mounts at /boot at runtime; only present when
+# BR2_PACKAGE_SDROXIDE is enabled for this board. sdroxide-web/ (the browser
+# client's wasm bundle, JS glue and index.html) goes alongside it the same
+# way, for the same reason.
+if [ -e "$BIN_DIR/sdroxide" ]; then
+    cp "$BIN_DIR/sdroxide" "$SDIMGDIR/sdroxide"
+fi
+if [ -d "$BIN_DIR/sdroxide-web" ]; then
+    rm -rf "$SDIMGDIR/sdroxide-web"
+    cp -a "$BIN_DIR/sdroxide-web" "$SDIMGDIR/sdroxide-web"
+fi
+
 

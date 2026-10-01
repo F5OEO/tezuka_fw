@@ -92,3 +92,9 @@ ln -sf ../../wpa_supplicant/ifupdown.sh "${TARGET_DIR}/etc/network/if-pre-up.d/w
 ln -sf ../../wpa_supplicant/ifupdown.sh "${TARGET_DIR}/etc/network/if-post-down.d/wpasupplicant"
 
 ln -sf device_reboot "${TARGET_DIR}/usr/sbin/pluto_reboot"
+
+# maia-httpd serves static files from its CWD (/root, see S60maia-httpd).
+# Symlinking in the /boot FAT partition (mounted by S20fat-mount before
+# maia-httpd starts) lets files dropped in /boot/www/ on the SD card be
+# served at /www/... without a firmware rebuild.
+ln -sf /boot/www "${TARGET_DIR}/root/www"

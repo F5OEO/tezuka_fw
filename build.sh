@@ -143,7 +143,7 @@ build_board() {
     fi
 
     # shellcheck disable=SC2086
-    make -C "${BUILDROOT_DIR}" O="${output_dir}" ${JOBS}
+    CMAKE_POLICY_VERSION_MINIMUM=3.5 make -C "${BUILDROOT_DIR}" O="${output_dir}" ${JOBS}
 
     local zip="${output_dir}/images/tezuka.zip"
     if [ -f "${zip}" ]; then

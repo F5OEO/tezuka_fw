@@ -106,7 +106,7 @@ else
 fi
 cp "$BIN_DIR/u-boot.elf" "$JTAGDIR"
 cp "$BOARD_DIR/bitstream/fsbl.elf" "$JTAGDIR"
-cp "$BR2_EXTERNAL/tools/jtag-recovery/xilinx-tcl.cfg" "$JTAGDIR"
-cp "$BR2_EXTERNAL/tools/jtag-recovery/boot_fsbl_uboot.sh" "$JTAGDIR"
-cp "$BR2_EXTERNAL/tools/jtag-recovery/boot_fsbl_uboot.bat" "$JTAGDIR"
-cp "$BR2_EXTERNAL/tools/jtag-recovery/tezuka.cfg" "$JTAGDIR"
+cp "$COMMON_DIR/../../../tools/jtag-recovery/xilinx-tcl.cfg" "$JTAGDIR"
+cp "$COMMON_DIR/../../../tools/jtag-recovery/boot_fsbl_uboot.sh" "$JTAGDIR"
+cp "$COMMON_DIR/../../../tools/jtag-recovery/boot_fsbl_uboot.bat" "$JTAGDIR"
+cp "$COMMON_DIR/../../../tools/jtag-recovery/tezuka.cfg" "$JTAGDIR"
