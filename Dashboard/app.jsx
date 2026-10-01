@@ -145,7 +145,7 @@ function App() {
       case "datv": return <DATV d={d} callsign={op.callsign} />;
       case "transverter": return <Transverter d={d} />;
       case "iqtape": return <IQTape d={d} />;
-      case "siggen": return <SigGen d={d} />;
+      case "siggen": return <SigGen d={d} callsign={op.callsign} />;
       case "rftest": return <RfTest d={d} />;
       case "calibrate": return <Calibrate d={d} navigate={setRoute} />;
       case "analysis": return <Analysis d={d} />;
