@@ -1,15 +1,25 @@
 #!/bin/sh
 #
 # avahi-daemon init script
-name=$(hostname)
-usbname="$name"-usb
-ethname="$name"-eth
-#echo "usb $usbname eth $ethname"
 
 DAEMON=/usr/sbin/avahi-daemon
 case "$1" in
     start)
-	echo "192.168.2.1 $usbname".local > /etc/avahi/hosts
+	# Previously wrote a static "<hostname>-usb.local" alias to
+	# /etc/avahi/hosts pointing at a hardcoded 192.168.2.1 -- wrong for
+	# any board whose usb0 IP differs (e.g. Pluto+ actually uses
+	# 192.168.4.1, silently pointing "plutoplus-usb.local" at a
+	# different device's address instead). Fixing just the address
+	# didn't work either: avahi already auto-binds the plain hostname's
+	# own mDNS record to every live interface (confirmed via
+	# diagnostic_report -- "plutoplus.local" gets its own address record
+	# on both eth0 and usb0), so a static alias record for any live
+	# interface's own address always collides with that automatic
+	# registration -- reproducible on every board, not just USB-only
+	# ones. Dropping the alias entirely; nothing else in this repo
+	# references it (the analogous "-eth" alias was defined but never
+	# even written).
+	: > /etc/avahi/hosts
 	$DAEMON -c || $DAEMON -D
 	;;
     stop)
