@@ -52,6 +52,24 @@ function fmtHz(hz) {
   return Math.round(hz) + ' Hz';
 }
 
+// The daemon publishes "n/a" (a literal string, not a number) for the two
+// cross-cycle features until its rolling history has enough samples — see
+// history_compute() in app/classifier/classifier.c.
+function parseMaybe(v) {
+  if (v == null || v === 'n/a') return null;
+  const n = Number(v);
+  return isFinite(n) ? n : null;
+}
+
+function fmtHzRate(hzPerS) {
+  if (hzPerS == null || !isFinite(hzPerS)) return '—';
+  const sign = hzPerS < 0 ? '-' : '';
+  const abs = Math.abs(hzPerS);
+  if (abs >= 1e6) return sign + (abs / 1e6).toFixed(2) + ' MHz/s';
+  if (abs >= 1e3) return sign + (abs / 1e3).toFixed(1) + ' kHz/s';
+  return sign + Math.round(abs) + ' Hz/s';
+}
+
 function ClassifierPage({ d }) {
   const canvasRef = useRCl(null);
   const binsRef   = useRCl(null);      // Float32Array dB, current live frame
@@ -64,7 +82,14 @@ function ClassifierPage({ d }) {
   const [log, setLog] = useSCl([]);          // {t, label, confidence, templateId}
   const lastLoggedRef = useRCl(null);        // dedupe: only log on actual change
 
-  const refDb = 0, range = 100; // fixed display scale — this page isn't a general-purpose analyzer
+  // Fixed display scale — this page isn't a general-purpose analyzer, so it
+  // doesn't expose its own ref/range tuner. Must match the rest of the
+  // Dashboard's default window (pages1.jsx / radioastro.jsx both default to
+  // refDb=130, range=SP_ROWS*10=80): /waterfall's bins are raw-amplitude-to-
+  // dB, not calibrated dBm, so they land around 50-130, not 0..-100. The
+  // previous 0/-100 window clipped every real bin to the top pixel row,
+  // which read as an empty trace.
+  const refDb = 130, range = 80;
 
   // Band plan: fetched once from maia-httpd's static file serving (see
   // S59bandplan — /root/bandplan.json is a symlink to the persistent copy
@@ -91,6 +116,25 @@ function ClassifierPage({ d }) {
   // device-side state needed.
   const centerHz = d.rxFreq ?? 100e6;
   const spanHz = d.span ?? d.rxSampling ?? 20e6;
+
+  // Signal Features (experimental): per-frame scalar features + cross-cycle
+  // drift/duty-cycle, published unconditionally by the daemon every ~1s
+  // cycle regardless of match outcome — see extract_frame_features() /
+  // history_compute() in app/classifier/classifier.c. Bin-based values are
+  // converted to Hz using this page's own live /waterfall connection's
+  // current frame length: the daemon doesn't publish a fresh frame_bins
+  // alongside these (only alongside an actual match, where the reading
+  // needs to be exact) — this is an approximation, fine for a display-only
+  // readout, and only ever off if the frame size changed within the last
+  // update cycle.
+  const featureFrameBins = binsRef.current ? binsRef.current.length : null;
+  const toHz = (bins) => (bins == null || !featureFrameBins) ? null : (bins / featureFrameBins) * spanHz;
+  const featureBandwidthHz = toHz(parseMaybe(d.classifierFeatureBandwidthBins));
+  const featureDriftHzS    = toHz(parseMaybe(d.classifierFeatureDriftBinsS));
+  const featurePaprDb      = parseMaybe(d.classifierFeaturePaprDb);
+  const featureFlatness    = parseMaybe(d.classifierFeatureFlatness);
+  const featurePeakCount   = parseMaybe(d.classifierFeaturePeakCount);
+  const featureDutyPct     = parseMaybe(d.classifierFeatureDutyCyclePct);
 
   function redraw() {
     const canvas = canvasRef.current;
@@ -352,6 +396,21 @@ function ClassifierPage({ d }) {
               {e.templateId != null && <span className="dim">#{e.templateId}</span>}
             </div>
           ))}
+        </div>
+      </Card>
+
+      <Card title="Signal Features" sub="Per-frame + rolling scalar features, published every cycle regardless of match" className="span-12"
+        right={<Pill tone="warn">experimental</Pill>}>
+        <div className="mono" style={{ display: 'flex', flexWrap: 'wrap', gap: '4px 5ch' }}>
+          <div><div className="dim" style={{ fontSize: 11 }}>Occupied bandwidth</div><div>{fmtHz(featureBandwidthHz)}</div></div>
+          <div><div className="dim" style={{ fontSize: 11 }}>Peak/average ratio</div><div>{featurePaprDb == null ? '—' : featurePaprDb.toFixed(1) + ' dB'}</div></div>
+          <div><div className="dim" style={{ fontSize: 11 }}>Spectral flatness</div><div>{featureFlatness == null ? '—' : featureFlatness.toFixed(3)}</div></div>
+          <div><div className="dim" style={{ fontSize: 11 }}>Peak count</div><div>{featurePeakCount == null ? '—' : Math.round(featurePeakCount)}</div></div>
+          <div><div className="dim" style={{ fontSize: 11 }}>Drift (peak sweep rate)</div><div>{fmtHzRate(featureDriftHzS)}</div></div>
+          <div><div className="dim" style={{ fontSize: 11 }}>Duty cycle</div><div>{featureDutyPct == null ? '—' : featureDutyPct.toFixed(0) + '%'}</div></div>
+        </div>
+        <div className="dim" style={{ fontSize: 11, marginTop: 10, maxWidth: '70ch' }}>
+          High flatness + low peak/average → broadband/noise-like (e.g. OFDM). Low flatness + high peak/average → tonal (e.g. CW). A non-zero drift means the dominant peak is sweeping — a static single frame can't otherwise show that a signal is a chirp. Duty cycle and drift read "—" until the daemon's rolling history has enough samples (a few seconds after (re)start).
         </div>
       </Card>
 
