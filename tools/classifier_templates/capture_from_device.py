@@ -11,6 +11,17 @@ path for a first hardware smoke test; build out a proper synthesis-based
 template library (see synthesize_template.py) once the basic pipeline
 is confirmed working end to end.
 
+By default this also writes a version-2 feature gate (see templates_format.py
+and app/classifier/classifier.c's template_gate_factor()): each of the
+captured frames (not just their average) is run through the same
+bandwidth/PAPR/flatness/peak-count features the on-device daemon computes,
+and the range across those per-frame values -- widened a bit further by
+--gate-margin -- becomes the template's expected range. That's genuinely
+data-driven (actual capture-to-capture spread), unlike
+synthesize_template.py's single-idealized-curve range, so the default
+margin here is smaller. Pass --no-gate for a plain shape-only (version 1)
+template.
+
 Usage:
     python3 capture_from_device.py --host 192.168.1.50 --label OFDM \
         --template-id 1 --frames 20 --out templates.bin
@@ -22,7 +33,8 @@ import asyncio
 import struct
 import sys
 
-from templates_format import Template, normalize, write_templates, read_templates
+from features import extract_frame_features
+from templates_format import FeatureRanges, Template, normalize, write_templates, read_templates
 
 try:
     import websockets
@@ -58,6 +70,23 @@ def average_frames(frames):
     return [sum(f[i] for f in frames) / len(frames) for i in range(n)]
 
 
+def feature_ranges_from_frames(frames, margin: float) -> "FeatureRanges | None":
+    """Per-frame (not averaged) features across the actual capture, widened
+    by `margin` -- real observed spread, not a guess. Returns None if none
+    of the captured frames had enough energy to produce valid features."""
+    per_frame = [extract_frame_features(f) for f in frames]
+    valid = [ff for ff in per_frame if ff.valid]
+    if not valid:
+        return None
+    return FeatureRanges.from_samples(
+        [ff.bandwidth_frac for ff in valid],
+        [ff.papr_db for ff in valid],
+        [ff.flatness for ff in valid],
+        [ff.peak_count for ff in valid],
+        margin=margin,
+    )
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--host", required=True, help="device IP/hostname")
@@ -65,6 +94,11 @@ def main():
     ap.add_argument("--label", required=True, help="class label for this template (e.g. OFDM)")
     ap.add_argument("--template-id", type=int, required=True, help="numeric template id, must be unique within the output file")
     ap.add_argument("--frames", type=int, default=20, help="frames to capture and average (default: 20)")
+    ap.add_argument("--gate-margin", type=float, default=0.15,
+                     help="fractional margin further widening the observed per-frame feature "
+                          "spread into the template's expected range (default: 0.15)")
+    ap.add_argument("--no-gate", action="store_true",
+                     help="write a plain shape-only (version 1) template, with no feature gate")
     ap.add_argument("--out", required=True, help="templates.bin path to write/append to")
     args = ap.parse_args()
 
@@ -78,7 +112,15 @@ def main():
     canonical_n = len(avg)
     print(f"Captured and averaged {len(frames)} frames, {canonical_n} bins each.", file=sys.stderr)
 
-    new_template = Template(label=args.label, template_id=args.template_id, data=normalize(avg))
+    feature_ranges = None
+    if not args.no_gate:
+        feature_ranges = feature_ranges_from_frames(frames, args.gate_margin)
+        if feature_ranges is None:
+            print("warning: no captured frame had enough energy to compute a feature gate "
+                  "-- writing a shape-only template instead", file=sys.stderr)
+
+    new_template = Template(label=args.label, template_id=args.template_id,
+                             data=normalize(avg), feature_ranges=feature_ranges)
 
     # Append to an existing file if present (and its canonical_n matches),
     # otherwise start a fresh one — makes it natural to build a template
@@ -100,7 +142,8 @@ def main():
         templates = [new_template]
 
     write_templates(args.out, canonical_n, templates)
-    print(f"Wrote {len(templates)} template(s) to {args.out}.", file=sys.stderr)
+    gate_note = "with feature gate" if feature_ranges else "shape-only, no gate"
+    print(f"Wrote {len(templates)} template(s) to {args.out} ({gate_note}).", file=sys.stderr)
 
 
 if __name__ == "__main__":

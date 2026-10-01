@@ -123,6 +123,19 @@ function applyMqtt(prev, path, raw) {
     case 'classifier/bandwidth_bins':  return { ...prev, classifierBandwidthBins: raw };
     case 'classifier/frame_bins':      return { ...prev, classifierFrameBins: raw };
     case 'classifier/template_id':     return { ...prev, classifierTemplateId: raw };
+    // Per-frame scalar features (experimental) — published every cycle
+    // regardless of match outcome, so these populate even while
+    // classifierLabel is "unknown". See extract_frame_features() in
+    // app/classifier/classifier.c.
+    case 'classifier/feature_bandwidth_bins': return { ...prev, classifierFeatureBandwidthBins: raw };
+    case 'classifier/feature_papr_db':        return { ...prev, classifierFeaturePaprDb: raw };
+    case 'classifier/feature_flatness':       return { ...prev, classifierFeatureFlatness: raw };
+    case 'classifier/feature_peak_count':     return { ...prev, classifierFeaturePeakCount: raw };
+    // Cross-cycle features (experimental) — "n/a" (a literal string, not a
+    // number) until the daemon's rolling history has enough samples; see
+    // history_compute() in app/classifier/classifier.c.
+    case 'classifier/feature_drift_bins_s':     return { ...prev, classifierFeatureDriftBinsS: raw };
+    case 'classifier/feature_duty_cycle_pct':   return { ...prev, classifierFeatureDutyCyclePct: raw };
     case 'operator/name':               return { ...prev, opName: raw };
     case 'operator/callsign':           return { ...prev, opCallsign: raw };
     case 'operator/locator':            return { ...prev, opLocator: raw };

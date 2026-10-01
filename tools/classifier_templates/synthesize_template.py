@@ -17,6 +17,14 @@ GNU Radio/TorchSig synthesis pipeline (varied bandwidth, symbol rate,
 roll-off, realistic noise) for a production template library. Prefer
 capture_from_device.py against a real signal when you can.
 
+By default this also writes a version-2 feature gate (see templates_format.py
+and app/classifier/classifier.c's template_gate_factor()), computed from the
+synthesized shape's own bandwidth/PAPR/flatness/peak-count and widened by
+--gate-margin -- a generous default (0.25) since it's built from one
+idealized curve, not several real captures like capture_from_device.py's
+data-driven range. Pass --no-gate for a plain shape-only (version 1)
+template.
+
 Usage:
     python3 synthesize_template.py --shape ofdm --label LTE --template-id 3 \
         --bins 512 --bw-frac 0.4 --out templates.bin
@@ -25,7 +33,8 @@ import argparse
 
 import numpy as np
 
-from templates_format import Template, normalize, write_templates, read_templates
+from features import extract_frame_features
+from templates_format import FeatureRanges, Template, normalize, write_templates, read_templates
 
 SHAPES = ["ofdm", "narrowband", "chirp", "pulsed", "cw"]
 
@@ -110,6 +119,12 @@ def main():
     ap.add_argument("--bins", type=int, default=512, help="canonical_n (default: 512)")
     ap.add_argument("--bw-frac", type=float, default=0.3,
                      help="occupied bandwidth as a fraction of the template's span, 0-1 (default: 0.3)")
+    ap.add_argument("--gate-margin", type=float, default=0.25,
+                     help="fractional margin widening this shape's own computed features into an "
+                          "expected range for match gating (default: 0.25) -- generous, since it's "
+                          "built from one idealized curve rather than several real captures")
+    ap.add_argument("--no-gate", action="store_true",
+                     help="write a plain shape-only (version 1) template, with no feature gate")
     ap.add_argument("--out", required=True)
     args = ap.parse_args()
 
@@ -117,7 +132,18 @@ def main():
         raise SystemExit("--bw-frac must be in (0, 1]")
 
     raw = SYNTH[args.shape](args.bins, args.bw_frac)
-    new_template = Template(label=args.label, template_id=args.template_id, data=normalize(list(raw)))
+
+    feature_ranges = None
+    if not args.no_gate:
+        ff = extract_frame_features(list(raw))
+        if ff.valid:
+            feature_ranges = FeatureRanges.from_samples(
+                [ff.bandwidth_frac], [ff.papr_db], [ff.flatness], [ff.peak_count],
+                margin=args.gate_margin,
+            )
+
+    new_template = Template(label=args.label, template_id=args.template_id,
+                             data=normalize(list(raw)), feature_ranges=feature_ranges)
 
     try:
         existing_n, existing = read_templates(args.out)
@@ -132,7 +158,9 @@ def main():
         templates = [new_template]
 
     write_templates(args.out, args.bins, templates)
-    print(f"Wrote {len(templates)} template(s) to {args.out} (added/updated: {args.label!r}, shape={args.shape}).")
+    gate_note = "with feature gate" if feature_ranges else "shape-only, no gate"
+    print(f"Wrote {len(templates)} template(s) to {args.out} "
+          f"(added/updated: {args.label!r}, shape={args.shape}, {gate_note}).")
 
 
 if __name__ == "__main__":
