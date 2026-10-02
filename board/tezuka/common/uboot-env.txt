@@ -1,3 +1,5 @@
+# Modified by Christos Nikolaou (SV1EIA) 2026.
+# Christos Nikolaou can be reached by email at : sv1eia@gmail.com
 adi_loadfdt_multiple=\
   fdt addr ${fit_load_address}; \
   fdt get value fdt_choosen /configurations/${fit_config}/ fdt; \
@@ -33,10 +35,10 @@ adi_config_clocks=\
 adi_config_gpio_by_refclk=\
   if test "${refclk_source}" = "internal"; then \
     echo "Setting refclk internal"; \
-    fdt rm /amba/gpio@e000a000/clock_extern_en; \
+    fdt rm /axi/gpio@e000a000/clock_extern_en || fdt rm /amba/gpio@e000a000/clock_extern_en; \
   elif test "${refclk_source}" = "external"; then \
     echo "Setting refclk external"; \
-    fdt rm /amba/gpio@e000a000/clock_internal_en; \
+    fdt rm /axi/gpio@e000a000/clock_internal_en || fdt rm /amba/gpio@e000a000/clock_internal_en; \
   fi;
 
 adi_config_rf_mode=\
@@ -48,17 +50,17 @@ adi_config_rf_mode=\
 adi_config_devicetree=\
   if test "${mode}" = "1r1t"; then \
     echo "Setting mode 1r1t"; \
-    fdt rm /amba/spi@e0006000/ad9361-phy@0 adi,2rx-2tx-mode-enable; \
+    fdt rm /axi/spi@e0006000/ad9361-phy@0 adi,2rx-2tx-mode-enable || fdt rm /amba/spi@e0006000/ad9361-phy@0 adi,2rx-2tx-mode-enable; \
     fdt set /fpga-axi/cf-ad9361-dds-core-lpc@79024000 compatible adi,axi-ad9364-dds-6.00.a; \
   else \
     echo "Setting mode 2r2t"; \
   fi; \
   if test -n "${cs_gpio}"; then \
-    fdt set /amba/axi_quad_spi@7C430000/ cs-gpios "<0x06 ${cs_gpio} 0>"; \
+    fdt set /axi/axi_quad_spi@7C430000/ cs-gpios "<0x06 ${cs_gpio} 0>" || fdt set /amba/axi_quad_spi@7C430000/ cs-gpios "<0x06 ${cs_gpio} 0>"; \
   fi; \
   if test -n "${attr_name}" && test -n "${attr_val}"; then \
     echo "Setting admodel ${attr_val}"; \
-    fdt set /amba/spi@e0006000/ad9361-phy@0 ${attr_name} ${attr_val}; \
+    fdt set /axi/spi@e0006000/ad9361-phy@0 ${attr_name} ${attr_val} || fdt set /amba/spi@e0006000/ad9361-phy@0 ${attr_name} ${attr_val}; \
   fi;
 
 adi_loadvals=\
