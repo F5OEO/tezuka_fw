@@ -22,7 +22,10 @@ case "$1" in
 		# Restore Dropbear authorized_keys from jffs2 (/root/.ssh is the
 		# default path Dropbear uses for user pubkey authorization)
 		[ ! -d /root/.ssh ] && mkdir -p /root/.ssh && chmod 700 /root/.ssh
-		[ -f /mnt/jffs2/etc/ssh/authorized_keys ] && [ ! -f /root/.ssh/authorized_keys ] && cp /mnt/jffs2/etc/ssh/authorized_keys /root/.ssh/authorized_keys && chmod 600 /root/.ssh/authorized_keys
+		# device_persistent_keys saves to /mnt/jffs2/root/.ssh; /mnt/jffs2/etc/ssh is the legacy location
+		for AK in /mnt/jffs2/root/.ssh/authorized_keys /mnt/jffs2/etc/ssh/authorized_keys; do
+			[ -f "$AK" ] && [ ! -f /root/.ssh/authorized_keys ] && cp "$AK" /root/.ssh/authorized_keys && chmod 600 /root/.ssh/authorized_keys
+		done
 
 		xo_correction
 		MAX_BS=$(fw_printenv -n iio_max_block_size 2> /dev/null || echo 67108864)
