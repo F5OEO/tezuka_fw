@@ -1,3 +1,5 @@
+// Modified by Christos Nikolaou (SV1EIA) 2026.
+// Christos Nikolaou can be reached by email at : sv1eia@gmail.com
 // pages2.jsx — DATV Controller, Versions, Analysis, Network
 const { useState: useS2, useEffect: useE2, useRef: useR2 } = React;
 
@@ -2640,7 +2642,66 @@ function fmtClkrefFreq(freq) {
   return `${hz} Hz`;
 }
 
+// ADF4001 boards (PlutoSky R2): the FPGA closes the loop only while a valid
+// 10 MHz is detected and reports the chip's lock detect; see RefFix in the
+// board documentation. The LED on the case shows the same lock state.
+const CLKREF_STATE_LABELS = {
+  absent:  ['No reference', 'neutral'],
+  acquire: ['Acquiring',    'warn'],
+  locked:  ['Locked',       'ok'],
+  recheck: ['Re-checking',  'warn'],
+};
+const CLKREF_MODE_OPTIONS = [
+  { v: 'auto',     l: 'Automatic (follow the detector)' },
+  { v: 'external', l: 'External: loop always closed' },
+  { v: 'internal', l: 'Internal: VCTCXO free-running' },
+];
+
+function ClockRefAdf4001({ d }) {
+  const state = d.clkrefState || '';
+  const [stateLabel, stateTone] = CLKREF_STATE_LABELS[state] || ['Unknown', 'neutral'];
+  const present = d.clkrefPresent === '1';
+  const cp = d.clkrefCp === '1';
+  const mode = ['auto', 'external', 'internal'].includes(d.clkrefMode) ? d.clkrefMode : 'auto';
+  const count = d.clkrefCount;
+  const countHint = count == null ? '' : `${count} R-divider edges per 102.4 us window (1024 = 10.000 MHz; tens of thousands = open input)`;
+
+  return (
+    <div className="page">
+      <div className="datv-head">
+        <div className="datv-title">
+          <h1>Reference Clock</h1>
+          <span className="datv-sub mono">ADF4001 PLL locking the 40 MHz VCTCXO to the 10 MHz input (CLKIN)</span>
+        </div>
+      </div>
+
+      <div className="grid-12">
+        <Card title="Reference clock" sub="What the FPGA sees on the ADF4001" className="span-12">
+          <div style={{ display: "flex", alignItems: "center", gap: "2em", flexWrap: "wrap" }}>
+            <Field label="Lock status">
+              <Pill tone={stateTone} dot>{stateLabel}</Pill>
+            </Field>
+            <Field label="10 MHz input" hint={countHint || undefined}>
+              <Pill tone={present ? "ok" : "neutral"} dot>{present ? "Present" : "Not detected"}</Pill>
+            </Field>
+            <Field label="Charge pump" hint="Active = loop closed, VCTCXO steered by the reference">
+              <span className="mono">{cp ? "active" : "three-state"}</span>
+            </Field>
+            <Field label="Mode" hint="Stored in the boot environment; applied at once, no reboot">
+              <Select value={mode} onChange={(v) => d.publish('system/clkref/mode', v)} options={CLKREF_MODE_OPTIONS} />
+            </Field>
+          </div>
+          <div style={{ marginTop: 16 }}>
+            <Pill tone="neutral" dot>Yellow LED on the case: on = locked, off = not locked (no reference, or loop forced open)</Pill>
+          </div>
+        </Card>
+      </div>
+    </div>
+  );
+}
+
 function ClockRef({ d }) {
+  if (d.clkrefHw === 'adf4001') return <ClockRefAdf4001 d={d} />;
   const source = d.clkrefSource || '';
   const locked = d.clkrefLock === '1';
   const freq = d.clkrefFrequency;
