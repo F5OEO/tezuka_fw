@@ -206,6 +206,8 @@ Since this is live hardware (not disposable CI infra), confirm with the user bef
 
 `.github/workflows/main.yml` builds a matrix from `boards.json`. On tag push (`vX.Y.Z`), it publishes a GitHub release with per-board zips (a grouped board, e.g. `fishball_mini_7010`, ships merged into its counterpart's zip, e.g. `fishball`, when both were built — see "Board groups" above) and git-cliff release notes. Manual dispatch builds artifacts only (no release). ccache is keyed per board; Buildroot downloads are shared across the matrix.
 
+To smoke-test a PR's changes, dispatch `main.yml` on the PR's branch (`gh workflow run main.yml --ref <pr-branch> -f boards=<board-or-all>`). A separate workflow, `.github/workflows/pr-comment.yml`, triggers on that run's completion via `workflow_run` and posts a comment on the matching PR linking to the run's artifacts — modeled on maia-sdr's `plutosdr-fw-pr-comment.yml`. It needs the PR number, which `workflow_run`'s own event payload doesn't carry for `workflow_dispatch`-triggered runs (only for `pull_request`/`pull_request_target`), so `main.yml`'s `matrix` job resolves it itself (via the commits/pulls API, keyed on `github.sha`) and hands it off as a `pr-number` artifact for the comment job to read.
+
 ## Important constraints
 
 - Never read, grep, or glob inside the `buildroot/` directory — it is a downloaded third-party tree.

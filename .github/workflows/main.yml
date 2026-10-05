@@ -40,6 +40,9 @@ run-name: >-
 jobs:
   matrix:
     runs-on: ubuntu-22.04
+    permissions:
+      contents: read
+      pull-requests: read
     outputs:
       matrix: ${{ steps.set-matrix.outputs.matrix }}
       # 'true' iff exactly one board in the matrix. Used by tezuka
@@ -95,6 +98,32 @@ jobs:
             echo
             jq -r '.[] | "- `\(.board)` -> `\(.defconfig)`"' <<<"$INCLUDE"
           } >> "$GITHUB_STEP_SUMMARY"
+
+      # workflow_dispatch runs aren't reported in the workflow_run event's
+      # own pull_requests field (that's only populated for pull_request /
+      # pull_request_target triggers), so the pr-comment workflow can't
+      # resolve a PR number itself. Resolve it here, while we still have
+      # github.sha, and hand it off as an artifact -- the commits/pulls
+      # endpoint matches on commit SHA regardless of how the run that
+      # built that SHA was triggered.
+      - name: Resolve associated PR number
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          PR=$(gh api "repos/${{ github.repository }}/commits/${{ github.sha }}/pulls" \
+            --jq '[.[] | select(.state == "open")] | first | .number // ""')
+          echo "$PR" > pr-number.txt
+          echo "Resolved PR for ${{ github.sha }}: ${PR:-none}"
+
+      - name: Upload PR number
+        if: github.event_name == 'workflow_dispatch'
+        uses: actions/upload-artifact@v7
+        with:
+          name: pr-number
+          path: pr-number.txt
+          if-no-files-found: warn
 
   tezuka:
     needs: matrix
