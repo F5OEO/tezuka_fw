@@ -36,6 +36,14 @@ IFPLUGD_ARGS="${IFPLUGD_ARGS} -i ${IFACE}"
 # command line and use "--make-pidfile" to instruct start-stop-daemon
 # to create one.
 start() {
+	# On boards with no eth0 at all (e.g. USB-only Pluto), the default
+	# instance's target interface genuinely doesn't exist -- starting
+	# ifplugd against it just logs "getting interface flags failed: No
+	# such device" and exits immediately (see diagnostic_report). Skip
+	# quietly instead, same as the "no interface configured" case above.
+	if ! ip link show "$IFACE" >/dev/null 2>&1; then
+		exit 0
+	fi
 	printf 'Starting %s for %s: ' "$DAEMON" "$IFACE"
 	/usr/sbin/ifplugd
 	status=$?
