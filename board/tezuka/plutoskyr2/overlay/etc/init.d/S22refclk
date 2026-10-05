@@ -3,40 +3,45 @@
 # PlutoSky R2: reference clock selection (issue #452).
 #
 # The 40 MHz VCTCXO is tuned by an ADF4001 PLL referenced to the 10 MHz
-# input (MMCX U9). With no 10 MHz present an active charge pump drags the
-# VCTCXO around and the carrier wanders, so the PL now watches REFIN (ADF4001
-# MUXOUT = R divider output) and only enables the charge pump while a valid
-# 10 MHz is there. Plugging or unplugging the reference switches on the fly.
+# input (MMCX U9). The FPGA supervises the PLL: with no reference the charge
+# pump is three-stated and the VCTCXO free-runs; when a valid 10 MHz is
+# detected the loop is closed and the chip's lock detect is watched. The
+# yellow LED is on while the loop is locked and off otherwise (the FPGA
+# probes the input once a second, for well under a millisecond).
 #
-#   refclk_auto unset/on (default): automatic, done in the PL
+#   refclk_auto unset/on (default): automatic, done in the FPGA
 #   refclk_auto=off                : fixed, from refclk_source
-#       refclk_source=external     : charge pump always active
-#       refclk_source=internal     : charge pump always three-state
+#       refclk_source=external     : loop always closed
+#       refclk_source=internal     : loop always open
 #
-# Change with fw_setenv, then "/etc/init.d/S22refclk restart" (no reboot).
-# "/etc/init.d/S22refclk status" shows what the PL sees.
+# "S22refclk set auto|external|internal" stores the choice with fw_setenv and
+# applies it; "S22refclk status" shows what the FPGA sees. The EMIO line map
+# comes from /etc/refclk.conf. Bitstreams without the logic loop the lines
+# back and ignore them. Uses the libgpiod v1 tools (no GPIO sysfs).
 #
-# EMIO lines (zynq_gpio chip offset 54 + n, driven with libgpiod v1 tools;
-# the kernel has no GPIO sysfs interface):
-#   32 out force external, 34 out force internal (neither: auto)
-#   33 in  10 MHz present, 35 in charge pump active, 36..51 in edge count
-#      (per 1.6384 ms window: 16384 = 10 MHz)
-# Bitstreams without this logic loop the lines back and ignore them.
+# Modified by Christos Nikolaou (SV1EIA) 2026.
+# Christos Nikolaou can be reached by email at : sv1eia@gmail.com
 
-EMIO_BASE=54
-EMIO_FORCE_EXT=32
-EMIO_PRESENT=33
-EMIO_FORCE_INT=34
-EMIO_CP_ACTIVE=35
-EMIO_COUNT=36
+CONF=/etc/refclk.conf
+[ -r "$CONF" ] && . "$CONF"
+: "${REFCLK_CHIP_LABEL:=zynq_gpio}"
+: "${REFCLK_EMIO_BASE:=54}"
+: "${REFCLK_O_FORCE_EXT:=32}"
+: "${REFCLK_O_FORCE_INT:=34}"
+: "${REFCLK_I_PRESENT:=33}"
+: "${REFCLK_I_CP:=35}"
+: "${REFCLK_I_COUNT:=36}"
+: "${REFCLK_I_LOCK:=52}"
+: "${REFCLK_I_STATE:=53}"
+: "${REFCLK_COUNT_EXPECTED:=1024}"
 
 zynq_gpio_chip() {
-	gpiodetect 2>/dev/null | sed -n 's/^\(gpiochip[0-9]*\) \[zynq_gpio\].*/\1/p' | head -n 1
+	gpiodetect 2>/dev/null | sed -n "s/^\(gpiochip[0-9]*\) \[$REFCLK_CHIP_LABEL\].*/\1/p" | head -n 1
 }
 
 # gpio_out <emio> <0|1>: the zynq driver keeps the level after release
 gpio_out() {
-	gpioset "$CHIP" $((EMIO_BASE + $1))=$2
+	gpioset "$CHIP" $((REFCLK_EMIO_BASE + $1))=$2
 }
 
 # gpio_in <emio> [count]: prints the values, lowest emio first
@@ -45,47 +50,76 @@ gpio_in() {
 	offsets=""
 	i=0
 	while [ $i -lt $n ]; do
-		offsets="$offsets $((EMIO_BASE + $1 + i))"
+		offsets="$offsets $((REFCLK_EMIO_BASE + $1 + i))"
 		i=$((i + 1))
 	done
 	gpioget "$CHIP" $offsets
 }
 
-start() {
+mode_from_env() {
 	REFCLK_AUTO=$(fw_printenv -n refclk_auto 2>/dev/null | tr -cd '[a-zA-Z0-9]')
 	REFCLK_SOURCE=$(fw_printenv -n refclk_source 2>/dev/null | tr -cd '[a-zA-Z0-9]')
-
 	case "$REFCLK_AUTO" in
 	off|no|0)
-		if [ "$REFCLK_SOURCE" = "external" ]; then
-			MODE=external; EXT=1; INT=0
-		else
-			MODE=internal; EXT=0; INT=1
-		fi
+		if [ "$REFCLK_SOURCE" = "external" ]; then echo external; else echo internal; fi
 		;;
 	*)
-		MODE=auto; EXT=0; INT=0
+		echo auto
 		;;
 	esac
+}
 
-	gpio_out $EMIO_FORCE_INT $INT
-	gpio_out $EMIO_FORCE_EXT $EXT
+start() {
+	MODE=$(mode_from_env)
+	case "$MODE" in
+	external) EXT=1; INT=0 ;;
+	internal) EXT=0; INT=1 ;;
+	*)        EXT=0; INT=0 ;;
+	esac
+	gpio_out $REFCLK_O_FORCE_INT $INT
+	gpio_out $REFCLK_O_FORCE_EXT $EXT
 	echo "$MODE"
 	logger -t refclk "mode=$MODE"
+}
+
+set_mode() {
+	case "$1" in
+	auto)
+		fw_setenv refclk_auto 2>/dev/null
+		;;
+	external|internal)
+		fw_setenv refclk_auto off 2>/dev/null
+		fw_setenv refclk_source "$1" 2>/dev/null
+		;;
+	*)
+		echo "Usage: $0 set {auto|external|internal}"
+		exit 1
+		;;
+	esac
+	printf "Selecting reference clock: "
+	start
 }
 
 status() {
 	count=0
 	weight=1
-	for b in $(gpio_in $EMIO_COUNT 16); do
+	for b in $(gpio_in $REFCLK_I_COUNT 16); do
 		count=$((count + b * weight))
 		weight=$((weight * 2))
 	done
-	echo "10MHz present=$(gpio_in $EMIO_PRESENT) cp_active=$(gpio_in $EMIO_CP_ACTIVE) count=$count (16384 = 10 MHz)"
+	set -- $(gpio_in $REFCLK_I_STATE 2)
+	case "$1$2" in
+	00) state=absent ;;
+	10) state=acquire ;;
+	01) state=locked ;;
+	11) state=recheck ;;
+	*)  state=unknown ;;
+	esac
+	echo "mode=$(mode_from_env) state=$state 10MHz_present=$(gpio_in $REFCLK_I_PRESENT) locked=$(gpio_in $REFCLK_I_LOCK) cp_active=$(gpio_in $REFCLK_I_CP) count=$count ($REFCLK_COUNT_EXPECTED = 10 MHz)"
 }
 
 CHIP=$(zynq_gpio_chip)
-[ -n "$CHIP" ] || { echo "S22refclk: no zynq_gpio"; exit 1; }
+[ -n "$CHIP" ] || { echo "S22refclk: no $REFCLK_CHIP_LABEL"; exit 1; }
 
 case "$1" in
   start|restart|reload)
@@ -97,8 +131,11 @@ case "$1" in
   status)
 	status
 	;;
+  set)
+	set_mode "$2"
+	;;
   *)
-	echo "Usage: $0 {start|stop|restart|status}"
+	echo "Usage: $0 {start|stop|restart|status|set auto|external|internal}"
 	exit 1
 esac
 
