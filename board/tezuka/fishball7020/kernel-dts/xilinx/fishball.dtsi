@@ -243,17 +243,20 @@
 			adi,axi-dds-default-scale = <0>;
 		};
 
-		axi_uartlite_0:	serial@42C00000 {
-			compatible = "xlnx,xps-uartlite-1.00.a";
+		axi_uart16550_0: serial@42C00000 {
+			compatible = "xlnx,xps-uart16550-2.00.a", "ns16550a";
 			current-speed = <9600>;
 			device_type = "serial";
-			interrupt-names = "interrupt";
 			status = "okay";
-			reg = <0x42C00000 0x1000>;
+			reg = <0x42C00000 0x10000>;
+			reg-offset = <0x1000>;
+			reg-shift = <2>;
+			reg-io-width = <4>;
+			clock-frequency = <100000000>;
 			interrupt-parent = <&intc>;
 			interrupts = <0 59 IRQ_TYPE_LEVEL_HIGH>;
-			clock = <100000000>;
 		};
+
 
 	};
 };

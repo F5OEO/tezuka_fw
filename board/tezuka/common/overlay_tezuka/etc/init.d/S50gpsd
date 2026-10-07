@@ -13,6 +13,8 @@ GPSD_OPTIONS="-G -n -r"
 # Check which device exists and assign it
 if [ -e "/dev/ttyUL0" ]; then
         DEVICES="/dev/ttyUL0"
+elif [ -e "/dev/ttyS0" ]; then
+        DEVICES="/dev/ttyS0"
 elif [ -e "/dev/ttyACM0" ]; then
         DEVICES="/dev/ttyACM0"
 else
