@@ -151,12 +151,18 @@ loadbootenv=echo Importing environment from SD ...; load mmc 0 ${loadbootenv_add
 loadbootenv_usb=echo Importing environment from USB ...;load usb 0 ${loadbootenv_addr} ${bootenv}
 loaddfu=\
   if mmc rescan; then \
-    fatload mmc 0 ${fit_load_address} pluto.dfu; \
-    sf probe; \
-    sf update ${fit_load_address} 0x200000 0x0E00000; \
-    fatload mmc 0 0x20000 uboot-env.dfu; \
-    sf update 0x20000 0x100000 0x20000; \
-    bootm ${fit_load_address}#${fit_config}; \
+    if fatload mmc 0 ${fit_load_address} pluto.dfu && \
+       sf probe && \
+       sf update ${fit_load_address} 0x200000 ${filesize}; then \
+      if fatload mmc 0 0x20000 uboot-env.dfu && test 0x${filesize} -eq 0x20000; then \
+        sf update 0x20000 0x100000 0x20000; \
+      else \
+        echo uboot-env.dfu missing or not 0x20000 bytes: environment not updated; \
+      fi; \
+      bootm ${fit_load_address}#${fit_config}; \
+    else \
+      echo pluto.dfu missing, too big for the flash, or the flash write failed: firmware not updated; \
+    fi; \
   fi
 maxcpus=2
 
