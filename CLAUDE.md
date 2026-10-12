@@ -91,7 +91,7 @@ Boot process: FSBL → U-Boot → Linux (ADI kernel fork) → rootfs (cpio.xz ra
 
 ### FPGA bitstream management
 
-Bitstreams are binary blobs stored in git at `board/tezuka/<board>/bitstream/maia-iio/system_top.xsa`. The `board-fpga` package extracts `system_top.bit` from the `.xsa` zip during build.
+Bitstreams are binary blobs stored in git at `board/tezuka/<board>/bitstream/tezuka.xsa` (named after `BR2_PACKAGE_BOARD_FPGA_PROJECT`), next to a one-line `tezuka.version` recording the maia-sdr commit and Vivado version that built it. The `board-fpga` package extracts `system_top.bit` from the `.xsa` zip during build, and `post-build.sh` copies the `.version` line into `/opt/VERSIONS` as `fpga ...`.
 
 Updated bitstreams are built from a separate project, the user's `maia-sdr` fork, checked out at `/home/hp-z2-dev/prog/maia-sdr` (origin: `F5OEO/maia-sdr`, upstream: `maia-sdr/maia-sdr`).
 
@@ -106,7 +106,7 @@ make -C /home/hp-z2-dev/prog/maia-sdr/maia-hdl/projects
 cd /home/hp-z2-dev/prog/maia-sdr/maia-hdl/projects/tezuka && PROJECT_NAME=<board> make all
 ```
 
-Always pass the `all` target explicitly (`make all`, not bare `make`) — the Makefile's implicit default target only builds the Vivado project (`build_project`), it does not build `ip_cores` first or run `install` to copy the `.xsa` out. `make all` runs `ip_cores build_project install` in that order and copies `<board>.sdk/system_top.xsa` straight into `board/tezuka/<board>/bitstream/maia-iio/system_top.xsa` in this repo (`DEST` in the Makefile), so no manual copy step is needed afterward. Then test it:
+Always pass the `all` target explicitly (`make all`, not bare `make`) — the Makefile's implicit default target only builds the Vivado project (`build_project`), it does not build `ip_cores` first or run `install` to copy the `.xsa` out. `make all` runs `ip_cores build_project install` in that order and copies `<board>.sdk/system_top.xsa` straight into `board/tezuka/<board>/bitstream/tezuka.xsa` in this repo, and writes `tezuka.version` next to it (`DEST` in the Makefile; override it with `make all PROJECT_NAME=<board> DEST=...` for another checkout), so no manual copy step is needed afterward. Then test it:
 
 ```bash
 make -C buildroot O=output/<board> board-fpga-reconfigure   # re-extract system_top.bit into BINARIES_DIR

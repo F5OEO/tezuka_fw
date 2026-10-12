@@ -87,7 +87,7 @@ Directory: `maia-hdl/projects/boards/pciesdr7010/` — clone from
 - Build: `cd maia-hdl/projects/tezuka && PROJECT_NAME=pciesdr7010 make`
   (per `CLAUDE.md`'s documented flow) — produces
   `pciesdr7010.sdk/system_top.xsa`, copied to
-  `board/tezuka/pciesdr7010/bitstream/maia-iio/system_top.xsa` in this repo.
+  `board/tezuka/pciesdr7010/bitstream/tezuka.xsa` in this repo (with `tezuka.version` next to it).
 - FSBL: build separately via `xsct create_fsbl_project.tcl <board>` (see
   `todo/fsbl.txt` — the plain-unzip manual recipe there is broken, missing
   `xparameters_ps.h`; use the xsct method, and `rm -rf build/sdk` first since
@@ -125,7 +125,7 @@ Directory: `maia-hdl/projects/boards/pciesdr7010/` — clone from
   reused for FSBL-DDR-init reference).
 - `u-boot-config/board_frag.config`: identical, no diff seen between
   fishball7010/7020's — copy as-is.
-- `uboot-env.txt`, `bitstream/fsbl.elf`, `bitstream/maia-iio/system_top.xsa`:
+- `uboot-env.txt`, `bitstream/fsbl.elf`, `bitstream/tezuka.xsa`:
   populated from the FPGA build (§1).
 - No `genimage-boot.cfg` needed unless fishball7010's is board-specific
   (check content — if generic, common/ handles it already).
