@@ -1,0 +1,156 @@
+maia-httpd: switch DDC routing with a read-modify-write through the IIO driver
+
+0001 switched DDC routing by mapping /dev/mem and writing the whole axi_ad9361
+ADC GPIO register (core offset 0xBC) with 0 or 1. Only bit 0 is the routing
+select: bits 1-2 drive the sync block and bit 3 the CS12 packer reset, so every
+routing change also cleared them. The register belongs to the cf-ad9361-lpc
+driver, and GET /api/ddc/config could not show the routing state (its
+'enabled' field is the maia-sdr DDC input enable, a different thing).
+
+Access the register through the cf-ad9361-lpc driver's debugfs register
+interface (direct_reg_access with the core-register bit 31), change only bit
+0 in a read-modify-write under a mutex, and check the value read back. Report
+the routing state in GET /api/ddc/config as a new optional 'routing' field.
+The PATCH field stays 'enabled', so existing clients keep working.
+
+diff --git a/maia-httpd/maia-json/src/lib.rs b/maia-httpd/maia-json/src/lib.rs
+index 06a48d1..b4aa1a8 100644
+--- a/maia-httpd/maia-json/src/lib.rs
++++ b/maia-httpd/maia-json/src/lib.rs
+@@ -268,6 +268,12 @@ pub struct PutDDCDesign {
+ pub struct DDCConfig {
+     /// Indicates whether the DDC is currently enabled.
+     pub enabled: bool,
++    /// Whether the DDC output is routed into the cf-ad9361-lpc capture device
++    /// (set with the `enabled` field of PATCH requests).
++    ///
++    /// `None` when the routing state is not known.
++    #[serde(default, skip_serializing_if = "Option::is_none")]
++    pub routing: Option<bool>,
+     /// Frequency for the mixer, in Hz.
+     pub frequency: f64,
+     /// Total decimation of this DDC configuration.
+diff --git a/maia-httpd/src/fpga.rs b/maia-httpd/src/fpga.rs
+index bc5912b..b101467 100644
+--- a/maia-httpd/src/fpga.rs
++++ b/maia-httpd/src/fpga.rs
+@@ -494,6 +494,7 @@ impl IpCore {
+         let summary = self.ddc_config_summary(input_sampling_frequency);
+         maia_json::DDCConfig {
+             enabled: summary.enabled,
++            routing: None,
+             frequency: summary.frequency,
+             decimation: summary.decimation,
+             input_sampling_frequency: summary.input_sampling_frequency,
+diff --git a/maia-httpd/src/httpd/ddc.rs b/maia-httpd/src/httpd/ddc.rs
+index ea1bf83..08f0bbf 100644
+--- a/maia-httpd/src/httpd/ddc.rs
++++ b/maia-httpd/src/httpd/ddc.rs
+@@ -4,40 +4,65 @@ use anyhow::Result;
+ use axum::{Json, extract::State};
+ use maia_json::{DDCConfig, DDCConfigSummary, PatchDDCConfig, PutDDCConfig, PutDDCDesign};
+ 
++/// The DDC routing select is bit 0 of the axi_ad9361 ADC GPIO register (core
++/// offset 0xBC). The other bits of that register drive other FPGA logic (bits
++/// 1-2 the sync block, bit 3 the CS12 packer reset), so only bit 0 may change.
++const ROUTING_REG: u32 = 0xBC;
++const ROUTING_BIT: u32 = 1 << 0;
++/// The ADI IIO drivers route a `direct_reg_access` address with this bit set to
++/// the HDL core registers instead of the converter.
++const PCORE_REG_MAGIC: u32 = 1 << 31;
++
++/// Serialises read-modify-write cycles on the routing register.
++static ROUTING_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
++
++/// debugfs register-access file of the cf-ad9361-lpc capture device.
++fn routing_reg_file() -> Result<std::path::PathBuf> {
++    for entry in std::fs::read_dir("/sys/bus/iio/devices")? {
++        let entry = entry?;
++        let name = std::fs::read_to_string(entry.path().join("name")).unwrap_or_default();
++        if name.trim() == "cf-ad9361-lpc" {
++            return Ok(std::path::Path::new("/sys/kernel/debug/iio")
++                .join(entry.file_name())
++                .join("direct_reg_access"));
++        }
++    }
++    anyhow::bail!("cf-ad9361-lpc IIO device not found")
++}
++
++fn read_routing_reg(file: &std::path::Path) -> Result<u32> {
++    std::fs::write(file, format!("0x{:x}", PCORE_REG_MAGIC | ROUTING_REG))?;
++    let value = std::fs::read_to_string(file)?;
++    let value = value.trim();
++    Ok(u32::from_str_radix(value.trim_start_matches("0x"), 16)?)
++}
++
++/// Whether the DDC output is routed into the cf-ad9361-lpc capture device.
++fn ddc_routing() -> Result<bool> {
++    let _guard = ROUTING_LOCK.lock().unwrap();
++    Ok(read_routing_reg(&routing_reg_file()?)? & ROUTING_BIT != 0)
++}
++
+ /// Route the on-FPGA DDC output into the cf-ad9361-lpc capture device, or restore
+-/// full-rate wideband IQ, by writing the axi_ad9361 routing register 0x790200BC.
++/// full-rate wideband IQ.
+ ///
+-/// This register lives in the cf-ad9361-lpc core (not the maia-sdr UIO region), so
+-/// it is written through a one-shot /dev/mem mapping. The boot/default state is
+-/// disabled, so ordinary libiio clients (SDR++/SDR#/GNU Radio) stream full-rate IQ
+-/// unless a client (e.g. the OpenRF overlay) explicitly enables routing for its
+-/// session and disables it again when done.
++/// The register belongs to the cf-ad9361-lpc core, so it is accessed through that
++/// driver's debugfs register interface rather than by mapping /dev/mem, and only
++/// the routing bit is changed. The boot/default state is disabled, so ordinary
++/// libiio clients (SDR++/SDR#/GNU Radio) stream full-rate IQ unless a client
++/// (e.g. the OpenRF overlay) explicitly enables routing for its session and
++/// disables it again when done.
+ fn set_ddc_routing(enable: bool) -> Result<()> {
+-    use std::os::unix::io::AsRawFd;
+-    const REG_BASE: libc::off_t = 0x7902_0000;
+-    const REG_OFFSET: usize = 0xBC;
+-    const MAP_LEN: usize = 0x1000;
+-    let mem = std::fs::OpenOptions::new()
+-        .read(true)
+-        .write(true)
+-        .open("/dev/mem")?;
+-    // SAFETY: map one page at the page-aligned core base and write the 32-bit
+-    // routing register at offset 0xBC with volatile semantics, then unmap.
+-    unsafe {
+-        let map = libc::mmap(
+-            std::ptr::null_mut(),
+-            MAP_LEN,
+-            libc::PROT_READ | libc::PROT_WRITE,
+-            libc::MAP_SHARED,
+-            mem.as_raw_fd(),
+-            REG_BASE,
+-        );
+-        if map == libc::MAP_FAILED {
+-            anyhow::bail!("mmap /dev/mem for DDC routing register failed");
+-        }
+-        let reg = (map as *mut u8).add(REG_OFFSET) as *mut u32;
+-        std::ptr::write_volatile(reg, u32::from(enable));
+-        libc::munmap(map, MAP_LEN);
++    let _guard = ROUTING_LOCK.lock().unwrap();
++    let file = routing_reg_file()?;
++    let old = read_routing_reg(&file)?;
++    let new = if enable { old | ROUTING_BIT } else { old & !ROUTING_BIT };
++    if new != old {
++        std::fs::write(&file, format!("0x{:x} 0x{:x}", PCORE_REG_MAGIC | ROUTING_REG, new))?;
++    }
++    let readback = read_routing_reg(&file)?;
++    if readback != new {
++        anyhow::bail!("DDC routing register reads 0x{readback:x}, expected 0x{new:x}");
+     }
+     Ok(())
+ }
+@@ -47,7 +72,9 @@ async fn ddc_config(state: &AppState) -> Result<Json<DDCConfig>, JsonError> {
+         .ad9361_samp_rate()
+         .await
+         .map_err(JsonError::server_error)?;
+-    Ok(Json(state.ip_core().lock().unwrap().ddc_config(samp_rate)))
++    let mut config = state.ip_core().lock().unwrap().ddc_config(samp_rate);
++    config.routing = Some(ddc_routing().map_err(JsonError::server_error)?);
++    Ok(Json(config))
+ }
+ 
+ pub async fn ddc_json(state: &AppState) -> Result<DDCConfigSummary> {
