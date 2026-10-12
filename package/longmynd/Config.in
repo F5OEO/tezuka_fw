@@ -1,0 +1,15 @@
+config BR2_PACKAGE_LONGMYND
+	bool "longmynd"
+	depends on BR2_TOOLCHAIN_HAS_THREADS
+	depends on BR2_INSTALL_LIBSTDCPP
+	select BR2_PACKAGE_LIBUSB
+	select BR2_PACKAGE_MOSQUITTO
+	select BR2_PACKAGE_ZLIB
+	help
+	  Longmynd DVB-S/S2 receiver for the MiniTiouner (STV0910 /
+	  STV6120 over FTDI), F5OEO fork with MQTT support.
+
+	  https://github.com/F5OEO/longmynd
+
+comment "longmynd needs a toolchain w/ threads, C++"
+	depends on !BR2_TOOLCHAIN_HAS_THREADS || !BR2_INSTALL_LIBSTDCPP
