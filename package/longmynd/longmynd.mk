@@ -28,6 +28,8 @@ endef
 
 define LONGMYND_INSTALL_TARGET_CMDS
 	$(INSTALL) -D -m 0755 $(@D)/longmynd $(TARGET_DIR)/usr/bin/longmynd
+	$(INSTALL) -D -m 0755 $(LONGMYND_PKGDIR)/S97datv $(TARGET_DIR)/etc/init.d/S97datv
+	$(INSTALL) -D -m 0755 $(LONGMYND_PKGDIR)/mqtt_longmynd.sh $(TARGET_DIR)/root/mqtt_longmynd.sh
 endef
 
 $(eval $(generic-package))
