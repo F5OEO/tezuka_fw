@@ -1,0 +1,19 @@
+config BR2_PACKAGE_ZYNQRX
+	bool "zynqrx"
+	depends on BR2_TOOLCHAIN_HAS_THREADS
+	depends on BR2_INSTALL_LIBSTDCPP
+	depends on BR2_ARM_CPU_HAS_NEON
+	select BR2_PACKAGE_LIBIIO
+	select BR2_PACKAGE_MOSQUITTO
+	help
+	  DVB-S / DVB-S2 demodulator for the Zynq (2x Cortex-A9 + NEON).
+
+	  Reads IQ from the AD936x through libiio (rx --iio), is controlled
+	  and reports status over MQTT in longmynd's scheme (rx --mqtt), and
+	  serves the received transport stream as UDP (--udp) and over a
+	  WebSocket (--ws, used by the Dashboard's Webtioune page).
+
+	  Built from app/zynqrx in this tree.
+
+comment "zynqrx needs a toolchain w/ threads, C++ and a NEON CPU"
+	depends on !BR2_TOOLCHAIN_HAS_THREADS || !BR2_INSTALL_LIBSTDCPP || !BR2_ARM_CPU_HAS_NEON
