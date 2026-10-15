@@ -173,6 +173,7 @@ function useLiveData(running = true) {
     cpuH: zeros, memH: zeros, tempH: zeros, fpgaH: zeros,
     tsH: zeros, rxH: zeros, txH: zeros, rfH: zeros, clkrefCorrH: zeros,
     uptime: 0, mqtt: false, datv: {},
+    lm: {},   // dt/longmynd/<key> from zynqrx (the DVB-S2 receiver), see webtioune.jsx
     rxFreq: null, txFreq: null,
     rxSampling: null, txSampling: null,
     rxBandwidth: null, txBandwidth: null,
@@ -201,12 +202,30 @@ function useLiveData(running = true) {
     const client = new Paho.MQTT.Client(host, useSSL ? 9002 : 9001, '/mqtt', clientId);
     mqttRef.current = client;
     let offlineTimer = null;
+    // zynqrx publishes ~25 dt/longmynd/* topics every second, most unchanged: collect them and
+    // update once per 500 ms, and only when a value differs, so the whole app does not re-render for each.
+    const lmBuf = {};
+    let lmTimer = null;
+    const lmFlush = () => {
+      lmTimer = null;
+      const buf = { ...lmBuf };
+      for (const k in lmBuf) delete lmBuf[k];
+      setD((p) => {
+        let changed = false;
+        const lm = { ...p.lm };
+        for (const k in buf) if (lm[k] !== buf[k]) { lm[k] = buf[k]; changed = true; }
+        return changed ? { ...p, lm } : p;
+      });
+    };
 
     client.onMessageArrived = (msg) => {
       let payload;
       try { payload = msg.payloadString; } catch (_) { return; }
       const dest = msg.destinationName;
-      if (dest.startsWith('dt/pluto/')) {
+      if (dest.startsWith('dt/longmynd/')) {
+        lmBuf[dest.slice('dt/longmynd/'.length)] = payload;
+        if (!lmTimer) lmTimer = setTimeout(lmFlush, 500);
+      } else if (dest.startsWith('dt/pluto/')) {
         const subPath = dest.split('/').slice(3).join('/');
         setD((p) => ({ ...p, datv: { ...p.datv, [subPath]: payload } }));
       } else {
@@ -225,6 +244,7 @@ function useLiveData(running = true) {
         clearTimeout(offlineTimer);
         client.subscribe('state/#');
         client.subscribe('dt/pluto/#');
+        client.subscribe('dt/longmynd/#');
         setD((p) => ({ ...p, mqtt: true, mqttHost: `${host}:9001` }));
       },
       onFailure: () => {
@@ -236,7 +256,7 @@ function useLiveData(running = true) {
       useSSL,
     });
 
-    return () => { clearTimeout(offlineTimer); try { client.disconnect(); } catch (_) {} mqttRef.current = null; };
+    return () => { clearTimeout(offlineTimer); clearTimeout(lmTimer); try { client.disconnect(); } catch (_) {} mqttRef.current = null; };
   }, []);
 
   const publish = useCBD((path, value) => {
