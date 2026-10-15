@@ -46,7 +46,8 @@ const QO100_ROWS = [
   },
 ];
 
-function QO100Plan({ currentUlHz, onSelect }) {
+// allowFixed: the beacon slot can be clicked too (a receiver can tune to it; the transmitter page cannot use it)
+function QO100Plan({ currentUlHz, onSelect, signals = [], allowFixed = false }) {
   const ref = React.useRef(null);
   const [W, setW] = useS2(260);
   const [hov, setHov] = useS2(null);
@@ -61,6 +62,15 @@ function QO100Plan({ currentUlHz, onSelect }) {
   const bw2w = bw => Math.max(1, bw / (QO100_HI - QO100_LO) * W - 1);
   const allSlots = QO100_ROWS.flatMap(r => r.slots.map(s => ({ ...s, row: r })));
   const hovSlot = allSlots.find(s => s.id === hov);
+
+  // Live signals (qo100wb.js, from the BATC spectrum feed): a slot lights up when a signal of its row's symbol
+  // rate (wide >= 1 MS, narrow 250-500 kS, very narrow <= 125 kS) is centred inside it; the beacon lights BCN.
+  const rowOfSr = sr => sr >= 1000 ? 'wide' : sr >= 250 ? 'narrow' : 'vn';
+  const liveBySlot = {};
+  for (const sig of signals)
+    for (const row of QO100_ROWS)
+      for (const s of row.slots)
+        if (sig.beacon ? s.id === 'bcn' : (row.key === rowOfSr(sig.sr) && Math.abs(sig.freq - s.dl) <= s.bw / 2 + 0.01)) liveBySlot[s.id] = sig;
 
   // Current TX frequency marker (convert UL → DL)
   const curDl = currentUlHz ? currentUlHz / 1e6 - QO100_DL2UL : null;
@@ -97,15 +107,17 @@ function QO100Plan({ currentUlHz, onSelect }) {
               const x = f2x(s.dl - s.bw / 2);
               const sw = bw2w(s.bw);
               const isHov = hov === s.id;
+              const live = liveBySlot[s.id];
               const color = s.id === 'bcn' ? 'var(--c-coral)' : row.color;
               return (
                 <g key={s.id}
-                   style={{ cursor: s.fixed ? 'default' : 'pointer' }}
+                   style={{ cursor: s.fixed && !allowFixed ? 'default' : 'pointer' }}
                    onMouseEnter={() => setHov(s.id)}
                    onMouseLeave={() => setHov(null)}
-                   onClick={() => !s.fixed && onSelect((s.dl + QO100_DL2UL) * 1e6, s.sr)}>
+                   onClick={() => (!s.fixed || allowFixed) && onSelect((s.dl + QO100_DL2UL) * 1e6, s.sr)}>
                   <rect x={x} y={row.y} width={sw} height={row.h}
-                    fill={color} fillOpacity={isHov ? 1 : 0.55} rx={1} />
+                    fill={color} fillOpacity={live || isHov ? 1 : 0.55} rx={1}
+                    stroke={live ? 'white' : 'none'} strokeWidth={live ? 1.5 : 0} />
                   {sw > 16 && (
                     <text x={x + sw/2} y={row.y + row.h/2 + 3.5}
                       textAnchor="middle" fontSize={8} fill="white" fontWeight="600"
@@ -119,6 +131,12 @@ function QO100Plan({ currentUlHz, onSelect }) {
           </g>
         ))}
 
+        {/* Where each live signal really sits: its measured width, just above the axis */}
+        {signals.map((sig, i) => (
+          <rect key={i} x={f2x(sig.start)} y={AXIS_Y - 4} width={Math.max(2, f2x(sig.end) - f2x(sig.start))} height={3}
+            fill="white" fillOpacity={sig.beacon ? 0.45 : 0.9} />
+        ))}
+
         {/* Current frequency marker */}
         {curDl && curDl >= QO100_LO && curDl <= QO100_HI && (
           <line x1={f2x(curDl)} y1={16} x2={f2x(curDl)} y2={AXIS_Y}
@@ -130,7 +148,7 @@ function QO100Plan({ currentUlHz, onSelect }) {
           <g>
             <rect x={0} y={0} width={W} height={16} fill="var(--bg-card)" fillOpacity={0.92} />
             <text x={W/2} y={11} textAnchor="middle" fontSize={9} fill="var(--fg)">
-              {hovSlot.label || hovSlot.id.toUpperCase()} · DL {hovSlot.dl.toFixed(2)} · UL {(hovSlot.dl+QO100_DL2UL).toFixed(2)} MHz · {(hovSlot.sr/1000).toFixed(0)} kS
+              {hovSlot.label || hovSlot.id.toUpperCase()} · DL {hovSlot.dl.toFixed(2)} · UL {(hovSlot.dl+QO100_DL2UL).toFixed(2)} MHz · {(hovSlot.sr/1000).toFixed(0)} kS{liveBySlot[hovSlot.id] ? ` · live ${liveBySlot[hovSlot.id].sr} kS, ${liveBySlot[hovSlot.id].level.toFixed(0)} dB` : ''}
             </text>
           </g>
         )}

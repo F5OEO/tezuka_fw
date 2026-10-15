@@ -69,6 +69,7 @@ SOURCES = [
     ('jsx', 'radioastro.jsx'),
     ('jsx', 'classifier.jsx'),
     ('jsx', 'midi.jsx'),
+    ('js',  'qo100wb.js'),
     ('jsx', 'webtioune.jsx'),
     ('js',  'tsanalyzer-core.js'),
     ('jsx', 'tsanalyzer.jsx'),

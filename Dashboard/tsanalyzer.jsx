@@ -167,7 +167,7 @@ function TsaHistogram({ hist, color = 'var(--c-blue)' }) {
 const tsaDefaultUrl = () => `ws://${window._tezukaDevHost || window.location.hostname}:8080/stream.ts`;
 
 function Analysis({ d }) {
-  const [url, setUrl] = useTsS(tsaDefaultUrl);
+  const url = tsaDefaultUrl();                    // the board's own stream (same as Webtioune)
   const [state, setState] = useTsS('idle');          // idle | connecting | running | paused | error
   const [err, setErr] = useTsS('');
   const [snap, setSnap] = useTsS(null);
@@ -238,10 +238,7 @@ function Analysis({ d }) {
                 : '—'}</div>
             </div>
             <div style={{ flex: '0 1 420px', minWidth: 260 }}>
-              <Field label="Source (WebSocket)">
-                <TextInput value={url} onChange={setUrl} />
-              </Field>
-              <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
+              <div style={{ display: 'flex', gap: 8 }}>
                 <button className="btn primary" onClick={start} disabled={state === 'connecting'}>{busy ? 'Restart' : 'Start'}</button>
                 <button className="btn ghost" onClick={togglePause} disabled={state !== 'running' && state !== 'paused'}>{state === 'paused' ? 'Resume' : 'Pause'}</button>
                 <button className="btn ghost" onClick={stop} disabled={!busy}>Stop</button>
