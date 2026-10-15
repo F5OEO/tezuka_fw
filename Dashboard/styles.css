@@ -743,3 +743,23 @@ body {
 .sp-canvas-wrap { border-radius: var(--r); overflow: hidden; background: #000; }
 .sp-canvas { display: block; width: 100%; height: calc(100vh - 64px - var(--gap) * 4 - 72px - 32px); min-height: 300px; cursor: crosshair; }
 .sp-log { font-size: 11px; color: var(--dim-2); min-height: 20px; padding: 4px 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* ---- Analysis (tsanalyzer.jsx): the page is as tall as the window and every chart fills its cell,
+   so nothing needs scrolling. 3 x 2 cells on wide windows, 2 x 3 on medium ones, stacked below 1100 px. ---- */
+.tsa-page { display: flex; flex-direction: column; gap: var(--gap); height: calc(100vh - 64px - 2 * var(--gap)); min-height: 520px; }
+.tsa-info > .card-head { padding: 9px 16px; }
+.tsa-info > .card-body { padding: 10px 16px 12px; }
+.tsa-grid { flex: 1; min-height: 0; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); grid-template-rows: repeat(2, minmax(0, 1fr)); gap: var(--gap); }
+.tsa-grid > .card { display: flex; flex-direction: column; min-height: 0; }
+.tsa-grid > .card > .card-head { padding: 9px 14px; flex: none; }
+.tsa-grid > .card > .card-body { flex: 1; min-height: 0; padding: 8px 12px 10px; }
+.tsa-grid > .card > div:not(.card-body) { flex: 1; min-height: 0; overflow: auto; }   /* the table card has no padded body */
+.tsa-grid .ver-table th, .tsa-grid .ver-table td { padding: 6px 12px; }
+.tsa-fill { height: 100%; min-height: 90px; display: flex; flex-direction: column; }
+.tsa-fill > .tsa-plot { flex: 1; min-height: 0; position: relative; }
+@media (max-width: 1500px) { .tsa-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); grid-template-rows: repeat(3, minmax(0, 1fr)); } }
+@media (max-width: 1100px) {
+  .tsa-page { height: auto; }
+  .tsa-grid { display: flex; flex-direction: column; }
+  .tsa-fill { height: 220px; }
+}

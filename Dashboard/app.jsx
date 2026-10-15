@@ -15,7 +15,7 @@ const VER = {
 const NAV = [
   { group: null, items: [["dashboard", "Dashboard", "dashboard"]] },
   { group: "RF", items: [["spectrum", "Spectrum", "spectrum"], ["radioastro", "Radio Astronomy", "target"], ["classifier", "Signal Classifier", "search"], ["arch", "Architecture", "chip"], ["maiasdr", "Maia SDR", "wave"]] },
-  { group: "Application", items: [["datv", "DATV Controller", "datv", [["analysis", "Analysis", "analysis", true], ["obs", "OBS Encoder", "monitor"], ["webtioune", "Webtioune", "play"]]], ["transverter", "Transverter", "transverter"], ["iqtape", "IQ Tape", "tape"], ["siggen", "Signal generator", "wave"], ["rftest", "RF Test Frequencies", "rf"], ["radio", "Radio", "headphone"]] },
+  { group: "Application", items: [["datv", "DATV Controller", "datv", [["analysis", "Analysis", "analysis"], ["obs", "OBS Encoder", "monitor"], ["webtioune", "Webtioune", "play"]]], ["transverter", "Transverter", "transverter"], ["iqtape", "IQ Tape", "tape"], ["siggen", "Signal generator", "wave"], ["rftest", "RF Test Frequencies", "rf"], ["radio", "Radio", "headphone"]] },
   { group: "System", items: [["versions", "Versions", "versions"], ["network", "Network", "network"], ["diagnostic", "Diagnostic", "pulse"], ["calibrate", "Calibrate", "target", [["kalibrate", "Kalibrate", "search"]]], ["performance", "Performance", "chip"], ["gpio", "GPIO", "circuit"], ["persistent", "Persistent", "save"], ["gps", "GPS", "mappin"], ["clkref", "Reference Clock", "clock"], ["midi", "MIDI controller", "sliders"], ["reboot", "Reboot", "power"]] },
   { group: "Documentation", items: [["docs", "Documentation", "book"]] },
 ];

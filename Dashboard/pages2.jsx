@@ -1,6 +1,6 @@
 // Modified by Christos Nikolaou (SV1EIA) 2026.
 // Christos Nikolaou can be reached by email at : sv1eia@gmail.com
-// pages2.jsx — DATV Controller, Versions, Analysis, Network
+// pages2.jsx — DATV Controller, Versions, Network (the Analysis page is tsanalyzer.jsx)
 const { useState: useS2, useEffect: useE2, useRef: useR2 } = React;
 
 // useState backed by localStorage: initial value comes from the last saved
@@ -626,39 +626,6 @@ function Versions({ ver }) {
               </a>
             </div>
           </div>
-        </Card>
-      </div>
-    </div>
-  );
-}
-
-// ---- Analysis -------------------------------------------------------------
-function Analysis({ d }) {
-  const [bufH, setBufH] = useS2(() => Array.from({ length: 60 }, () => 60 + Math.random() * 20));
-  useE2(() => {
-    const id = setInterval(() => setBufH((p) => [...p.slice(1), Math.max(20, Math.min(98, p[p.length - 1] + (Math.random() - 0.5) * 14))]), 1000);
-    return () => clearInterval(id);
-  }, []);
-  return (
-    <div className="page">
-      <div className="grid-12">
-        <Card title="Transport stream rate" sub="DVB output bitrate" className="span-6"
-          right={<span className="big-readout mono">{d.tsBitrate.toFixed(2)}<i>Mb/s</i></span>}>
-          <StreamChart maxY={3} unit="" fmt={(v) => v.toFixed(1)} series={[{ data: d.tsH, color: "var(--c-blue)" }]} />
-        </Card>
-        <Card title="Video buffer fill" sub="Encoder output buffer" className="span-6"
-          right={<span className="big-readout mono">{bufH[bufH.length - 1].toFixed(0)}<i>%</i></span>}>
-          <StreamChart maxY={100} unit="%" grid={5} fmt={(v) => v.toFixed(0)} series={[{ data: bufH, color: "var(--accent-2)" }]} />
-        </Card>
-        <Card title="PID table" sub="Active program identifiers" className="span-12" pad={false}>
-          <table className="ver-table">
-            <thead><tr><th>PID</th><th>Type</th><th>Codec</th><th>Bitrate</th><th>Continuity</th></tr></thead>
-            <tbody>
-              {[["0x0000", "PAT", "—", "—", "ok"], ["0x1000", "PMT", "—", "—", "ok"], ["0x0100", "Video", "H.265", "256 Kb/s", "ok"], ["0x0101", "Audio", "AAC", "32 Kb/s", "ok"], ["0x1FFF", "Null", "—", "43 Kb/s", "ok"]].map((r) => (
-                <tr key={r[0]}><td className="mono vt-ver">{r[0]}</td><td className="vt-name">{r[1]}</td><td className="dim">{r[2]}</td><td className="mono">{r[3]}</td><td><Pill tone="ok" dot>no errors</Pill></td></tr>
-              ))}
-            </tbody>
-          </table>
         </Card>
       </div>
     </div>
@@ -2763,4 +2730,4 @@ function ClockRef({ d }) {
   );
 }
 
-Object.assign(window, { DATV, Versions, Analysis, Network, Transverter, IQTape, SigGen, Calibrate, Diagnostic, Reboot, Operator, Kalibrate, Persistent, Performance, GPIO, GpsPage, ClockRef });
+Object.assign(window, { DATV, Versions, Network, Transverter, IQTape, SigGen, Calibrate, Diagnostic, Reboot, Operator, Kalibrate, Persistent, Performance, GPIO, GpsPage, ClockRef });

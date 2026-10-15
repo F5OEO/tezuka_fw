@@ -70,6 +70,8 @@ SOURCES = [
     ('jsx', 'classifier.jsx'),
     ('jsx', 'midi.jsx'),
     ('jsx', 'webtioune.jsx'),
+    ('js',  'tsanalyzer-core.js'),
+    ('jsx', 'tsanalyzer.jsx'),
     ('jsx', 'rftest.jsx'),
     ('jsx', 'app.jsx'),
 ]
