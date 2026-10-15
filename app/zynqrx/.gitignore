@@ -1,0 +1,5 @@
+build/
+build-host/
+*.cs8
+*.ts
+build-prof/
