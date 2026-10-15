@@ -15,14 +15,17 @@
 ZYNQRX=${ZYNQRX:-/usr/bin/zynqrx}
 FREQ=437
 RS=0.333
-UDP=230.0.0.3:10000
+UDP=230.0.0.3:1234
 WS_PORT=8080
 AUTOSTART=${AUTOSTART:-1}
 LOG=/tmp/zynqrx.log
 
-# Only one receiver can own the radio.
+# Only one receiver can own the radio. Wait until the old one has really gone (it can take seconds when it is busy hunting): a new one started
+# while the old still holds the WebSocket port fails to bind it and exits at once.
 killall zynqrx 2>/dev/null
-sleep 1
+i=0
+while pidof zynqrx >/dev/null 2>&1 && [ $i -lt 10 ]; do sleep 1; i=$((i + 1)); done
+if pidof zynqrx >/dev/null 2>&1; then killall -9 zynqrx 2>/dev/null; sleep 1; fi
 
 START=
 [ "$AUTOSTART" = 1 ] && START=--start
@@ -33,4 +36,6 @@ nohup nice -n -10 "$ZYNQRX" rx --iio --mqtt 127.0.0.1:1883 \
 	--udp "$UDP" --ws "$WS_PORT" $START "$@" \
 	> "$LOG" 2>&1 < /dev/null &
 
+sleep 1
+if ! kill -0 $! 2>/dev/null; then echo "zynqrx did not start, see $LOG" >&2; exit 1; fi
 echo "zynqrx started (pid $!), log: $LOG, stream: ws://$(hostname):$WS_PORT/stream.ts"

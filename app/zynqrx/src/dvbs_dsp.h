@@ -80,6 +80,16 @@ public:
     void process(SplitBuf& in, std::vector<cf32>& out);
     void shiftIntegrator(double by) { integ_ -= by; }   // the resampler took `by` of the offset over
     double rateOffset() const { return integ_; }     // relative symbol rate offset the loop has found (+: input symbols faster than the nominal rate)
+    // The input can also be written straight into the timer's own buffer (MixDc::process appends to it), then run() makes the symbols: no copy of the block
+    SplitBuf& inbuf() { return buf_; }
+    void run(std::vector<cf32>& out);
+    // Cheaper timing once the loop has settled: 8 symbols share one row of the filter bank (the row of their middle, so the instants drift from it by at
+    // most 7 times the loop correction) and the timing error detector looks at the last four of them with twice the gains. The half-symbol filter and the
+    // loop arithmetic are then needed for a quarter of the symbols and the per-block work is halved: about 25% less time in the timer, for a
+    // little less accuracy of the sampling instants (about 0.1 dB near the decoding threshold on a signal with phase noise). Only used while the
+    // correction is below 2e-3 and the loop is narrow, so it never touches acquisition.
+    void setFast(bool on) { fast_ = on; }
+    bool fast() const { return fast_; }
     float errorRms() const { return errRms_; }       // timing error detector output, rms, normalised by the symbol power
     double timingPhase() const { return t_; }
     uint64_t symbols() const { return count_; }
@@ -94,6 +104,7 @@ private:
     double t_ = 0;
     double integ_ = 0, kp_ = 0, ki_ = 0;
     double zeta_ = 0.7, bnt_ = 0.01;
+    bool fast_ = false;
     float prevRe_ = 0, prevIm_ = 0;
     bool havePrev_ = false;
     float power_ = 1, invPower_ = 1, gain_ = 1;

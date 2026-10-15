@@ -49,7 +49,7 @@ void MixDc::process(const cf32* x, size_t n, SplitBuf& out) {
     size_t i = 0;
     while (i < n) {
         const size_t m = std::min<size_t>(kBlock, n - i);
-        const float c0 = (float)std::cos(-phase_), s0 = (float)std::sin(-phase_);
+        const float c0 = rotate ? (float)std::cos(-phase_) : 1.f, s0 = rotate ? (float)std::sin(-phase_) : 0.f;   // the phasor is only needed when the mixer turns
         const float dr = dcRe_, di = dcIm_;
         float sr = 0.f, si = 0.f;
         const float* xp = reinterpret_cast<const float*>(x + i);
@@ -62,7 +62,25 @@ void MixDc::process(const cf32* x, size_t n, SplitBuf& out) {
                 im[i + k] = xr * b + xi * a;
             }
         } else {
-            for (size_t k = 0; k < m; k++) {
+            size_t k = 0;
+#if defined(DVBS_NEON)
+            // no mixing: de-interleave, take the DC estimate off and add up the block, four samples a step. The input comes from the L2 cache (another
+            // thread wrote it): the prefetch ahead takes the loop from about 44 to 27 ns a sample on a Cortex-A9
+            float32x4_t vsr = vdupq_n_f32(0.f), vsi = vdupq_n_f32(0.f);
+            const float32x4_t vdr = vdupq_n_f32(dr), vdi = vdupq_n_f32(di);
+            for (; k + 4 <= m; k += 4) {
+                __builtin_prefetch(xp + 2 * k + 64);
+                const float32x4x2_t v = vld2q_f32(xp + 2 * k);
+                vsr = vaddq_f32(vsr, v.val[0]); vsi = vaddq_f32(vsi, v.val[1]);
+                vst1q_f32(re + i + k, vsubq_f32(v.val[0], vdr));
+                vst1q_f32(im + i + k, vsubq_f32(v.val[1], vdi));
+            }
+            {
+                const float32x2_t a = vadd_f32(vget_low_f32(vsr), vget_high_f32(vsr)), b = vadd_f32(vget_low_f32(vsi), vget_high_f32(vsi));
+                sr = vget_lane_f32(a, 0) + vget_lane_f32(a, 1); si = vget_lane_f32(b, 0) + vget_lane_f32(b, 1);
+            }
+#endif
+            for (; k < m; k++) {
                 sr += xp[2 * k]; si += xp[2 * k + 1];
                 re[i + k] = xp[2 * k] - dr;
                 im[i + k] = xp[2 * k + 1] - di;
@@ -70,7 +88,7 @@ void MixDc::process(const cf32* x, size_t n, SplitBuf& out) {
         }
         dcRe_ += (sr / (float)m - dcRe_) * mu;
         dcIm_ += (si / (float)m - dcIm_) * mu;
-        phase_ = std::fmod(phase_ + (double)m * step_, 2 * kPi);
+        if (rotate) phase_ = std::fmod(phase_ + (double)m * step_, 2 * kPi);
         i += m;
     }
 }
@@ -272,10 +290,29 @@ static inline void symbolBlock4(const float* h, const float* x, int taps, float*
 #endif
 }
 
+// y only (no half-symbol outputs): four consecutive symbols with one row of the filter bank, as symbolBlock4
+static inline void symbolBlock4Y(const float* h, const float* x, int taps, float* y) {
+#if defined(DVBS_NEON)
+    float32x4_t ya = vdupq_n_f32(0), yb = ya;
+    for (int b = 0; b < taps; b += 2) {
+        const float32x4x2_t v = vld2q_f32(x + b);
+        ya = vmlaq_n_f32(ya, v.val[0], h[b]);
+        yb = vmlaq_n_f32(yb, v.val[1], h[b + 1]);
+    }
+    vst1q_f32(y, vaddq_f32(ya, yb));
+#else
+    for (int k = 0; k < 4; k++) { float sy = 0; for (int j = 0; j < taps; j++) sy += h[j] * x[2 * k + j]; y[k] = sy; }
+#endif
+}
+
 void SymbolTimer::process(SplitBuf& in, std::vector<cf32>& out) {
     buf_.re.insert(buf_.re.end(), in.re.begin(), in.re.end());
     buf_.im.insert(buf_.im.end(), in.im.begin(), in.im.end());
     in.clear();
+    run(out);
+}
+
+void SymbolTimer::run(std::vector<cf32>& out) {
     const int taps = 2 * m_;
     const float* xr = buf_.re.data();
     const float* xi = buf_.im.data();
@@ -290,6 +327,44 @@ void SymbolTimer::process(SplitBuf& in, std::vector<cf32>& out) {
     // With the loop settled (narrow) four symbols are made at once: one phase of the filter bank, windows exactly two samples apart.
     const bool blockOk = bnt_ <= 0.0045 && taps % 8 == 0;
     while (t_ < lim) {
+        // setFast(): eight symbols, one row of the filter bank, the timing detector on the last four with twice the gains (see dvbs_dsp.h)
+        if (fast_ && blockOk && havePrev_ && count_ >= 64 && std::fabs(corrPrev) < 2.0e-3 && t_ + 24.0 < lim) {
+            constexpr int L = 8;
+            const double tb = t_ - (double)(L - 1) * corrPrev;       // the row of the middle of the eight instants
+            const long i0 = (long)tb;
+            int p = (int)((tb - (double)i0) * phases_ + 0.5);
+            long ii = i0;
+            if (p >= phases_) { p = 0; ii++; }
+            const long s0 = ii - m_ + 1;
+            if (s0 >= 2) {
+                float yr[L], yi[L], mr4[4], mi4[4];
+                const float* h = &bank_[(size_t)p * taps];
+                symbolBlock4Y(h, xr + s0, taps, yr);
+                symbolBlock4Y(h, xi + s0, taps, yi);
+                symbolBlock4(h, xr + s0 + 8, taps, yr + 4, mr4);
+                symbolBlock4(h, xi + s0 + 8, taps, yi + 4, mi4);
+                float pwSum = 0;
+                for (int k = 0; k < L; k++) pwSum += yr[k] * yr[k] + yi[k] * yi[k];
+                float pr = yr[3], pi = yi[3], integ = (float)integ_, corr = (float)corrPrev, errMs = errMs_;
+                const float kp = (float)(kp_ * (L / 4)), ki = (float)(ki_ * (L / 4));
+                for (int k = 0; k < 4; k++) {
+                    float e = (mr4[k] * (yr[4 + k] - pr) + mi4[k] * (yi[4 + k] - pi)) * invPow;    // Gardner
+                    e = std::max(-2.f, std::min(2.f, e));
+                    integ += ki * e;
+                    corr = kp * e + integ;
+                    errMs += (e * e - errMs) * (0.002f * (float)(L / 4));
+                    pr = yr[4 + k]; pi = yi[4 + k];
+                }
+                t_ += 2.0 * L * (1.0 - corrPrev);
+                integ_ = integ; corrPrev = corr; errMs_ = errMs;
+                power_ += (pwSum * (1.f / (float)L) - power_) * ((float)L / 4096.f);
+                invPow = 1.f / power_; gain = std::sqrt(invPow);
+                prevRe_ = pr; prevIm_ = pi;
+                for (int k = 0; k < L; k++) o[made++] = cf32(yr[k] * gain, yi[k] * gain);
+                count_ += L;
+                continue;
+            }
+        }
         if (blockOk && havePrev_ && count_ >= 64 && std::fabs(corrPrev) < 1.0e-2 && t_ + 8.0 < lim) {
             // the shared phase is that of the middle of the four instants (they are 2 (1 - correction) apart, the grid of the block 2): the drift of
             // the real instants from the grid is then at most half of 6 * correction, and only the part of the correction that changes within the block

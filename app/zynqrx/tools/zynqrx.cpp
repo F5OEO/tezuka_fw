@@ -29,6 +29,11 @@
 //       (1316 bytes). A new client first gets the latest PAT and PMT and then starts at the next keyframe (random access indicator, or an
 //       IDR / VPS / SPS / sequence header in the video PES start), so a player can decode from its first packet; it waits 5 s at most for one.
 //       A client that falls 4 MB behind is dropped; the receiver never waits for a client.
+//   zynqrx rx ... --fast-timing on|off|auto   (also bench; default auto)
+//       Cheaper symbol timing once the timing loop has settled: 8 symbols share one row of the interpolator and the timing error detector looks at
+//       four of them, so about a quarter less CPU in the timer (and so on the thread that also does the mixer and the hand-over of the symbols).
+//       The sampling instants are a little less accurate: about 0.1 dB near the decoding threshold on a signal with phase noise, nothing at 7.5 dB and
+//       above in the tests (QPSK 2/3 at 1.5 Msym/s). auto: on above 0.5 Msym/s, when the symbol rate is given.
 //   zynqrx rx ... --ldpc8   (also bench)
 //       The 8-bit CPU LDPC decoder at every code rate, not only from 2/3 up. Much cheaper on the board; a frame it cannot finish still goes to the float
 //       decoder, but low code rates lose sensitivity (about 2 dB at QPSK 2/5 on the test signals), and it is not faster on the board for a weak signal. DVB-S2 only.
@@ -45,6 +50,7 @@
 //       bch_uncorect, bch_errors, ldpc_errors, service_name, provider_name, ts_null (%), es_pid/es_type, modulation, fec, short_frame, pilots,
 //       rolloff, matype1, matype2. Not sent: poweri/powerq, constel_i/q, agc1, videobuffer/audiobuffer/transdelay (no such measurements here).
 //       ber and ldpc_errors are estimates from the pre-FEC bit error rate; bch_errors is 0 (the number of corrected bits is not kept).
+//       mer is sent from "found header" on (it is measured on the header and pilot symbols); ber, ldpc_errors and margin_db only once the transport stream is locked.
 //       From 261 kS the radio's RRC filter is used (2 samples per symbol); below, the radio runs at 2.1 Msps and the receiver filters in software.
 //   zynqrx rx --iio ... --nice N   (default -10 for live radio input and --mqtt, else 0; needs root)
 //       Scheduling priority of the receiver. The firmware's own processes use part of the board's two cores; the receiver has the deadlines.
@@ -136,6 +142,7 @@ struct GenOptions {
     DvbsSignalConfig c;
     std::string fecName = "2/3";
     bool prefiltered = false, blocking = false, hint = false, realtime = false, ldpc8 = false;
+    int fastTiming = 2;   // 0 off, 1 on, 2 auto (on above 0.5 Msym/s)
     double specSecs = 0.25, center = 0;
     bool haveCenter = false;
 };
@@ -159,6 +166,7 @@ int parseGen(int argc, char** argv, int first, GenOptions& g, bool needOut) {
         else if (a == "--blocking") g.blocking = true;
         else if (a == "--hint") g.hint = true;
         else if (a == "--ldpc8") g.ldpc8 = true;
+        else if (a == "--fast-timing") { const std::string v = next(); g.fastTiming = v == "on" ? 1 : v == "off" ? 0 : 2; }
         else if (a == "--realtime") g.realtime = true;
         else if (a == "--spec-secs") g.specSecs = atof(next().c_str());
         else if (a == "--center") { g.center = atof(next().c_str()); g.haveCenter = true; }
@@ -238,6 +246,7 @@ int cmdBench(int argc, char** argv) {
     rx.setBlocking(g.blocking);   // default: frames are dropped when the decoder threads are behind, as in the engine
     rx.setPrefiltered(g.prefiltered);
     rx.setLdpc8(g.ldpc8);
+    rx.setFastTiming(g.fastTiming == 1 || (g.fastTiming == 2 && g.c.tx.symbolRate > 0.5e6));
     if (g.hint) rx.setStandardHint(g.c.tx.standard);   // search only for the standard that was generated (skips the DVB-S Viterbi attempts)
     rx.setSpectrumInterval(g.specSecs);
     if (g.haveCenter) { rx.setCenter(true, g.center); if (!g.prefiltered) rx.setSymbolRate(g.c.tx.symbolRate); }
@@ -320,6 +329,7 @@ struct RxOpts {
     int modsMask = 0;
     bool presence = false;
     bool prefilt = false, ldpc8 = false, ccm = false, haveCenter = false, useIio = false, rateGiven = false;
+    int fastTiming = 2;                       // --fast-timing: 0 off, 1 on, 2 auto (on above 0.5 Msym/s)
     bool start = false;                       // --start: with --mqtt, begin receiving at once instead of waiting for cmd/longmynd/process start
 };
 
@@ -371,6 +381,7 @@ int runSession(RxOpts& o, RxCtl& ctl) {
     if (roll > 0) rx.setRollOff(roll);
     rx.setPrefiltered(prefilt);
     rx.setLdpc8(o.ldpc8);
+    rx.setFastTiming(o.fastTiming == 1 || (o.fastTiming == 2 && o.rs > 0.5));   // auto: only when the symbol rate is given
     rx.setConstantModcod(o.ccm);
     rx.setPresenceGate(o.presence);
     rx.setHuntModulations(o.modsMask);
@@ -678,6 +689,7 @@ int cmdRx(int argc, char** argv) {
         else if (a == "--pls") o.pls = atoi(next().c_str());
         else if (a == "--prefiltered") o.prefilt = true;
         else if (a == "--ldpc8") o.ldpc8 = true;
+        else if (a == "--fast-timing") { const std::string v = next(); o.fastTiming = v == "on" ? 1 : v == "off" ? 0 : 2; }
         else if (a == "--ccm") o.ccm = true;
         else if (a == "--presence") { o.presence = true; presenceGiven = true; }
         else if (a == "--no-presence") { o.presence = false; presenceGiven = true; }

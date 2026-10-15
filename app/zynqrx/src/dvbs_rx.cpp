@@ -1,5 +1,8 @@
 // DVB-S/S2 receiver, see dvbs_rx.h.
 #include "dect2/dvbs_rx.h"
+#if defined(__ARM_NEON)
+#include <arm_neon.h>
+#endif
 #include "dect2/dvbs_s2.h"
 #include "dvbs_presence.h"
 #include "dvbs_carrier.h"
@@ -609,6 +612,7 @@ void DvbsReceiver::setHuntModulations(int mask) {
     p_->huntRestrict = true;
 }
 void DvbsReceiver::setLdpc8(bool on) { p_->s2.setLdpc8(on); }
+void DvbsReceiver::setFastTiming(bool on) { p_->front.timer().setFast(on); }
 void DvbsReceiver::setComputeMode(int m) { p_->computeMode = m; p_->s2.setComputeMode(m); p_->s1Compute.mode = m; }
 void DvbsReceiver::setBlocking(bool b) { p_->blocking = b; }
 void DvbsReceiver::flush() {
@@ -628,6 +632,26 @@ bool DvbsReceiver::telemetry(DvbsTelemetry& out, uint64_t lastSeq) {
     return true;
 }
 
+// True when no sample is NaN or infinite. Four floats at a time with the largest absolute value kept (a NaN stays in a NEON maximum), and a prefetch
+// ahead: the block was written by another thread, so it comes from the L2 cache, where a plain loop spends about 30 cycles a sample waiting
+static bool allFinite(const cf32* x, size_t n) {
+    const float* p = reinterpret_cast<const float*>(x);
+    const size_t m = 2 * n;
+    size_t i = 0;
+#if defined(__ARM_NEON)
+    float32x4_t mx = vdupq_n_f32(0.f);
+    for (; i + 8 <= m; i += 8) {
+        __builtin_prefetch(p + i + 64);
+        mx = vmaxq_f32(mx, vabsq_f32(vld1q_f32(p + i)));
+        mx = vmaxq_f32(mx, vabsq_f32(vld1q_f32(p + i + 4)));
+    }
+    const float32x2_t h = vpmax_f32(vget_low_f32(mx), vget_high_f32(mx));
+    if (!(std::max(vget_lane_f32(h, 0), vget_lane_f32(h, 1)) <= 3.0e38f)) return false;     // a NaN fails this comparison too
+#endif
+    for (; i < m; i++) if (!std::isfinite(p[i])) return false;
+    return true;
+}
+
 void DvbsReceiver::feed(const cf32* x, size_t n) {
     Impl& I = *p_;
     if (n == 0 || !ready()) return;
@@ -638,12 +662,10 @@ void DvbsReceiver::feed(const cf32* x, size_t n) {
     }
     // a NaN or infinite sample (a broken file) would stay in the AGC power of the symbol timer, whose loop then runs away and reads outside its
     // buffer: such samples count as silence
-    for (size_t i = 0; i < n; i++) {
-        if (std::isfinite(x[i].real() + x[i].imag())) continue;
+    if (!allFinite(x, n)) {
         I.clean.assign(x, x + n);
         for (cf32& v : I.clean) if (!std::isfinite(v.real() + v.imag())) v = cf32(0, 0);
         x = I.clean.data();
-        break;
     }
     I.inputCount += n;
     const bool noSpectrum = I.spectrumOff();

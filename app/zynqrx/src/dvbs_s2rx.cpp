@@ -14,6 +14,11 @@
 #include <map>
 #include <mutex>
 #include <thread>
+#if defined(__linux__)
+#include <sys/resource.h>
+#include <sys/syscall.h>
+#include <unistd.h>
+#endif
 
 namespace dect2 {
 namespace dvbs {
@@ -899,6 +904,17 @@ struct S2Rx::Impl {
     }
 
     void workerLoop() {
+#if defined(__linux__)
+        // Optional: DECT2_WORKER_NICE_OFFSET (default 0 = off) is added to the nice value the decoder threads inherited (at most 19), so that they run at a lower
+        // priority than the front end and carrier loop that rx --iio / --mqtt makes more important (-10). Measured live on a 1.5 Msym/s beacon on a Zynq (two
+        // cores, not enough for it): an offset of 10 halves the lost frame synchronisations (6 against 11 in 40 s) but the input still drops signal as often
+        // and the delivered transport stream does not improve (about 510-560 packets/s against 555 with the same priority), so it is off by default.
+        {
+            static const int off = [] { const char* e = getenv("DECT2_WORKER_NICE_OFFSET"); return e ? atoi(e) : 0; }();
+            const int cur = getpriority(PRIO_PROCESS, 0);
+            if (off > 0 && cur < 0) setpriority(PRIO_PROCESS, (id_t)syscall(SYS_gettid), std::min(19, cur + off));
+        }
+#endif
         int quickScore = 8;
         unsigned quickTick = 0;
         std::vector<float> llr, dlAll;

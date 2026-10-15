@@ -107,6 +107,10 @@ inline void datvPublish(MqttLink& mq, const DatvStatus& s) {
         num("agc2", (long long)(s.gainDb * 65535 / 73));          // AD9361 gain scale: 0 minimum, 65535 maximum
     }
     const bool locked = s.haveTel && s.state >= 3;
+    // MER comes from the known symbols (header, pilots), so it is real as soon as the frame headers are found (state 2),
+    // before the transport stream locks; longmynd reports it only when locked, here it is sent from "found header" on.
+    // The error rates and the margin stay with the lock.
+    const bool haveMer = s.haveTel && s.state >= 2;
     // puncture rate: n for n/(n+1), while the detected code is a DVB-S one
     {
         int n = 0;
@@ -120,7 +124,7 @@ inline void datvPublish(MqttLink& mq, const DatvStatus& s) {
     const long ber100 = s.haveTel && t.preFecBer >= 0 ? std::lround(t.preFecBer * 100.0 * 100.0) : 0;   // percentage * 100
     num("viterbi_error", locked && t.standard == 1 ? ber100 : 0);
     num("ber", locked ? ber100 : 0);
-    const int mer10 = locked ? (int)std::lround(t.merDb * 10.0) : 0;
+    const int mer10 = haveMer ? (int)std::lround(t.merDb * 10.0) : 0;
     {
         char b[32];
         snprintf(b, sizeof b, "%0.1f", mer10 / 10.0);

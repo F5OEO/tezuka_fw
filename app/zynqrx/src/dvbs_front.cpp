@@ -51,6 +51,12 @@ void DvbsFront::process(const cf32* x, size_t n, std::vector<cf32>& out) {
     size_t done = 0;
     while (done < n) {
         const size_t m = std::min<size_t>(4096, n - done);
+        if (bypass_) {   // prefiltered at 2 samples per symbol: the mixer writes into the timer's own buffer, no copy of the block in between
+            mix_.process(x + done, m, timer_.inbuf());
+            done += m;
+            timer_.run(out);
+            continue;
+        }
         a_.clear();
         mix_.process(x + done, m, a_);
         done += m;
@@ -60,7 +66,6 @@ void DvbsFront::process(const cf32* x, size_t n, std::vector<cf32>& out) {
             hb_[k].process(*cur, cur->size(), stage_[k]);
             cur = &stage_[k];
         }
-        if (bypass_) { timer_.process(*cur, out); continue; }
         two_.clear();
         rs_.process(*cur, cur->size(), two_);
         timer_.process(two_, out);
