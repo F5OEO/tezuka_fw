@@ -66,7 +66,7 @@ Commands (`cmd/zynqrx/...`):
 | `swport`, `polar` | Accepted and reported back, but there is no such hardware. |
 | `process` | `start` or `stop`. Frequency and sr sent while stopped are kept for the next start. |
 | `gain` | RX gain in dB (0 - 73), or `auto` for the radio's AGC. Same as `--gain`. |
-| `bw` | Analog bandwidth in kHz, 0 = the sample rate. Same as `--bw`. |
+| `bw` | Analog bandwidth in kHz. 0 (the default) = 3 x the symbol rate, within the AD9361's 0.2 - 56 MHz. Same as `--bw`, which without MQTT defaults to the sample rate. |
 | `std` | `0` (both), `1` (DVB-S) or `2` (DVB-S2). Same as `--std`. |
 | `roll` | Roll-off 0.05 - 0.35, 0 = default (0.35 on the radio filter). Same as `--roll`. |
 | `mods` | Modulations to search for, e.g. `qpsk,8psk`. Same as `--mods`. |

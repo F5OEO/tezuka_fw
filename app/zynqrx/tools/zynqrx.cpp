@@ -337,7 +337,7 @@ struct RxOpts {
 // Receiver settings that cmd/zynqrx/<name> changes at run time (the same as the command line options of the same name); a change restarts the
 // receiver when it is running. They are echoed on dt/zynqrx/set/<name>.
 struct RxTune {
-    double gainDb = -1, bwMHz = 0, roll = 0, maxLag = 4;   // gain -1 = the radio's AGC, bw 0 = the sample rate, roll 0 = 0.35 on the radio's filter
+    double gainDb = -1, bwMHz = 0, roll = 0, maxLag = 4;   // gain -1 = the radio's AGC, bw 0 = 3 x the symbol rate, roll 0 = 0.35 on the radio's filter
     int stdHint = 0, isi = -1, pls = -1, modsMask = 0, fastTiming = 2;
     bool ccm = false, presence = false, ldpc8 = false, wsKeyframe = false;
 };
@@ -391,7 +391,7 @@ int tuneSet(RxTune& t, const std::string& key, const std::string& val, bool& cha
     auto bad = [&](const char* w) { why = w; return -1; };
     const bool isBool = val == "0" || val == "1" || val == "on" || val == "off" || val == "true" || val == "false";
     if (key == "gain") { if (val == "auto") return setD(t.gainDb, -1); return num && dv >= 0 && dv <= 73 ? setD(t.gainDb, dv) : bad("dB 0 - 73, or auto"); }
-    if (key == "bw") return num && dv >= 0 && dv <= 56000 ? setD(t.bwMHz, dv / 1000.0) : bad("kHz, 0 (= the sample rate) - 56000");
+    if (key == "bw") return num && dv >= 0 && dv <= 56000 ? setD(t.bwMHz, dv / 1000.0) : bad("kHz, 0 (= 3 x the symbol rate) - 56000");
     if (key == "std") return num && (dv == 0 || dv == 1 || dv == 2) ? setI(t.stdHint, (int)dv) : bad("0 (both), 1 (DVB-S) or 2 (DVB-S2)");
     if (key == "roll") return num && (dv == 0 || (dv >= 0.05 && dv <= 0.35)) ? setD(t.roll, dv) : bad("0 (default) or 0.05 - 0.35");
     if (key == "mods") { int m; if (!parseMods(val, m)) return bad("a list of qpsk, 8psk, 16apsk, 32apsk"); return setI(t.modsMask, m); }
@@ -615,6 +615,8 @@ bool datvSessionOpts(RxOpts& o, long freqKHz, long srKS) {
     o.rs = (double)srKS / 1000.0;
     o.secsMax = 0;
     o.useIio = true;
+    // analog bandwidth of the radio: 3 x the symbol rate unless one was set (cmd/zynqrx/bw); the AD9361 takes 0.2 - 56 MHz
+    if (o.bwMHz <= 0) o.bwMHz = std::max(0.2, std::min(56.0, 3.0 * o.rs));
     o.haveCenter = true;               // the carrier is taken to be on the radio's frequency: the receiver then needs no spectrum search
     o.center = 0;
     if (o.rs * 2 >= 2.083 / 4 - 1e-4) {
