@@ -612,6 +612,7 @@ void DvbsReceiver::setHuntModulations(int mask) {
     p_->huntRestrict = true;
 }
 void DvbsReceiver::setLdpc8(bool on) { p_->s2.setLdpc8(on); }
+void DvbsReceiver::setNoBch(bool on) { p_->s2.setNoBch(on); }
 void DvbsReceiver::setFastTiming(bool on) { p_->front.timer().setFast(on); }
 void DvbsReceiver::setComputeMode(int m) { p_->computeMode = m; p_->s2.setComputeMode(m); p_->s1Compute.mode = m; }
 void DvbsReceiver::setBlocking(bool b) { p_->blocking = b; }

@@ -52,6 +52,7 @@ public:
     void setIsi(int isi) { isiSel_ = isi; }
     void setBlocking(bool b) { blocking_ = b; }
     void setComputeMode(int m);                    // 0 CPU, 1 GPU, 2 auto: where the LDPC decoder runs
+    void setNoBch(bool on);                        // skip the BCH stage (an LDPC word that converged is taken as is)
     void setLdpc8(bool on);                        // the 8-bit CPU decoder at every code rate (default: only from 2/3 up; below, a few 8-bit iterations and then the float decoder)
     void setPacketCallback(std::function<void(const uint8_t*, size_t, double)> cb);
     void setLogCallback(std::function<void(const std::string&)> cb);

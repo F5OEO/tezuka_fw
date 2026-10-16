@@ -38,6 +38,7 @@
 //   zynqrx rx ... --ldpc8   (also bench)
 //       The 8-bit CPU LDPC decoder at every code rate, not only from 2/3 up. Much cheaper on the board; a frame it cannot finish still goes to the float
 //       decoder, but low code rates lose sensitivity (about 2 dB at QPSK 2/5 on the test signals), and it is not faster on the board for a weak signal. DVB-S2 only.
+//   zynqrx rx --iio --iq-format cs8   (Tezuka firmware: 8-bit I/Q from the FPGA instead of 16-bit, less memory traffic, less dynamic range; the default; --iq-format cs16 or cmd/zynqrx/iqformat cs16 gives 12-bit samples in 16 bits)
 //   zynqrx rx --iio --mqtt broker[:port] [--freq MHz --rs Msym] [--udp addr:port] ...
 //       Control and status over MQTT in the scheme of longmynd (F5OEO/longmynd, mymqtt.c): the scripts and dashboards made for that receiver work with it.
 //       Commands (cmd/zynqrx/...): frequency (kHz, 70000 - 6000000), sr (kS, 33 - 7680), tsip (IPv4 of the transport stream output, the port stays that
@@ -329,7 +330,7 @@ struct RxOpts {
     int stdHint = 0, isi = -1, pls = -1, udpTtl = 16, mqttPort = 1883, niceValue = 99, wsPort = 0; bool wsKeyframe = false;   // niceValue 99: not given
     int modsMask = 0;
     bool presence = false;
-    bool prefilt = false, ldpc8 = false, ccm = false, haveCenter = false, useIio = false, rateGiven = false;
+    bool prefilt = false, ldpc8 = false, noBch = false, cs8 = true, ccm = false, haveCenter = false, useIio = false, rateGiven = false;
     int fastTiming = 2;                       // --fast-timing: 0 off, 1 on, 2 auto (on above 0.5 Msym/s)
     bool start = false;                       // --start: with --mqtt, begin receiving at once instead of waiting for cmd/zynqrx/process start
 };
@@ -339,7 +340,7 @@ struct RxOpts {
 struct RxTune {
     double gainDb = -1, bwMHz = 0, roll = 0, maxLag = 4;   // gain -1 = the radio's AGC, bw 0 = 3 x the symbol rate, roll 0 = 0.35 on the radio's filter
     int stdHint = 0, isi = -1, pls = -1, modsMask = 0, fastTiming = 2;
-    bool ccm = false, presence = false, ldpc8 = false, wsKeyframe = false;
+    bool ccm = false, presence = false, ldpc8 = false, wsKeyframe = false, noBch = false, cs8 = true;
 };
 
 // "qpsk,8psk" -> mask; false when a name is not one of the four
@@ -368,7 +369,7 @@ std::string modsName(int mask) {
 void tuneApply(const RxTune& t, RxOpts& o) {
     o.gainDb = t.gainDb; o.bwMHz = t.bwMHz; o.roll = t.roll; o.maxLag = t.maxLag;
     o.stdHint = t.stdHint; o.isi = t.isi; o.pls = t.pls; o.modsMask = t.modsMask; o.fastTiming = t.fastTiming;
-    o.ccm = t.ccm; o.presence = t.presence; o.ldpc8 = t.ldpc8;
+    o.ccm = t.ccm; o.presence = t.presence; o.ldpc8 = t.ldpc8; o.noBch = t.noBch; o.cs8 = t.cs8;
 }
 
 std::vector<std::pair<std::string, std::string>> tuneSettings(const RxTune& t) {
@@ -376,7 +377,7 @@ std::vector<std::pair<std::string, std::string>> tuneSettings(const RxTune& t) {
     return {{"gain", t.gainDb < 0 ? "auto" : d(t.gainDb, "%.1f")}, {"bw", std::to_string(std::lround(t.bwMHz * 1000.0))}, {"std", std::to_string(t.stdHint)},
             {"roll", d(t.roll, "%.2f")}, {"mods", modsName(t.modsMask)}, {"ccm", t.ccm ? "1" : "0"}, {"presence", t.presence ? "1" : "0"},
             {"fasttiming", t.fastTiming == 1 ? "on" : t.fastTiming == 0 ? "off" : "auto"}, {"ldpc8", t.ldpc8 ? "1" : "0"}, {"maxlag", d(t.maxLag, "%.1f")},
-            {"isi", std::to_string(t.isi)}, {"pls", std::to_string(t.pls)}, {"wskeyframe", t.wsKeyframe ? "1" : "0"}};
+            {"isi", std::to_string(t.isi)}, {"pls", std::to_string(t.pls)}, {"wskeyframe", t.wsKeyframe ? "1" : "0"}, {"nobch", t.noBch ? "1" : "0"}, {"iqformat", t.cs8 ? "cs8" : "cs16"}};
 }
 
 // Applies cmd/zynqrx/<key>. 0 = not one of these settings, 1 = set (changed tells whether the value differs), -1 = value refused (why says what is accepted)
@@ -388,6 +389,7 @@ int tuneSet(RxTune& t, const std::string& key, const std::string& val, bool& cha
     auto setD = [&](double& cur, double v) { changed = cur != v; cur = v; return 1; };
     auto setI = [&](int& cur, int v) { changed = cur != v; cur = v; return 1; };
     auto setB = [&](bool& cur) { const bool v = val == "1" || val == "on" || val == "true"; changed = cur != v; cur = v; return 1; };
+    auto setB2 = [&](bool& cur, bool v) { changed = cur != v; cur = v; return 1; };
     auto bad = [&](const char* w) { why = w; return -1; };
     const bool isBool = val == "0" || val == "1" || val == "on" || val == "off" || val == "true" || val == "false";
     if (key == "gain") { if (val == "auto") return setD(t.gainDb, -1); return num && dv >= 0 && dv <= 73 ? setD(t.gainDb, dv) : bad("dB 0 - 73, or auto"); }
@@ -397,6 +399,8 @@ int tuneSet(RxTune& t, const std::string& key, const std::string& val, bool& cha
     if (key == "mods") { int m; if (!parseMods(val, m)) return bad("a list of qpsk, 8psk, 16apsk, 32apsk"); return setI(t.modsMask, m); }
     if (key == "ccm") return isBool ? setB(t.ccm) : bad("0 or 1");
     if (key == "presence") return isBool ? setB(t.presence) : bad("0 or 1");
+    if (key == "iqformat") return val == "cs8" || val == "cs16" ? setB2(t.cs8, val == "cs8") : bad("cs8 or cs16");
+    if (key == "nobch") return isBool ? setB(t.noBch) : bad("0 or 1");
     if (key == "ldpc8") return isBool ? setB(t.ldpc8) : bad("0 or 1");
     if (key == "fasttiming") return val == "on" || val == "off" || val == "auto" ? setI(t.fastTiming, val == "on" ? 1 : val == "off" ? 0 : 2) : bad("on, off or auto");
     if (key == "maxlag") return num && dv >= 0 ? setD(t.maxLag, dv) : bad("seconds, 0 = off");
@@ -435,7 +439,7 @@ int runSession(RxOpts& o, RxCtl& ctl) {
     const bool useIio = o.useIio, prefilt = o.prefilt;
     std::ifstream f;
     IioSource iio;
-    if (useIio) { if (!iio.open(o.iioUri, rate * 1e6, o.freqMHz * 1e6, o.bwMHz * 1e6, o.gainDb, prefilt ? roll : 0)) return 1; }
+    if (useIio) { if (!iio.open(o.iioUri, rate * 1e6, o.freqMHz * 1e6, o.bwMHz * 1e6, o.gainDb, prefilt ? roll : 0, o.cs8)) return 1; }
     else { f.open(path, std::ios::binary); if (!f) { fprintf(stderr, "cannot open %s\n", path.c_str()); return 1; } }
     // what the receiver's callbacks use is declared before the receiver, so that it is destroyed after it (the receiver's threads may still call them
     // until its destructor has joined them, which is the case when a session is ended without flushing)
@@ -455,6 +459,7 @@ int runSession(RxOpts& o, RxCtl& ctl) {
     if (roll > 0) rx.setRollOff(roll);
     rx.setPrefiltered(prefilt);
     rx.setLdpc8(o.ldpc8);
+    if (o.noBch || getenv("DECT2_NO_BCH")) rx.setNoBch(o.noBch || atoi(getenv("DECT2_NO_BCH")) != 0);
     rx.setFastTiming(o.fastTiming == 1 || (o.fastTiming == 2 && o.rs > 0.5));   // auto: only when the symbol rate is given
     rx.setConstantModcod(o.ccm);
     rx.setPresenceGate(o.presence);
@@ -642,7 +647,7 @@ int runDaemon(RxOpts& o) {
     ctl.udpTtl = o.udpTtl;
     ctl.udpIf = o.udpIf;
     ctl.enabled = o.start;
-    ctl.tune = RxTune{o.gainDb, o.bwMHz, o.roll, o.maxLag, o.stdHint, o.isi, o.pls, o.modsMask, o.fastTiming, o.ccm, o.presence, o.ldpc8, o.wsKeyframe};
+    ctl.tune = RxTune{o.gainDb, o.bwMHz, o.roll, o.maxLag, o.stdHint, o.isi, o.pls, o.modsMask, o.fastTiming, o.ccm, o.presence, o.ldpc8, o.wsKeyframe, o.noBch, o.cs8};
     if (!o.udpDest.empty()) {
         const size_t c = o.udpDest.rfind(':');
         ctl.tsip = o.udpDest.substr(0, c);
@@ -781,6 +786,8 @@ int cmdRx(int argc, char** argv) {
         else if (a == "--pls") o.pls = atoi(next().c_str());
         else if (a == "--prefiltered") o.prefilt = true;
         else if (a == "--ldpc8") o.ldpc8 = true;
+        else if (a == "--no-bch") o.noBch = true;
+        else if (a == "--iq-format") o.cs8 = next() == "cs8";
         else if (a == "--fast-timing") { const std::string v = next(); o.fastTiming = v == "on" ? 1 : v == "off" ? 0 : 2; }
         else if (a == "--ccm") o.ccm = true;
         else if (a == "--presence") { o.presence = true; presenceGiven = true; }

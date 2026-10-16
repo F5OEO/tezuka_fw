@@ -1,5 +1,6 @@
 // Live IQ from the radio's AD936x through libiio (zynqrx rx --iio). Built only with -DZYNQRX_IIO (Makefile: IIO=1, the default for the board).
 #pragma once
+#include <algorithm>
 #include <cstddef>
 #include <cstdint>
 #include <cstdio>
@@ -51,7 +52,7 @@ public:
 
     // uri empty = the local context (on the board); otherwise e.g. ip:192.168.2.1 or usb:1.2.5. gainDb < 0 = the radio's slow attack AGC.
     // rrcRoll > 0: the RRC decimate-by-4 FIR with that roll-off; rateHz is then the output rate (2 samples per symbol, 0.52 - 15.36 Msps).
-    bool open(const std::string& uri, double rateHz, double freqHz, double bwHz, double gainDb, double rrcRoll = 0) {
+    bool open(const std::string& uri, double rateHz, double freqHz, double bwHz, double gainDb, double rrcRoll = 0, bool cs8 = false) {
         ctx_ = uri.empty() ? iio_create_default_context() : iio_create_context_from_uri(uri.c_str());
         if (!ctx_) { fprintf(stderr, "iio: cannot open context %s\n", uri.empty() ? "(default)" : uri.c_str()); return false; }
         iio_device* phy = iio_context_find_device(ctx_, "ad9361-phy");
@@ -102,8 +103,16 @@ public:
         i_ = iio_device_find_channel(dev_, "voltage0", false);
         q_ = iio_device_find_channel(dev_, "voltage1", false);
         if (!i_ || !q_) { fprintf(stderr, "iio: RX data channels not found\n"); return false; }
+        // Tezuka firmware: with only the first channel enabled the FPGA sends 8-bit I/Q pairs (half the bytes through memory), with both 16-bit
+        if (cs8) {
+            const char* fw = iio_context_get_attr_value(ctx_, "fw_version");
+            std::string low = fw ? fw : "";
+            for (auto& c : low) c = (char)tolower((unsigned char)c);
+            cs8_ = low.find("tezuka") != std::string::npos;
+            if (!cs8_) fprintf(stderr, "iio: cs8 needs Tezuka firmware (%s), staying with 16-bit samples\n", fw ? fw : "unknown");
+        }
         iio_channel_enable(i_);
-        iio_channel_enable(q_);
+        if (cs8_) iio_channel_disable(q_); else iio_channel_enable(q_);
         iio_device_set_kernel_buffers_count(dev_, 8);   // a few extra buffers ride out the receiver being busy
         buf_ = iio_device_create_buffer(dev_, kBlock, false);
         if (!buf_) { fprintf(stderr, "iio: cannot create the RX buffer\n"); return false; }
@@ -118,6 +127,23 @@ public:
         const char* end = (const char*)iio_buffer_end(buf_);
         const ptrdiff_t step = iio_buffer_step(buf_);
         size_t n = 0;
+        if (cs8_) {   // 8-bit I/Q pairs, full scale 128
+            const int8_t* s = reinterpret_cast<const int8_t*>(p);
+            const size_t pairs = std::min<size_t>((size_t)(end - p) / 2, max);
+#if defined(__ARM_NEON)
+            float* o = reinterpret_cast<float*>(x);
+            const float32x4_t scale = vdupq_n_f32(1.f / 128.f);
+            for (; n + 8 <= pairs; n += 8) {   // eight samples (sixteen values) at a time
+                const int16x8_t a = vmovl_s8(vld1_s8(s + 2 * n)), b = vmovl_s8(vld1_s8(s + 2 * n + 8));
+                vst1q_f32(o + 2 * n, vmulq_f32(vcvtq_f32_s32(vmovl_s16(vget_low_s16(a))), scale));
+                vst1q_f32(o + 2 * n + 4, vmulq_f32(vcvtq_f32_s32(vmovl_s16(vget_high_s16(a))), scale));
+                vst1q_f32(o + 2 * n + 8, vmulq_f32(vcvtq_f32_s32(vmovl_s16(vget_low_s16(b))), scale));
+                vst1q_f32(o + 2 * n + 12, vmulq_f32(vcvtq_f32_s32(vmovl_s16(vget_high_s16(b))), scale));
+            }
+#endif
+            for (; n < pairs; n++) x[n] = std::complex<float>(s[2 * n] * (1.f / 128.f), s[2 * n + 1] * (1.f / 128.f));
+            return n;
+        }
 #if defined(__ARM_NEON)
         if (step == 4) {   // I and Q only: 12-bit samples in int16, four samples (eight values) at a time
             float* o = reinterpret_cast<float*>(x);
@@ -165,13 +191,13 @@ private:
         if (txCfg_) iio_channel_attr_write_longlong(txCfg_, "sampling_frequency", hz);
         return r;
     }
-    bool firOn_ = false;
+    bool firOn_ = false, cs8_ = false;
     double rate_ = 0;
 };
 #else
 class IioSource {
 public:
-    bool open(const std::string&, double, double, double, double, double = 0) { fprintf(stderr, "this build has no libiio (build with IIO=1)\n"); return false; }
+    bool open(const std::string&, double, double, double, double, double = 0, bool = false) { fprintf(stderr, "this build has no libiio (build with IIO=1)\n"); return false; }
     size_t read(std::complex<float>*, size_t) { return 0; }
     void cancel() {}
     int gainDb() const { return -1; }

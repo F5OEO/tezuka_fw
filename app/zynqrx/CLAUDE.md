@@ -1,13 +1,12 @@
 # Notes for Claude
 
-Cross-build (OnAir, branch dvb-arm, dvbstool)
+Cross-build for the board (from app/zynqrx)
   . /media/hp-z2-dev/Variste/Doc/prog/tezuka_fw/output/fishball7020/host/environment-setup
-  make -C tools/arm -j4
-  - It uses a standalone Makefile with no FFmpeg or HackRF.
-  - B=<dir> sets the build directory.
-  - PROF=1 adds a SIGPROF PC sampler. tools/arm/prof_report.py resolves its output, because the board has no perf.
-  - Use -j4 at most, per CLAUDE.md.
-  - To check on the host, run make -C tools/arm CXX=g++ CXXFLAGS_ARM=-march=native FASTMATH=.
+  make -j4
+  - The SDK environment-setup exports the cross compiler (CXX=arm-linux-g++); the Makefile builds with it. Result: build/zynqrx (B=<dir> changes the folder).
+  - Use -j4 at most, per CLAUDE.md. Put scratch builds under /media/hp-z2-dev/Variste/Doc/tmp, e.g. B=/media/hp-z2-dev/Variste/Doc/tmp/zynqrx-arm, and delete them afterwards.
+  - PROF=1 adds a SIGPROF PC sampler (static; use IIO=0 MQTT=0). scripts/prof_report.py resolves its output, because the board has no perf.
+  - To check on the host: make -j4 HOST=1 (build-host/zynqrx; IIO=0 MQTT=0 by default, IIO=1 needs libiio-dev).
 
   Target
   - It's a 32-bit ARM Zynq running Tezuka firmware, with 2× Cortex-A9 and NEON.

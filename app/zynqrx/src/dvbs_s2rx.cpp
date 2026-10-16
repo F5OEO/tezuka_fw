@@ -889,11 +889,18 @@ struct S2Rx::Impl {
         return true;
     }
 
+    // set by setNoBch(), or at start by the environment variable DECT2_NO_BCH=1
+    static inline std::atomic<bool> gNoBch{[] { const char* e = getenv("DECT2_NO_BCH"); return e && atoi(e) != 0; }()};
+
     // The back half: BCH, BBHEADER descrambling and the bit error estimate from a decoded code word
     static void finishFrame(const Job& j, const S2Dims& d, const float* dl, const uint8_t* hard, bool ldpcOk, int iters, bool gpu, std::vector<uint8_t>& bb, Result& r) {
         r.iters = iters; r.gpu = gpu;
         if (!ldpcOk) return;
-        const int fixed = s2BchDecode(hard, j.rate, j.sh, bb);
+        // The bypass (setNoBch, cmd/zynqrx/nobch, DECT2_NO_BCH=1) skips the BCH stage: an LDPC word that converged already satisfies its parity checks, so the BCH only catches the rare
+        // wrong-codeword convergence (the BBHEADER CRC-8 still rejects most of those). Saves the syndrome pass over nldpc bits per frame.
+        int fixed;
+        if (gNoBch.load(std::memory_order_relaxed)) { bb.assign(hard, hard + d.kbch); fixed = 0; }
+        else fixed = s2BchDecode(hard, j.rate, j.sh, bb);
         if (fixed < 0) return;
         s2BbScramble(bb.data(), d.kbch);
         r.ok = true; r.bchFixed = fixed; r.bb = bb;
@@ -1167,6 +1174,7 @@ void S2Rx::stop() {
 
 void S2Rx::setComputeMode(int m) { p_->compute.mode = m; }
 void S2Rx::setLdpc8(bool on) { p_->force8 = on; }
+void S2Rx::setNoBch(bool on) { p_->gNoBch = on; }
 
 S2Stats S2Rx::stats() const { std::lock_guard<std::mutex> lk(p_->statMu); return p_->st; }
 void S2Rx::cells(std::vector<cf32>& out) const { std::lock_guard<std::mutex> lk(p_->statMu); out = p_->cellSnap; }
