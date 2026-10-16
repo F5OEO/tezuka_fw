@@ -334,6 +334,78 @@ struct RxOpts {
     bool start = false;                       // --start: with --mqtt, begin receiving at once instead of waiting for cmd/zynqrx/process start
 };
 
+// Receiver settings that cmd/zynqrx/<name> changes at run time (the same as the command line options of the same name); a change restarts the
+// receiver when it is running. They are echoed on dt/zynqrx/set/<name>.
+struct RxTune {
+    double gainDb = -1, bwMHz = 0, roll = 0, maxLag = 4;   // gain -1 = the radio's AGC, bw 0 = the sample rate, roll 0 = 0.35 on the radio's filter
+    int stdHint = 0, isi = -1, pls = -1, modsMask = 0, fastTiming = 2;
+    bool ccm = false, presence = false, ldpc8 = false, wsKeyframe = false;
+};
+
+// "qpsk,8psk" -> mask; false when a name is not one of the four
+bool parseMods(const std::string& v, int& mask) {
+    mask = 0;
+    size_t pos = 0;
+    while (pos <= v.size()) {
+        const size_t c = v.find(',', pos);
+        const std::string m = v.substr(pos, c == std::string::npos ? std::string::npos : c - pos);
+        if (m == "qpsk") mask |= 1; else if (m == "8psk") mask |= 2; else if (m == "16apsk") mask |= 4; else if (m == "32apsk") mask |= 8;
+        else if (!m.empty()) return false;
+        if (c == std::string::npos) break;
+        pos = c + 1;
+    }
+    return true;
+}
+
+std::string modsName(int mask) {
+    if (!mask || mask == 15) return "all";
+    std::string r;
+    const char* n[4] = {"qpsk", "8psk", "16apsk", "32apsk"};
+    for (int i = 0; i < 4; i++) if (mask >> i & 1) r += (r.empty() ? "" : ",") + std::string(n[i]);
+    return r;
+}
+
+void tuneApply(const RxTune& t, RxOpts& o) {
+    o.gainDb = t.gainDb; o.bwMHz = t.bwMHz; o.roll = t.roll; o.maxLag = t.maxLag;
+    o.stdHint = t.stdHint; o.isi = t.isi; o.pls = t.pls; o.modsMask = t.modsMask; o.fastTiming = t.fastTiming;
+    o.ccm = t.ccm; o.presence = t.presence; o.ldpc8 = t.ldpc8;
+}
+
+std::vector<std::pair<std::string, std::string>> tuneSettings(const RxTune& t) {
+    auto d = [](double v, const char* f) { char b[32]; snprintf(b, sizeof b, f, v); return std::string(b); };
+    return {{"gain", t.gainDb < 0 ? "auto" : d(t.gainDb, "%.1f")}, {"bw", std::to_string(std::lround(t.bwMHz * 1000.0))}, {"std", std::to_string(t.stdHint)},
+            {"roll", d(t.roll, "%.2f")}, {"mods", modsName(t.modsMask)}, {"ccm", t.ccm ? "1" : "0"}, {"presence", t.presence ? "1" : "0"},
+            {"fasttiming", t.fastTiming == 1 ? "on" : t.fastTiming == 0 ? "off" : "auto"}, {"ldpc8", t.ldpc8 ? "1" : "0"}, {"maxlag", d(t.maxLag, "%.1f")},
+            {"isi", std::to_string(t.isi)}, {"pls", std::to_string(t.pls)}, {"wskeyframe", t.wsKeyframe ? "1" : "0"}};
+}
+
+// Applies cmd/zynqrx/<key>. 0 = not one of these settings, 1 = set (changed tells whether the value differs), -1 = value refused (why says what is accepted)
+int tuneSet(RxTune& t, const std::string& key, const std::string& val, bool& changed, const char*& why) {
+    char* end = nullptr;
+    const double dv = strtod(val.c_str(), &end);
+    const bool num = !val.empty() && !*end;
+    changed = false;
+    auto setD = [&](double& cur, double v) { changed = cur != v; cur = v; return 1; };
+    auto setI = [&](int& cur, int v) { changed = cur != v; cur = v; return 1; };
+    auto setB = [&](bool& cur) { const bool v = val == "1" || val == "on" || val == "true"; changed = cur != v; cur = v; return 1; };
+    auto bad = [&](const char* w) { why = w; return -1; };
+    const bool isBool = val == "0" || val == "1" || val == "on" || val == "off" || val == "true" || val == "false";
+    if (key == "gain") { if (val == "auto") return setD(t.gainDb, -1); return num && dv >= 0 && dv <= 73 ? setD(t.gainDb, dv) : bad("dB 0 - 73, or auto"); }
+    if (key == "bw") return num && dv >= 0 && dv <= 56000 ? setD(t.bwMHz, dv / 1000.0) : bad("kHz, 0 (= the sample rate) - 56000");
+    if (key == "std") return num && (dv == 0 || dv == 1 || dv == 2) ? setI(t.stdHint, (int)dv) : bad("0 (both), 1 (DVB-S) or 2 (DVB-S2)");
+    if (key == "roll") return num && (dv == 0 || (dv >= 0.05 && dv <= 0.35)) ? setD(t.roll, dv) : bad("0 (default) or 0.05 - 0.35");
+    if (key == "mods") { int m; if (!parseMods(val, m)) return bad("a list of qpsk, 8psk, 16apsk, 32apsk"); return setI(t.modsMask, m); }
+    if (key == "ccm") return isBool ? setB(t.ccm) : bad("0 or 1");
+    if (key == "presence") return isBool ? setB(t.presence) : bad("0 or 1");
+    if (key == "ldpc8") return isBool ? setB(t.ldpc8) : bad("0 or 1");
+    if (key == "fasttiming") return val == "on" || val == "off" || val == "auto" ? setI(t.fastTiming, val == "on" ? 1 : val == "off" ? 0 : 2) : bad("on, off or auto");
+    if (key == "maxlag") return num && dv >= 0 ? setD(t.maxLag, dv) : bad("seconds, 0 = off");
+    if (key == "isi") return num && dv >= -1 && dv <= 255 ? setI(t.isi, (int)dv) : bad("-1 (any) - 255");
+    if (key == "pls") return num && dv >= -1 && dv <= 262142 ? setI(t.pls, (int)dv) : bad("-1 (any) - 262142");
+    if (key == "wskeyframe") { if (!isBool) return bad("0 or 1"); setB(t.wsKeyframe); return 1; }
+    return 0;
+}
+
 // Shared between a receive session and the MQTT thread
 struct RxCtl {
     std::atomic<bool> stop{false};            // ends the running session
@@ -345,6 +417,7 @@ struct RxCtl {
     long freqKHz = 0, srKS = 0, swport = 0;
     int lnbSupply = 0, lnbHorizontal = 0;
     std::string tsip;
+    RxTune tune;                              // the settings above (cmd/zynqrx/gain ... pls)
     std::mutex udpMu;                         // the transport stream output moves to a new address while packets are being sent
     UdpOut udp;
     WsOut ws;                                 // the same stream for WebSocket clients (own locking)
@@ -457,7 +530,7 @@ int runSession(RxOpts& o, RxCtl& ctl) {
     uint64_t lastBchBad = 0;
     auto publishStatus = [&] {
         DatvStatus st;
-        { std::lock_guard<std::mutex> lk(ctl.mu); st.freqKHz = ctl.freqKHz; st.srKS = ctl.srKS; st.swport = ctl.swport; st.tsip = ctl.tsip; st.lnbSupply = ctl.lnbSupply; st.lnbHorizontal = ctl.lnbHorizontal; }
+        { std::lock_guard<std::mutex> lk(ctl.mu); st.freqKHz = ctl.freqKHz; st.srKS = ctl.srKS; st.swport = ctl.swport; st.tsip = ctl.tsip; st.lnbSupply = ctl.lnbSupply; st.lnbHorizontal = ctl.lnbHorizontal; st.settings = tuneSettings(ctl.tune); }
         st.running = true;
         st.tel = tel; st.haveTel = tel.seq != 0;
         st.state = !st.haveTel ? 0 : tel.state >= 2 ? (tel.standard == 1 ? 3 : 4) : (tel.state == 1 && tel.lockFrame) ? 2 : 1;   // 1 Hunting, 2 found header
@@ -557,7 +630,7 @@ bool datvSessionOpts(RxOpts& o, long freqKHz, long srKS) {
     return true;
 }
 
-// Runs sessions under MQTT control: cmd/zynqrx/{frequency,sr,tsip,swport,polar} in, dt/zynqrx/... out
+// Runs sessions under MQTT control: cmd/zynqrx/{frequency,sr,tsip,swport,polar and the RxTune settings} in, dt/zynqrx/... out
 int runDaemon(RxOpts& o) {
     RxCtl ctl;
     MqttLink mq;
@@ -567,6 +640,7 @@ int runDaemon(RxOpts& o) {
     ctl.udpTtl = o.udpTtl;
     ctl.udpIf = o.udpIf;
     ctl.enabled = o.start;
+    ctl.tune = RxTune{o.gainDb, o.bwMHz, o.roll, o.maxLag, o.stdHint, o.isi, o.pls, o.modsMask, o.fastTiming, o.ccm, o.presence, o.ldpc8, o.wsKeyframe};
     if (!o.udpDest.empty()) {
         const size_t c = o.udpDest.rfind(':');
         ctl.tsip = o.udpDest.substr(0, c);
@@ -615,6 +689,19 @@ int runDaemon(RxOpts& o) {
             std::lock_guard<std::mutex> lk(ctl.mu);           // no LNB supply on this hardware: only reported back
             ctl.lnbSupply = val == "h" || val == "v";
             ctl.lnbHorizontal = val == "h";
+        } else {
+            bool changed;
+            const char* why = "";
+            std::lock_guard<std::mutex> lk(ctl.mu);
+            const int r = tuneSet(ctl.tune, key, val, changed, why);
+            if (r < 0) { fprintf(stderr, "mqtt: cmd/zynqrx/%s \"%s\" ignored (%s)\n", key.c_str(), val.c_str(), why); return; }
+            if (r == 0 || !changed) return;
+            if (key == "wskeyframe") { ctl.ws.waitForKeyframe(ctl.tune.wsKeyframe); fprintf(stderr, "mqtt: %s = %s\n", key.c_str(), val.c_str()); return; }
+            if (!ctl.enabled) { fprintf(stderr, "mqtt: %s = %s (receiver stopped, used at the next start)\n", key.c_str(), val.c_str()); return; }
+            ctl.restart = true;
+            fprintf(stderr, "mqtt: %s = %s, restarting the receiver\n", key.c_str(), val.c_str());
+            ctl.stop = true;
+            if (ctl.cancelRead) ctl.cancelRead();
         }
     };
     mq.start(o.mqttHost, o.mqttPort, onCommand);
@@ -624,7 +711,7 @@ int runDaemon(RxOpts& o) {
     auto idleStatus = [&] {
         DatvStatus st;
         std::lock_guard<std::mutex> lk(ctl.mu);
-        st.freqKHz = ctl.freqKHz; st.srKS = ctl.srKS; st.swport = ctl.swport; st.tsip = ctl.tsip; st.lnbSupply = ctl.lnbSupply; st.lnbHorizontal = ctl.lnbHorizontal;
+        st.freqKHz = ctl.freqKHz; st.srKS = ctl.srKS; st.swport = ctl.swport; st.tsip = ctl.tsip; st.lnbSupply = ctl.lnbSupply; st.lnbHorizontal = ctl.lnbHorizontal; st.settings = tuneSettings(ctl.tune);
         st.running = ctl.enabled;
         datvPublish(mq, st);
     };
@@ -638,6 +725,7 @@ int runDaemon(RxOpts& o) {
         }
         if (!on || !fk || !sk) { idleStatus(); std::this_thread::sleep_for(std::chrono::seconds(1)); continue; }
         RxOpts so = o;
+        { std::lock_guard<std::mutex> lk(ctl.mu); tuneApply(ctl.tune, so); }
         datvSessionOpts(so, fk, sk);
         fprintf(stderr, "receiver: %.3f MHz, %ld kS (%s)\n", (double)fk / 1000.0, sk, so.prefilt ? "radio RRC filter" : "software matched filter");
         const int rc = runSession(so, ctl);
@@ -696,17 +784,7 @@ int cmdRx(int argc, char** argv) {
         else if (a == "--presence") { o.presence = true; presenceGiven = true; }
         else if (a == "--no-presence") { o.presence = false; presenceGiven = true; }
         else if (a == "--mods") {
-            const std::string v = next();
-            o.modsMask = 0;
-            size_t pos = 0;
-            while (pos <= v.size()) {
-                const size_t c = v.find(',', pos);
-                const std::string m = v.substr(pos, c == std::string::npos ? std::string::npos : c - pos);
-                if (m == "qpsk") o.modsMask |= 1; else if (m == "8psk") o.modsMask |= 2; else if (m == "16apsk") o.modsMask |= 4; else if (m == "32apsk") o.modsMask |= 8;
-                else if (!m.empty()) { fprintf(stderr, "--mods: %s is not qpsk, 8psk, 16apsk or 32apsk\n", m.c_str()); return 1; }
-                if (c == std::string::npos) break;
-                pos = c + 1;
-            }
+            if (!parseMods(next(), o.modsMask)) { fprintf(stderr, "--mods: not a list of qpsk, 8psk, 16apsk, 32apsk\n"); return 1; }
         }
         else if (a == "--spec-secs") o.specSecs = atof(next().c_str());
         else if (a == "--center") { o.center = atof(next().c_str()); o.haveCenter = true; }

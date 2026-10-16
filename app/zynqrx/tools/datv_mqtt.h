@@ -27,6 +27,7 @@ struct DatvStatus {
     std::string serviceName, providerName;
     std::vector<std::pair<int, int>> es; // elementary stream (pid, stream type)
     int matype1 = -1, matype2 = -1;      // baseband header MATYPE bytes of the last frame, -1 not known
+    std::vector<std::pair<std::string, std::string>> settings;   // receiver settings echoed on dt/zynqrx/set/<name> (gain, bw, std, roll, mods, ...)
 };
 
 #ifdef ZYNQRX_MQTT
@@ -102,6 +103,7 @@ inline void datvPublish(MqttLink& mq, const DatvStatus& s) {
     mq.publish("dt/zynqrx/set/frequency", std::to_string(s.freqKHz));
     mq.publish("dt/zynqrx/set/swport", std::to_string(s.swport));
     mq.publish("dt/zynqrx/set/tsip", s.tsip);
+    for (const auto& kv : s.settings) mq.publish("dt/zynqrx/set/" + kv.first, kv.second);
     if (s.gainDb >= 0) {
         num("lna_gain", s.gainDb);
         num("agc2", (long long)(s.gainDb * 65535 / 73));          // AD9361 gain scale: 0 minimum, 65535 maximum
