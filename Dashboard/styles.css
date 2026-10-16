@@ -289,6 +289,8 @@ body {
 .slider::-webkit-slider-thumb { -webkit-appearance: none; width: 18px; height: 18px; border-radius: 50%; background: #fff; border: 3px solid var(--accent); cursor: pointer; box-shadow: 0 2px 6px rgba(0,0,0,.4); }
 .slider::-moz-range-thumb { width: 14px; height: 14px; border-radius: 50%; background: #fff; border: 3px solid var(--accent); cursor: pointer; }
 .slider-val { font-family: "IBM Plex Mono", monospace; font-size: 13px; min-width: 92px; text-align: right; color: var(--text); }
+.slider-compact .slider-row { gap: 8px; }
+.slider-compact .slider-val { min-width: 34px; }   /* a slider in a narrow grid cell (Webtioune max lag) */
 
 .select-wrap { position: relative; }
 .select { width: 100%; appearance: none; background: var(--inset); border: 1px solid var(--border); color: var(--text); border-radius: var(--r-sm); padding: 10px 34px 10px 12px; font-family: inherit; font-size: 13.5px; cursor: pointer; }

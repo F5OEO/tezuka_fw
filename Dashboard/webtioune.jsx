@@ -138,10 +138,6 @@ const numIn = (lo, hi) => (v) => { const n = parseFloat(v); return !isNaN(n) && 
 const EXPERT_TEXT = [
   { k: 'gain', label: 'RX gain', suffix: 'dB', hint: 'auto = the radio AGC, or 0 – 73 dB', ok: (v) => v === 'auto' || numIn(0, 73)(v) },
   { k: 'bw', label: 'Analog bandwidth', suffix: 'kHz', hint: '0 = 3 x the symbol rate', ok: numIn(0, 56000) },
-  { k: 'roll', label: 'Roll-off', hint: '0 = default (0.35 on the radio filter), or 0.05 – 0.35', ok: (v) => parseFloat(v) === 0 || numIn(0.05, 0.35)(v) },
-  { k: 'maxlag', label: 'Max lag', suffix: 's', hint: 'drop the oldest samples when this far behind, 0 = off', ok: numIn(0, 3600) },
-  { k: 'isi', label: 'Input stream (ISI)', hint: '-1 = any, 0 – 255', ok: numIn(-1, 255) },
-  { k: 'pls', label: 'Scrambling code (PLS)', hint: '-1 = any, 0 – 262142', ok: numIn(-1, 262142) },
 ];
 function ExpertText({ d, spec, reported }) {
   const [draft, setDraft] = useWtS(null);
@@ -158,6 +154,23 @@ function ExpertText({ d, spec, reported }) {
       <TextInput value={shown} suffix={spec.suffix} invalid={!valid} disabled={!d.mqtt}
         onChange={setDraft} onBlur={commit} onKeyDown={(e) => { if (e.key === 'Enter') e.currentTarget.blur(); else if (e.key === 'Escape') setDraft(null); }} />
     </Field></div>
+  );
+}
+// Max lag as a slider, 1 – 32 s: sent when the slider is released (a change restarts the receiver, so not on every step)
+function ExpertLag({ d, reported }) {
+  const [draft, setDraft] = useWtS(null);
+  const rep = reported != null ? Math.min(32, Math.max(1, Math.round(parseFloat(reported)) || 1)) : 4;
+  const shown = draft != null ? draft : rep;
+  const commit = () => {
+    if (draft != null && draft !== rep) d.publish('zynqrx/maxlag', String(draft));
+    setDraft(null);
+  };
+  return (
+    <div className="slider-compact" title="drop the oldest samples when the receiver is this far behind" onPointerUp={commit} onKeyUp={commit}>
+      <Field label="Max lag">
+        <Slider value={shown} min={1} max={32} step={1} onChange={setDraft} unit=" s" />
+      </Field>
+    </div>
   );
 }
 function ExpertOptions({ d, lm, open, setOpen }) {
@@ -195,9 +208,14 @@ function ExpertOptions({ d, lm, open, setOpen }) {
                 options={[{ v: 'auto', l: 'Auto' }, { v: 'on', l: 'On' }, { v: 'off', l: 'Off' }]} />
             </Field></div>
             {EXPERT_TEXT.map((spec) => <ExpertText key={spec.k} d={d} spec={spec} reported={set(spec.k)} />)}
+            <ExpertLag d={d} reported={set('maxlag')} />
             {flag('ccm', 'Constant coding (CCM)', 'search only the MODCOD found first')}
             {flag('presence', 'Presence gate', 'look for a signal only while one is seen')}
             {flag('ldpc8', '8-bit LDPC', 'cheaper, about 2 dB less sensitive at low code rates')}
+            <div title="Tezuka firmware: 8-bit samples from the FPGA, half the memory traffic, less dynamic range. Off = 12-bit samples in 16 bits"><Field label="CS8 samples">
+              <Toggle on={(set('iqformat') || 'cs8') === 'cs8'} onChange={(v) => send('iqformat', v ? 'cs8' : 'cs16')} />
+            </Field></div>
+            {flag('nobch', 'Bypass BCH', 'skip the BCH decoder (saves CPU, the LDPC output is taken as is)')}
             {flag('wskeyframe', 'Wait for keyframe', 'a new viewer starts at a keyframe, applies at once')}
             <div style={{ gridColumn: 'span 3' }}>
               <div title="fewer = a cheaper search"><Field label="Modulations searched">
@@ -275,6 +293,8 @@ function Webtioune({ d }) {
 
   const [status, setStatus] = useWtS('idle'); // idle | loading | connected | error
   const [errorMsg, setErrorMsg] = useWtS('');
+  // this browser cannot play HEVC through Media Source Extensions (addSourceBuffer refuses hvc1/hev1): shown as an H265 warning, not the raw error
+  const hevcUnsupported = /(hvc1|hev1|hevc)/i.test(errorMsg) && /addSourceBuffer|unsupported/i.test(errorMsg);
   const [mediaInfo, setMediaInfo] = useWtS(null);
   const playerRef = useWtR(null);
   const videoRef = useWtR(null);
@@ -477,8 +497,9 @@ function Webtioune({ d }) {
         </div>
 
         <div className="span-7 tile-stack">
-        <Card title="Webtioune" sub="Live TS preview · mpegts.js">
-          {errorMsg && (
+        <Card title="Webtioune" sub="Live TS preview · mpegts.js"
+          right={hevcUnsupported && <Pill tone="warn" dot>H265</Pill>}>
+          {errorMsg && !hevcUnsupported && (
             <div className="info-note" style={{ marginTop: 10 }}>
               <Icon name="bolt" size={16} />
               <p>{errorMsg}</p>
