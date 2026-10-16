@@ -491,7 +491,7 @@ function Webtioune({ d }) {
             <video ref={videoRef} controls playsInline
               style={{ display: 'block', width: '100%', aspectRatio: '16 / 9', maxHeight: `calc(100vh - ${(expertOpen === '1' ? 560 : 300) + 30}px)`, minHeight: expertOpen === '1' ? 150 : 200, background: '#000' }} />
             {locked && lm.margin_db != null && !isNaN(parseInt(lm.margin_db)) && (
-              <div title={`margin ${lm.margin_db} dB`} style={{ position: 'absolute', top: 14, right: 18, pointerEvents: 'none', color: '#fff', fontSize: 'clamp(22px, 3.2vw, 44px)', fontWeight: 700, lineHeight: 1.1, textShadow: '0 2px 6px rgba(0,0,0,.9), 0 0 2px #000' }}>D{Math.max(0, parseInt(lm.margin_db))}</div>
+              <div title={`margin ${lm.margin_db} dB`} style={{ position: 'absolute', top: 14, right: 18, pointerEvents: 'none', color: '#fff', fontSize: 'clamp(22px, 3.2vw, 44px)', fontWeight: 700, lineHeight: 1.1, textShadow: '0 2px 6px rgba(0,0,0,.9), 0 0 2px #000' }}>D{parseInt(lm.margin_db)}</div>
             )}
             {(serviceName || showInfo) && (
               <div style={{ position: 'absolute', top: 14, left: 18, right: 'clamp(70px, 8vw, 120px)', pointerEvents: 'none', color: '#fff', textShadow: '0 2px 6px rgba(0,0,0,.9), 0 0 2px #000', overflow: 'hidden' }}>
