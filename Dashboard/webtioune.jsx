@@ -15,9 +15,9 @@
 // load.
 //
 // The page also controls the receiver itself: frequency / symbol rate and
-// start / stop go to zynqrx over MQTT in longmynd's scheme (cmd/longmynd/
+// start / stop go to zynqrx over MQTT in longmynd's scheme (cmd/zynqrx/
 // frequency [kHz], sr [kS], process start|stop), and its status comes back on
-// dt/longmynd/... (d.lm, filled by useLiveData in data.jsx).
+// dt/zynqrx/... (d.lm, filled by useLiveData in data.jsx).
 const { useState: useWtS, useEffect: useWtE, useRef: useWtR } = React;
 
 // Relative to wherever Tezuka Dashboard.html is served from — mirrors the
@@ -45,7 +45,7 @@ function loadMpegts() {
 const WS_TS_PORT = 8080;
 const wsTsUrl = () => `ws://${window._tezukaDevHost || window.location.hostname}:${WS_TS_PORT}/stream.ts`;
 
-// zynqrx's limits (cmd/longmynd/frequency in kHz, sr in kS)
+// zynqrx's limits (cmd/zynqrx/frequency in kHz, sr in kS)
 const RX_FREQ_MIN_HZ = 70e6, RX_FREQ_MAX_HZ = 6e9;
 const RX_SR_MIN_KS = 33, RX_SR_MAX_KS = 7680;
 const RX_SR_PRESETS = [125, 250, 333, 500, 1000];
@@ -75,13 +75,31 @@ function Qo100Spectrum({ frameRef, signals, rxDlMHz, rxSrKs, namesRef, onPick })
       const { signals: sg, rxDlMHz: rx, rxSrKs: rs } = live.current;
       const nameOf = (s) => { const n = namesRef.current.find((q) => q.freq >= s.start - 0.03 && q.freq <= s.end + 0.03); return n ? n.name : ''; };
       g.font = '10px sans-serif'; g.textBaseline = 'alphabetic';
+      // Labels above the signals (a decoded name, else the symbol rate). A label that would overlap one already placed in a row goes
+      // to the next row down; the plot starts under the last row.
+      const labels = [];
+      for (const s of sg) {
+        const nm = nameOf(s);
+        g.font = nm ? 'bold 12px sans-serif' : '10px sans-serif';
+        const text = nm || (s.beacon ? 'beacon' : (s.sr >= 1000 ? s.sr / 1000 + 'M' : s.sr + 'k'));
+        const hw = g.measureText(text).width / 2;
+        labels.push({ s, nm, text, hw, x: Math.min(w - hw - 2, Math.max(hw + 2, X(s.freq))), row: 0 });
+      }
+      labels.sort((a, b) => a.x - b.x);
+      const rowEnd = [];
+      for (const l of labels) {
+        let r = 0;
+        while (r < rowEnd.length && l.x - l.hw < rowEnd[r] + 6) r++;
+        rowEnd[r] = l.x + l.hw; l.row = r;
+      }
+      const padT = 4 + 13 * Math.max(1, rowEnd.length);
       for (let f = 10491; f <= 10499; f++) { const x = Math.round(X(f)) + .5; g.strokeStyle = grid; g.beginPath(); g.moveTo(x, 0); g.lineTo(x, ph); g.stroke(); g.fillStyle = ink; g.textAlign = 'center'; g.fillText(String(f), x, H - 3); }
       if (rx > 0 && rs > 0) { g.fillStyle = 'rgba(255,255,255,.10)'; const x0 = X(rx - rs / 2000); g.fillRect(x0, 0, Math.max(2, X(rx + rs / 2000) - x0), ph); g.fillStyle = accent; g.fillRect(Math.round(X(rx)), 0, 1, ph); }
       const fr = frameRef.current;
       if (!fr || fr.length < 16) { g.fillStyle = ink; g.textAlign = 'center'; g.fillText('waiting for the BATC spectrum feed…', w / 2, ph / 2); return; }
       let peak = 0; for (let i = 0; i < fr.length; i++) if (fr[i] > peak) peak = fr[i];
       yMax.current += (Math.max(30000, peak * 1.08) - yMax.current) * 0.2;
-      const Y = (v) => ph - Math.max(0, Math.min(1, (v - 9000) / (yMax.current - 9000))) * ph;
+      const Y = (v) => ph - Math.max(0, Math.min(1, (v - 9000) / (yMax.current - 9000))) * (ph - padT);
       g.beginPath(); g.moveTo(0, ph);
       for (let px = 0; px <= w; px++) {                           // max of the bins under each pixel
         const a = Math.floor((px / w) * fr.length), b = Math.max(a + 1, Math.floor(((px + 1) / w) * fr.length));
@@ -91,14 +109,13 @@ function Qo100Spectrum({ frameRef, signals, rxDlMHz, rxSrKs, namesRef, onPick })
       g.lineTo(w, ph); g.closePath();
       g.fillStyle = 'rgba(80,160,255,.25)'; g.fill();
       g.strokeStyle = 'rgba(110,180,255,.9)'; g.lineWidth = 1; g.stroke();
-      for (const s of sg) {                                       // detected signals: a bar under the trace and the symbol rate
-        g.fillStyle = s.beacon ? 'rgba(255,120,60,.85)' : accent;
-        g.fillRect(X(s.start), ph - 4, Math.max(2, X(s.end) - X(s.start)), 4);
-        const nm = nameOf(s);                                      // a decoded service name stays on its signal until the signal leaves the spectrum
-        g.font = nm ? 'bold 12px sans-serif' : '10px sans-serif'; g.fillStyle = nm ? accent : ink; g.textAlign = 'center';
-        const label = nm || (s.beacon ? 'beacon' : (s.sr >= 1000 ? s.sr / 1000 + 'M' : s.sr + 'k'));
-        const tw = g.measureText(label).width / 2;
-        g.fillText(label, Math.min(w - tw - 2, Math.max(tw + 2, X(s.freq))), 11);
+      for (const l of labels) {                                   // a decoded service name stays on its signal until the signal leaves the spectrum
+        const sg1 = l.s;
+        g.fillStyle = sg1.beacon ? 'rgba(255,120,60,.85)' : accent;
+        g.fillRect(X(sg1.start), ph - 4, Math.max(2, X(sg1.end) - X(sg1.start)), 4);
+        g.font = l.nm ? 'bold 12px sans-serif' : '10px sans-serif'; g.fillStyle = l.nm ? accent : ink; g.textAlign = 'center';
+        g.fillText(l.text, l.x, 11 + 13 * l.row);
+        if (l.row > 0) { g.strokeStyle = 'rgba(128,128,128,.35)'; g.beginPath(); g.moveTo(Math.round(X(sg1.freq)) + .5, 13 * l.row + 14); g.lineTo(Math.round(X(sg1.freq)) + .5, padT); g.stroke(); }
       }
     };
     const id = setInterval(draw, 100); draw();
@@ -124,14 +141,14 @@ function Webtioune({ d }) {
     clearTimeout(sendTimers.current[key]);
     sendTimers.current[key] = setTimeout(() => d.publish(topic, value), 400);
   };
-  // What zynqrx reports it was asked for (dt/longmynd/set/..., kHz and kS) wins over the local copy
+  // What zynqrx reports it was asked for (dt/zynqrx/set/..., kHz and kS) wins over the local copy
   useWtE(() => { if (lm['set/frequency'] != null) { const v = parseInt(lm['set/frequency']); if (v > 0) setFreqHz(v * 1000); } }, [lm['set/frequency']]);
   useWtE(() => { if (lm['set/sr'] != null) { const v = parseInt(lm['set/sr']); if (v > 0) setSrKs(v); } }, [lm['set/sr']]);
   useWtE(() => () => Object.values(sendTimers.current).forEach(clearTimeout), []);
 
   const rxKnown = lm.process != null;
   const rxRunning = lm.process === 'start';
-  const setProcess = (v) => d.publish('longmynd/process', v);
+  const setProcess = (v) => d.publish('zynqrx/process', v);
 
   // QO-100 WB bandplan, the DATV Controller's own component: a slot gives the downlink frequency and the
   // symbol rate; the receiver (radio) frequency is the downlink minus the LNB LO. The LO is stored under
@@ -168,8 +185,8 @@ function Webtioune({ d }) {
     if (!(ifHz >= RX_FREQ_MIN_HZ && ifHz <= RX_FREQ_MAX_HZ)) { setPlanMsg(`IF ${(ifHz / 1e6).toFixed(1)} MHz is outside 70 MHz - 6 GHz with this LNB LO`); return; }
     setPlanMsg('');
     setFreqHz(ifHz);
-    d.publish('longmynd/frequency', Math.round(ifHz / 1000));
-    if (sr > 0) { setSrKs(sr); d.publish('longmynd/sr', sr); }
+    d.publish('zynqrx/frequency', Math.round(ifHz / 1000));
+    if (sr > 0) { setSrKs(sr); d.publish('zynqrx/sr', sr); }
   };
 
   const [status, setStatus] = useWtS('idle'); // idle | loading | connected | error
@@ -235,7 +252,7 @@ function Webtioune({ d }) {
   // The player follows the demodulator: connected while it is locked (header found / demod_s / demod_s2),
   // stopped when it is not. The service name comes from the SDT, which zynqrx decodes and publishes.
   const locked = rxRunning && (lm.rx_state === 'demod_s' || lm.rx_state === 'demod_s2');
-  // dt/longmynd/service_name is retained, so after a retune it still holds the previous station's name. A name is
+  // dt/zynqrx/service_name is retained, so after a retune it still holds the previous station's name. A name is
   // only trusted once the receiver has left lock and locked again since the tuning changed.
   const tuneKey = `${Math.round(freqHz / 1000)}|${srKs}`;
   const [nameArmed, setNameArmed] = useWtS(true);
@@ -280,16 +297,16 @@ function Webtioune({ d }) {
               <Field label="Frequency" hint="70 MHz – 6 GHz">
                 <FreqTuner value={freqHz} digits={12} min={RX_FREQ_MIN_HZ} max={RX_FREQ_MAX_HZ} unit="Hz"
                   sub={(v) => (v / 1e6).toFixed(3) + ' MHz'}
-                  onChange={(v) => { setFreqHz(v); sendLater('freq', 'longmynd/frequency', Math.round(v / 1000)); }} />
+                  onChange={(v) => { setFreqHz(v); sendLater('freq', 'zynqrx/frequency', Math.round(v / 1000)); }} />
               </Field>
               <Field label="Symbol rate" hint="33 – 7 680 kS/s">
                 <div style={{ display: 'flex', gap: 6 }}>
                   <Select value={RX_SR_PRESETS.includes(srKs) ? srKs : 'custom'}
-                    onChange={(v) => { if (v === 'custom') return; const n = parseInt(v); setSrKs(n); sendLater('sr', 'longmynd/sr', n); }}
+                    onChange={(v) => { if (v === 'custom') return; const n = parseInt(v); setSrKs(n); sendLater('sr', 'zynqrx/sr', n); }}
                     options={[{ v: 125, l: '125 kS' }, { v: 250, l: '250 kS' }, { v: 333, l: '333 kS' }, { v: 500, l: '500 kS' }, { v: 1000, l: '1 MS' }, { v: 'custom', l: 'Custom' }]} />
                   <TextInput value={String(srKs)} suffix="kS"
                     invalid={!(srKs >= RX_SR_MIN_KS && srKs <= RX_SR_MAX_KS)}
-                    onChange={(v) => { const n = Math.round(parseFloat(v)); if (!isNaN(n)) { setSrKs(n); if (n >= RX_SR_MIN_KS && n <= RX_SR_MAX_KS) sendLater('sr', 'longmynd/sr', n); } else if (v === '') setSrKs(0); }} />
+                    onChange={(v) => { const n = Math.round(parseFloat(v)); if (!isNaN(n)) { setSrKs(n); if (n >= RX_SR_MIN_KS && n <= RX_SR_MAX_KS) sendLater('sr', 'zynqrx/sr', n); } else if (v === '') setSrKs(0); }} />
                 </div>
               </Field>
             </div>
