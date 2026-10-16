@@ -81,6 +81,12 @@ Enjoy extra features out-of-the-box with custom-tailored software branches:
 * [SoapyPlutoPAPR](https://github.com/F5OEO/SoapyPlutoPAPR)
 *(Standard apps like SDRConsole and SDRAngel are also compatible).*
 
+### Access and security
+
+* **Login:** SSH and the USB serial console log in as `root` with password `analog`, the usual PlutoSDR default. To change it so that it survives reboots, log in and run `device_passwd` (it runs `passwd` and saves the result on the jffs2 partition). To go back to the default, add `revert_passwd = 1` to the `[ACTIONS]` section of `config.txt` on the USB drive and eject it. `device_persistent_keys` keeps the SSH host key and `/root/.ssh/authorized_keys` across reboots.
+* **Autostart script:** at every boot, `/etc/init.d/S95bgcript` runs `/mnt/jffs2/backdoor.sh` if that file exists, so a script you put there starts automatically. This also means anything that can write to `/mnt/jffs2` can make itself persistent. Delete the file to stop it.
+* **Network services:** the web interface (port 80), the MQTT broker (ports 1883 and 9001, the Dashboard uses 9001) and iiod (port 30431) have no authentication. Keep the device on a network you trust, and for remote access use the WireGuard VPN below rather than exposing these ports.
+
 ### Remote Access (WireGuard VPN)
 
 Connect your board to a remote WireGuard server for secure remote access, configured entirely from the Dashboard — no SSH/CLI needed:
