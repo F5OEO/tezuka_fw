@@ -130,10 +130,94 @@ function Qo100Spectrum({ frameRef, signals, rxDlMHz, rxSrKs, namesRef, onPick })
   return <canvas ref={cvRef} onClick={pick} style={{ display: 'block', width: '100%', height: H, cursor: 'crosshair', borderRadius: 6 }} />;
 }
 
+// Expert receiver options: every setting zynqrx takes over MQTT besides frequency / symbol rate (cmd/zynqrx/<name>, the same names as its command
+// line options). The value shown is what the receiver reports it has (dt/zynqrx/set/<name>); a change is sent and the receiver restarts for a few
+// seconds. Numbers and text are sent on Enter or when the box loses focus.
+const EXPERT_MODS = ['qpsk', '8psk', '16apsk', '32apsk'];
+const numIn = (lo, hi) => (v) => { const n = parseFloat(v); return !isNaN(n) && n >= lo && n <= hi; };
+const EXPERT_TEXT = [
+  { k: 'gain', label: 'RX gain', suffix: 'dB', hint: 'auto = the radio AGC, or 0 – 73 dB', ok: (v) => v === 'auto' || numIn(0, 73)(v) },
+  { k: 'bw', label: 'Analog bandwidth', suffix: 'kHz', hint: '0 = the sample rate', ok: numIn(0, 56000) },
+  { k: 'roll', label: 'Roll-off', hint: '0 = default (0.35 on the radio filter), or 0.05 – 0.35', ok: (v) => parseFloat(v) === 0 || numIn(0.05, 0.35)(v) },
+  { k: 'maxlag', label: 'Max lag', suffix: 's', hint: 'drop the oldest samples when this far behind, 0 = off', ok: numIn(0, 3600) },
+  { k: 'isi', label: 'Input stream (ISI)', hint: '-1 = any, 0 – 255', ok: numIn(-1, 255) },
+  { k: 'pls', label: 'Scrambling code (PLS)', hint: '-1 = any, 0 – 262142', ok: numIn(-1, 262142) },
+];
+function ExpertText({ d, spec, reported }) {
+  const [draft, setDraft] = useWtS(null);
+  const shown = draft != null ? draft : (reported != null ? reported : '');
+  const valid = draft == null || spec.ok(draft.trim());
+  const commit = () => {
+    if (draft == null) return;
+    const v = draft.trim();
+    if (spec.ok(v) && v !== reported) d.publish('zynqrx/' + spec.k, v);
+    setDraft(null);
+  };
+  return (
+    <div title={spec.hint}><Field label={spec.label}>
+      <TextInput value={shown} suffix={spec.suffix} invalid={!valid} disabled={!d.mqtt}
+        onChange={setDraft} onBlur={commit} onKeyDown={(e) => { if (e.key === 'Enter') e.currentTarget.blur(); else if (e.key === 'Escape') setDraft(null); }} />
+    </Field></div>
+  );
+}
+function ExpertOptions({ d, lm, open, setOpen }) {
+  const set = (k) => lm['set/' + k];
+  const send = (k, v) => d.publish('zynqrx/' + k, v);
+  const flag = (k, label, hint) => (
+    <div title={hint}><Field label={label}>
+      <Toggle on={set(k) === '1'} onChange={(v) => send(k, v ? '1' : '0')} />
+    </Field></div>
+  );
+  const modsOn = set('mods') == null || set('mods') === 'all' ? EXPERT_MODS : set('mods').split(',');
+  const toggleMod = (m, on) => {
+    const next = EXPERT_MODS.filter((x) => (x === m ? on : modsOn.includes(x)));
+    if (next.length) send('mods', next.length === EXPERT_MODS.length ? 'qpsk,8psk,16apsk,32apsk' : next.join(','));
+  };
+  const known = set('std') != null;
+  return (
+    <Card title="Expert options" sub="zynqrx settings over MQTT · a change restarts the receiver"
+      right={<button className="btn ghost" onClick={() => setOpen(open === '1' ? '0' : '1')}>{open === '1' ? 'Hide' : 'Show'}</button>}>
+      {open === '1' && (
+        <>
+          {!known && (
+            <div className="info-note" style={{ marginBottom: 10 }}>
+              <Icon name="bolt" size={16} />
+              <p>The receiver does not report its settings — it may run an older zynqrx without these commands.</p>
+            </div>
+          )}
+          <div className="form-grid" style={{ gridTemplateColumns: 'repeat(5, minmax(0, 1fr))', gap: '8px 12px' }}>
+            <div title="--std"><Field label="Standard">
+              <Select value={set('std') != null ? set('std') : '2'} onChange={(v) => send('std', v)}
+                options={[{ v: '0', l: 'DVB-S and DVB-S2' }, { v: '1', l: 'DVB-S only' }, { v: '2', l: 'DVB-S2 only' }]} />
+            </Field></div>
+            <div title="cheaper symbol timing, auto = above 0.5 MS/s"><Field label="Fast timing">
+              <Select value={set('fasttiming') || 'auto'} onChange={(v) => send('fasttiming', v)}
+                options={[{ v: 'auto', l: 'Auto' }, { v: 'on', l: 'On' }, { v: 'off', l: 'Off' }]} />
+            </Field></div>
+            {EXPERT_TEXT.map((spec) => <ExpertText key={spec.k} d={d} spec={spec} reported={set(spec.k)} />)}
+            {flag('ccm', 'Constant coding (CCM)', 'search only the MODCOD found first')}
+            {flag('presence', 'Presence gate', 'look for a signal only while one is seen')}
+            {flag('ldpc8', '8-bit LDPC', 'cheaper, about 2 dB less sensitive at low code rates')}
+            {flag('wskeyframe', 'Wait for keyframe', 'a new viewer starts at a keyframe, applies at once')}
+            <div style={{ gridColumn: 'span 3' }}>
+              <div title="fewer = a cheaper search"><Field label="Modulations searched">
+                <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap' }}>
+                  {EXPERT_MODS.map((m) => <Checkbox key={m} checked={modsOn.includes(m)} label={m.toUpperCase()} onChange={(on) => toggleMod(m, on)} />)}
+                </div>
+              </Field></div>
+            </div>
+          </div>
+        </>
+      )}
+    </Card>
+  );
+}
+
 function Webtioune({ d }) {
   const lm = (d && d.lm) || {};
   const [freqHz, setFreqHz] = useLS2('webtioune_rx_frequency', 437e6, parseFloat);
   const [srKs, setSrKs] = useLS2('webtioune_rx_sr', 333, (x) => parseInt(x));
+  const [expertOpen, setExpertOpen] = useLS2('webtioune_expert', '0');
   const sendTimers = useWtR({});
   // The tuner and the text box change on every key: send once the value has settled
   // (each change restarts the receiver for a few seconds).
@@ -341,7 +425,8 @@ function Webtioune({ d }) {
           </Card>
         </div>
 
-        <Card title="Webtioune" sub="Live TS preview · mpegts.js" className="span-7">
+        <div className="span-7 tile-stack">
+        <Card title="Webtioune" sub="Live TS preview · mpegts.js">
           {errorMsg && (
             <div className="info-note" style={{ marginTop: 10 }}>
               <Icon name="bolt" size={16} />
@@ -350,12 +435,15 @@ function Webtioune({ d }) {
           )}
           <div style={{ position: 'relative', marginTop: 12 }}>
             <video ref={videoRef} controls muted playsInline
-              style={{ display: 'block', width: '100%', aspectRatio: '16 / 9', maxHeight: 'calc(100vh - 300px)', minHeight: 200, background: '#000' }} />
+              style={{ display: 'block', width: '100%', aspectRatio: '16 / 9', maxHeight: expertOpen === '1' ? 'calc(100vh - 560px)' : 'calc(100vh - 300px)', minHeight: expertOpen === '1' ? 150 : 200, background: '#000' }} />
             {serviceName && (
               <div style={{ position: 'absolute', top: 14, left: 18, right: 18, pointerEvents: 'none', color: '#fff', fontSize: 'clamp(22px, 3.2vw, 44px)', fontWeight: 700, lineHeight: 1.1, textShadow: '0 2px 6px rgba(0,0,0,.9), 0 0 2px #000', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{serviceName}</div>
             )}
           </div>
         </Card>
+
+        <ExpertOptions d={d} lm={lm} open={expertOpen} setOpen={setExpertOpen} />
+        </div>
       </div>
     </div>
   );
