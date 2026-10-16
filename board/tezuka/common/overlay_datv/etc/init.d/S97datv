@@ -5,7 +5,7 @@ start() {
 /root/mqtt_longmynd.sh </dev/null 2>/dev/null &
 
 # zynqrx (DVB-S2 receiver) comes up idle: MQTT and the WebSocket/UDP outputs only.
-# The Dashboard's Webtioune page (cmd/longmynd/process start) starts the demodulator.
+# The Dashboard's Webtioune page (cmd/zynqrx/process start) starts the demodulator.
 if [ -x /usr/bin/start_zynqrx ]; then
 	AUTOSTART=0 /usr/bin/start_zynqrx
 fi

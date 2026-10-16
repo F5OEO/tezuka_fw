@@ -5,8 +5,8 @@
 # MQTT broker, and the received transport stream is sent as UDP multicast and
 # served over WebSocket at ws://<board>:8080/stream.ts (Dashboard > Webtioune).
 #
-# Without --start zynqrx only serves MQTT and waits for cmd/longmynd/process
-# start (status on dt/longmynd/process). AUTOSTART=1 (default) passes --start so
+# Without --start zynqrx only serves MQTT and waits for cmd/zynqrx/process
+# start (status on dt/zynqrx/process). AUTOSTART=1 (default) passes --start so
 # the receiver runs as soon as this script has launched it; AUTOSTART=0 leaves
 # it stopped, for the Dashboard / MQTT to start.
 #

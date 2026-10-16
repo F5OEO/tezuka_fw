@@ -26,8 +26,9 @@
 //       --ttl is the multicast hop limit, --udp-if the local interface address the multicast leaves from. A partial datagram is sent at the end.
 //   zynqrx rx ... --ws port
 //       Also serves the transport stream to WebSocket clients (ws://board:port/stream.ts) in parallel with --udp: binary messages of up to 7 packets
-//       (1316 bytes). A new client first gets the latest PAT and PMT and then starts at the next keyframe (random access indicator, or an
-//       IDR / VPS / SPS / sequence header in the video PES start), so a player can decode from its first packet; it waits 5 s at most for one.
+//       (1316 bytes). A new client first gets the latest PAT and PMT and then the stream as it is (no keyframe detection). --ws-keyframe makes it
+//       wait for the next keyframe instead (random access indicator, or an IDR / VPS / SPS / sequence header in the video PES start), so a player
+//       can decode from its first packet; it waits 5 s at most for one.
 //       A client that falls 4 MB behind is dropped; the receiver never waits for a client.
 //   zynqrx rx ... --fast-timing on|off|auto   (also bench; default auto)
 //       Cheaper symbol timing once the timing loop has settled: 8 symbols share one row of the interpolator and the timing error detector looks at
@@ -39,13 +40,13 @@
 //       decoder, but low code rates lose sensitivity (about 2 dB at QPSK 2/5 on the test signals), and it is not faster on the board for a weak signal. DVB-S2 only.
 //   zynqrx rx --iio --mqtt broker[:port] [--freq MHz --rs Msym] [--udp addr:port] ...
 //       Control and status over MQTT in the scheme of longmynd (F5OEO/longmynd, mymqtt.c): the scripts and dashboards made for that receiver work with it.
-//       Commands (cmd/longmynd/...): frequency (kHz, 70000 - 6000000), sr (kS, 33 - 7680), tsip (IPv4 of the transport stream output, the port stays that
+//       Commands (cmd/zynqrx/...): frequency (kHz, 70000 - 6000000), sr (kS, 33 - 7680), tsip (IPv4 of the transport stream output, the port stays that
 //       of --udp, else 1234), swport and polar (accepted and reported back, no such hardware). A new frequency or symbol rate restarts the receiver
 //       (a few seconds); tsip takes effect at once. Without --freq/--rs the receiver waits for frequency and sr.
 //       Process control: without --start the receiver is stopped at launch (only MQTT and the --ws/--udp outputs are up, the radio is not opened);
-//       --start begins receiving at once. cmd/longmynd/process start|stop starts and stops it at run time (frequency and sr sent while stopped are kept
-//       for the next start); dt/longmynd/process is start or stop, also sent at once on a command.
-//       Status (dt/longmynd/...), every second, not retained, QoS 2: process (start, stop), rx_state (Init, Hunting, found header, demod_s, demod_s2), set/sr|frequency|swport|
+//       --start begins receiving at once. cmd/zynqrx/process start|stop starts and stops it at run time (frequency and sr sent while stopped are kept
+//       for the next start); dt/zynqrx/process is start or stop, also sent at once on a command.
+//       Status (dt/zynqrx/...), every second, not retained, QoS 2: process (start, stop), rx_state (Init, Hunting, found header, demod_s, demod_s2), set/sr|frequency|swport|
 //       tsip, lna_gain, agc2, puncrate, carrier_frequency (kHz), lnb_supply, polarisation, symbolrate (kS), viterbi_error, ber, mer (dB), margin_db,
 //       bch_uncorect, bch_errors, ldpc_errors, service_name, provider_name, ts_null (%), es_pid/es_type, modulation, fec, short_frame, pilots,
 //       rolloff, matype1, matype2. Not sent: poweri/powerq, constel_i/q, agc1, videobuffer/audiobuffer/transdelay (no such measurements here).
@@ -325,12 +326,12 @@ void onSigint(int) { gStop = 1; }
 struct RxOpts {
     std::string path, tsOut, format, iioUri, udpDest, udpIf, mqttHost;
     double rate = 10, rs = 0, roll = 0, secsMax = 0, specSecs = 0.25, center = 0, freqMHz = 0, bwMHz = 0, gainDb = -1, maxLag = 4;
-    int stdHint = 0, isi = -1, pls = -1, udpTtl = 16, mqttPort = 1883, niceValue = 99, wsPort = 0;   // niceValue 99: not given
+    int stdHint = 0, isi = -1, pls = -1, udpTtl = 16, mqttPort = 1883, niceValue = 99, wsPort = 0; bool wsKeyframe = false;   // niceValue 99: not given
     int modsMask = 0;
     bool presence = false;
     bool prefilt = false, ldpc8 = false, ccm = false, haveCenter = false, useIio = false, rateGiven = false;
     int fastTiming = 2;                       // --fast-timing: 0 off, 1 on, 2 auto (on above 0.5 Msym/s)
-    bool start = false;                       // --start: with --mqtt, begin receiving at once instead of waiting for cmd/longmynd/process start
+    bool start = false;                       // --start: with --mqtt, begin receiving at once instead of waiting for cmd/zynqrx/process start
 };
 
 // Shared between a receive session and the MQTT thread
@@ -340,7 +341,7 @@ struct RxCtl {
     std::mutex mu;                            // guards everything below
     std::function<void()> cancelRead;         // wakes the reader thread of the session
     bool restart = false;                     // a new frequency or symbol rate wants a new session
-    bool enabled = false;                     // the receiver process is started (--start, or cmd/longmynd/process start); stopped, the radio is not opened
+    bool enabled = false;                     // the receiver process is started (--start, or cmd/zynqrx/process start); stopped, the radio is not opened
     long freqKHz = 0, srKS = 0, swport = 0;
     int lnbSupply = 0, lnbHorizontal = 0;
     std::string tsip;
@@ -556,7 +557,7 @@ bool datvSessionOpts(RxOpts& o, long freqKHz, long srKS) {
     return true;
 }
 
-// Runs sessions under MQTT control: cmd/longmynd/{frequency,sr,tsip,swport,polar} in, dt/longmynd/... out
+// Runs sessions under MQTT control: cmd/zynqrx/{frequency,sr,tsip,swport,polar} in, dt/zynqrx/... out
 int runDaemon(RxOpts& o) {
     RxCtl ctl;
     MqttLink mq;
@@ -572,14 +573,14 @@ int runDaemon(RxOpts& o) {
         if (c != std::string::npos) ctl.udpPort = atoi(o.udpDest.c_str() + c + 1);
         if (!ctl.udp.open(o.udpDest, o.udpTtl, o.udpIf)) return 1;
     }
-    if (o.wsPort > 0 && !ctl.ws.open(o.wsPort)) return 1;
+    if (o.wsPort > 0) { ctl.ws.waitForKeyframe(o.wsKeyframe); if (!ctl.ws.open(o.wsPort)) return 1; }
     auto onCommand = [&ctl](const std::string& key, const std::string& val) {
         char* end = nullptr;
         if (key == "frequency" || key == "sr") {
             const long v = strtol(val.c_str(), &end, 10);
             const bool freq = key == "frequency";
             if (val.empty() || *end || v < (freq ? 70000L : 33L) || v > (freq ? 6000000L : 7680L)) {
-                fprintf(stderr, "mqtt: cmd/longmynd/%s \"%s\" ignored (%s)\n", key.c_str(), val.c_str(), freq ? "kHz, 70000 - 6000000" : "kS, 33 - 7680");
+                fprintf(stderr, "mqtt: cmd/zynqrx/%s \"%s\" ignored (%s)\n", key.c_str(), val.c_str(), freq ? "kHz, 70000 - 6000000" : "kS, 33 - 7680");
                 return;
             }
             std::lock_guard<std::mutex> lk(ctl.mu);
@@ -593,17 +594,17 @@ int runDaemon(RxOpts& o) {
             if (ctl.cancelRead) ctl.cancelRead();
         } else if (key == "process") {
             const bool on = val == "start";
-            if (!on && val != "stop") { fprintf(stderr, "mqtt: cmd/longmynd/process \"%s\" ignored (start or stop)\n", val.c_str()); return; }
+            if (!on && val != "stop") { fprintf(stderr, "mqtt: cmd/zynqrx/process \"%s\" ignored (start or stop)\n", val.c_str()); return; }
             std::lock_guard<std::mutex> lk(ctl.mu);
             if (ctl.enabled != on) {
                 ctl.enabled = on;
                 fprintf(stderr, "mqtt: receiver %s\n", on ? "start" : "stop");
                 if (!on) { ctl.stop = true; if (ctl.cancelRead) ctl.cancelRead(); }   // the running session ends; the loop then idles
             }
-            if (ctl.mq) ctl.mq->publish("dt/longmynd/process", on ? "start" : "stop");   // answer at once, the status loop repeats it every second
+            if (ctl.mq) ctl.mq->publish("dt/zynqrx/process", on ? "start" : "stop");   // answer at once, the status loop repeats it every second
         } else if (key == "tsip") {
             in_addr a;
-            if (inet_pton(AF_INET, val.c_str(), &a) != 1) { fprintf(stderr, "mqtt: cmd/longmynd/tsip \"%s\" ignored (an IPv4 address)\n", val.c_str()); return; }
+            if (inet_pton(AF_INET, val.c_str(), &a) != 1) { fprintf(stderr, "mqtt: cmd/zynqrx/tsip \"%s\" ignored (an IPv4 address)\n", val.c_str()); return; }
             { std::lock_guard<std::mutex> lk(ctl.mu); ctl.tsip = val; }
             std::lock_guard<std::mutex> lk(ctl.udpMu);
             if (ctl.udp.open(val + ":" + std::to_string(ctl.udpPort), ctl.udpTtl, ctl.udpIf)) fprintf(stderr, "mqtt: transport stream to %s:%d\n", val.c_str(), ctl.udpPort);
@@ -618,8 +619,8 @@ int runDaemon(RxOpts& o) {
     };
     mq.start(o.mqttHost, o.mqttPort, onCommand);
     fprintf(stderr, "mqtt: broker %s:%d%s%s\n", o.mqttHost.c_str(), o.mqttPort,
-            ctl.freqKHz && ctl.srKS ? "" : ", waiting for cmd/longmynd/frequency and cmd/longmynd/sr",
-            o.start ? "" : "; receiver stopped (no --start), send cmd/longmynd/process start");
+            ctl.freqKHz && ctl.srKS ? "" : ", waiting for cmd/zynqrx/frequency and cmd/zynqrx/sr",
+            o.start ? "" : "; receiver stopped (no --start), send cmd/zynqrx/process start");
     auto idleStatus = [&] {
         DatvStatus st;
         std::lock_guard<std::mutex> lk(ctl.mu);
@@ -643,7 +644,7 @@ int runDaemon(RxOpts& o) {
         if (gStop) break;
         bool again, stopped;
         { std::lock_guard<std::mutex> lk(ctl.mu); again = ctl.restart; stopped = !ctl.enabled; }
-        if (stopped) { fprintf(stderr, "receiver stopped\n"); continue; }   // cmd/longmynd/process stop: idle until the next start
+        if (stopped) { fprintf(stderr, "receiver stopped\n"); continue; }   // cmd/zynqrx/process stop: idle until the next start
         if (again) continue;
         // the session ended by itself (the radio refused the settings, or the stream stopped): report Init and try again in a few seconds, or at the next command
         fprintf(stderr, "receiver stopped (%d), trying again in 5 s\n", rc);
@@ -666,6 +667,7 @@ int cmdRx(int argc, char** argv) {
         if (a == "--iio") { o.useIio = true; if (i + 1 < argc && argv[i + 1][0] != '-') o.iioUri = argv[++i]; }
         else if (a == "--udp") o.udpDest = next();
         else if (a == "--ws") o.wsPort = atoi(next().c_str());
+        else if (a == "--ws-keyframe") o.wsKeyframe = true;
         else if (a == "--start") o.start = true;
         else if (a == "--ttl") o.udpTtl = atoi(next().c_str());
         else if (a == "--udp-if") o.udpIf = next();
@@ -746,7 +748,7 @@ int cmdRx(int argc, char** argv) {
     RxCtl ctl;
     ctl.udpTtl = o.udpTtl;
     if (!o.udpDest.empty() && !ctl.udp.open(o.udpDest, o.udpTtl, o.udpIf)) return 1;
-    if (o.wsPort > 0 && !ctl.ws.open(o.wsPort)) return 1;
+    if (o.wsPort > 0) { ctl.ws.waitForKeyframe(o.wsKeyframe); if (!ctl.ws.open(o.wsPort)) return 1; }
     return runSession(o, ctl);
 }
 

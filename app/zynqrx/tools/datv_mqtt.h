@@ -1,4 +1,4 @@
-// MQTT control and status in the longmynd scheme (https://github.com/F5OEO/longmynd, mymqtt.c): commands on cmd/longmynd/..., status on dt/longmynd/...,
+// MQTT control and status in the longmynd scheme (https://github.com/F5OEO/longmynd, mymqtt.c): commands on cmd/zynqrx/..., status on dt/zynqrx/...,
 // so the scripts and dashboards built for that receiver work with zynqrx. Built only with -DZYNQRX_MQTT (Makefile: MQTT=1, the default for the board).
 #pragma once
 #include <algorithm>
@@ -13,7 +13,7 @@
 
 // What the status messages are made from (filled by the receive loop once a second)
 struct DatvStatus {
-    bool running = false;                // the receiver process is started (cmd/longmynd/process start), not stopped
+    bool running = false;                // the receiver process is started (cmd/zynqrx/process start), not stopped
     int state = 0;                       // 0 Init, 1 Hunting, 2 found header, 3 demod_s, 4 demod_s2 (longmynd's rx_state)
     long freqKHz = 0, srKS = 0;          // what was asked for (the set/ echoes)
     long swport = 0;
@@ -34,7 +34,7 @@ struct DatvStatus {
 
 class MqttLink {
 public:
-    // called on libmosquitto's thread with the topic below cmd/longmynd/ and the payload (a copy, NUL-terminated, trailing blanks removed)
+    // called on libmosquitto's thread with the topic below cmd/zynqrx/ and the payload (a copy, NUL-terminated, trailing blanks removed)
     using Handler = std::function<void(const std::string& key, const std::string& value)>;
     MqttLink() = default;
     MqttLink(const MqttLink&) = delete;
@@ -50,11 +50,11 @@ public:
         if (!mosq_) { fprintf(stderr, "mqtt: out of memory\n"); return false; }
         mosquitto_reconnect_delay_set(mosq_, 1, 10, false);
         mosquitto_connect_callback_set(mosq_, [](mosquitto* m, void*, int rc) {
-            if (rc == 0 && mosquitto_subscribe(m, nullptr, "cmd/longmynd/#", 1) != MOSQ_ERR_SUCCESS) fprintf(stderr, "mqtt: subscribe failed\n");
-            else if (rc == 0) fprintf(stderr, "mqtt: connected, listening on cmd/longmynd/#\n");
+            if (rc == 0 && mosquitto_subscribe(m, nullptr, "cmd/zynqrx/#", 1) != MOSQ_ERR_SUCCESS) fprintf(stderr, "mqtt: subscribe failed\n");
+            else if (rc == 0) fprintf(stderr, "mqtt: connected, listening on cmd/zynqrx/#\n");
         });
         mosquitto_message_callback_set(mosq_, [](mosquitto*, void* self, const mosquitto_message* msg) {
-            static const std::string pre = "cmd/longmynd/";
+            static const std::string pre = "cmd/zynqrx/";
             if (!msg->topic || !msg->payload) return;
             const std::string topic = msg->topic;
             if (topic.compare(0, pre.size(), pre) != 0) return;
@@ -90,18 +90,18 @@ inline int datvTheoreticMer(int modcod) {
     return modcod >= 0 && modcod <= 28 ? t[modcod] : 0;
 }
 
-// One round of dt/longmynd/... messages, in the order and with the units of longmynd's status output
+// One round of dt/zynqrx/... messages, in the order and with the units of longmynd's status output
 inline void datvPublish(MqttLink& mq, const DatvStatus& s) {
-    auto pub = [&](const char* name, const std::string& v) { mq.publish(std::string("dt/longmynd/") + name, v); };
+    auto pub = [&](const char* name, const std::string& v) { mq.publish(std::string("dt/zynqrx/") + name, v); };
     auto num = [&](const char* name, long long v) { pub(name, std::to_string(v)); };
     const auto& t = s.tel;
     static const char* states[] = {"Init", "Hunting", "found header", "demod_s", "demod_s2"};
     pub("process", s.running ? "start" : "stop");
     pub("rx_state", states[std::min(4, std::max(0, s.state))]);
-    mq.publish("dt/longmynd/set/sr", std::to_string(s.srKS));
-    mq.publish("dt/longmynd/set/frequency", std::to_string(s.freqKHz));
-    mq.publish("dt/longmynd/set/swport", std::to_string(s.swport));
-    mq.publish("dt/longmynd/set/tsip", s.tsip);
+    mq.publish("dt/zynqrx/set/sr", std::to_string(s.srKS));
+    mq.publish("dt/zynqrx/set/frequency", std::to_string(s.freqKHz));
+    mq.publish("dt/zynqrx/set/swport", std::to_string(s.swport));
+    mq.publish("dt/zynqrx/set/tsip", s.tsip);
     if (s.gainDb >= 0) {
         num("lna_gain", s.gainDb);
         num("agc2", (long long)(s.gainDb * 65535 / 73));          // AD9361 gain scale: 0 minimum, 65535 maximum

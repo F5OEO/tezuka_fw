@@ -71,6 +71,10 @@ public:
     WsOut& operator=(const WsOut&) = delete;
     ~WsOut() { close(); }
 
+    // A new client normally starts as soon as it connects (after the PAT and PMT), whatever the packet. With true it waits for a keyframe
+    // (up to kJoinWait seconds) so that a player decodes from its first packet.
+    void waitForKeyframe(bool on) { std::lock_guard<std::mutex> lk(mu_); waitKey_ = on; }
+
     // Listens on all interfaces. Clients connect with ws://board:port/stream.ts.
     bool open(int port) {
         close();
@@ -159,7 +163,7 @@ private:
                 // A new client starts at a keyframe, after the PAT and PMT, so that a player can decode from its first packet. Without a keyframe
                 // in sight (audio only, no PMT yet, an unknown codec) it starts after kJoinWait seconds with what there is.
                 const bool late = now - c.born > std::chrono::seconds(kJoinWait);
-                if (keyIdx_ >= 0 || late) {
+                if (!waitKey_ || keyIdx_ >= 0 || late) {
                     uint8_t m[(kMaxPackets + 2) * 188];
                     size_t k = 0;
                     if (havePat_) { memcpy(m, pat_, 188); k++; }
@@ -278,6 +282,7 @@ private:
     std::vector<Client> clients_;
     uint8_t buf_[kMaxPackets * 188];
     size_t fill_ = 0;
+    bool waitKey_ = false;                  // hold a new client until a keyframe (see waitForKeyframe)
     int keyIdx_ = -1;                       // first packet of buf_ a decoder can start from
     uint8_t pat_[188], pmt_[188];
     bool havePat_ = false, havePmt_ = false;
