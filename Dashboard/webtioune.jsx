@@ -137,7 +137,7 @@ const EXPERT_MODS = ['qpsk', '8psk', '16apsk', '32apsk'];
 const numIn = (lo, hi) => (v) => { const n = parseFloat(v); return !isNaN(n) && n >= lo && n <= hi; };
 const EXPERT_TEXT = [
   { k: 'gain', label: 'RX gain', suffix: 'dB', hint: 'auto = the radio AGC, or 0 – 73 dB', ok: (v) => v === 'auto' || numIn(0, 73)(v) },
-  { k: 'bw', label: 'Analog bandwidth', suffix: 'kHz', hint: '0 = the sample rate', ok: numIn(0, 56000) },
+  { k: 'bw', label: 'Analog bandwidth', suffix: 'kHz', hint: '0 = 3 x the symbol rate', ok: numIn(0, 56000) },
   { k: 'roll', label: 'Roll-off', hint: '0 = default (0.35 on the radio filter), or 0.05 – 0.35', ok: (v) => parseFloat(v) === 0 || numIn(0.05, 0.35)(v) },
   { k: 'maxlag', label: 'Max lag', suffix: 's', hint: 'drop the oldest samples when this far behind, 0 = off', ok: numIn(0, 3600) },
   { k: 'isi', label: 'Input stream (ISI)', hint: '-1 = any, 0 – 255', ok: numIn(-1, 255) },
@@ -278,6 +278,22 @@ function Webtioune({ d }) {
   const [mediaInfo, setMediaInfo] = useWtS(null);
   const playerRef = useWtR(null);
   const videoRef = useWtR(null);
+  // Info: what mpegts.js and the video element report, polled twice a second while the box is ticked
+  const [infoOn, setInfoOn] = useLS2('webtioune_info', '0');
+  const statsRef = useWtR(null);
+  const [live, setLive] = useWtS(null);
+  useWtE(() => {
+    if (infoOn !== '1') { setLive(null); return; }
+    const id = setInterval(() => {
+      const v = videoRef.current;
+      if (!v) return;
+      const q = v.getVideoPlaybackQuality ? v.getVideoPlaybackQuality() : null;
+      setLive({ stats: statsRef.current, t: v.currentTime, paused: v.paused, ready: v.readyState,
+        lat: v.buffered && v.buffered.length ? v.buffered.end(v.buffered.length - 1) - v.currentTime : null,
+        dropped: q ? q.droppedVideoFrames : null, shown: q ? q.totalVideoFrames : null });
+    }, 500);
+    return () => clearInterval(id);
+  }, [infoOn]);
 
   const stop = () => {
     const p = playerRef.current;
@@ -287,6 +303,7 @@ function Webtioune({ d }) {
     }
     setStatus('idle');
     setMediaInfo(null);
+    statsRef.current = null;
   };
 
   const connect = async () => {
@@ -308,7 +325,7 @@ function Webtioune({ d }) {
       return;
     }
     const player = mp.createPlayer(
-      { type: 'mpegts', isLive: true, url: wsTsUrl(), hasAudio: false },
+      { type: 'mpegts', isLive: true, url: wsTsUrl(), hasAudio: true },
       { enableWorker: true, liveBufferLatencyChasing: true, liveBufferLatencyMaxLatency: 3, liveBufferLatencyMinRemain: 0.5 }
     );
     playerRef.current = player;
@@ -318,16 +335,27 @@ function Webtioune({ d }) {
       setStatus('error');
       setErrorMsg(`${type}: ${detail}${info && info.msg ? ' — ' + info.msg : ''}`);
     });
+    player.on(mp.Events.STATISTICS_INFO, (st) => { if (playerRef.current === player) statsRef.current = st; });
     player.on(mp.Events.MEDIA_INFO, (info) => {
-      setMediaInfo({ video: info.videoCodec, size: info.width && `${info.width}x${info.height}`, fps: info.fps && +info.fps.toFixed(2), mime: info.mimeType });
+      setMediaInfo({ video: info.videoCodec, size: info.width && `${info.width}x${info.height}`, fps: info.fps && +info.fps.toFixed(2), mime: info.mimeType, profile: info.profile, level: info.level, chroma: info.chromaFormat, kbps: info.videoDataRate });
     });
     player.attachMediaElement(videoRef.current);
     player.load();
-    // Muted: the browser blocks autoplay with sound, and audio is off anyway.
-    videoRef.current.muted = true;
+    // With sound when the browser allows it (it blocks autoplay with sound until the user has used the page);
+    // otherwise muted, and the video's own speaker button turns the sound on.
+    const v = videoRef.current;
+    const mayHearIt = !!(navigator.userActivation && navigator.userActivation.hasBeenActive);
+    v.muted = !mayHearIt;
+    const onStarted = () => setStatus('connected');
+    const onFailed = (e) => { if (playerRef.current !== player) return; setStatus('error'); setErrorMsg('play(): ' + e.message); };
     const started = player.play();
-    if (started && started.then) started.then(() => setStatus('connected')).catch((e) => { if (playerRef.current !== player) return; setStatus('error'); setErrorMsg('play(): ' + e.message); });
-    else setStatus('connected');
+    if (started && started.then) {
+      started.then(onStarted).catch((e) => {
+        if (playerRef.current !== player) return;
+        if (e && e.name === 'NotAllowedError' && !v.muted) { v.muted = true; player.play().then(onStarted).catch(onFailed); }   // autoplay with sound refused
+        else onFailed(e);
+      });
+    } else onStarted();
   };
 
   // Release the player when navigating away from this page.
@@ -364,6 +392,26 @@ function Webtioune({ d }) {
     setErrorMsg('');
   }, [locked]);
 
+  // Info overlay: only what the player has reported so far; nothing at all until something has arrived
+  const infoLines = [];
+  {
+    const st = (live && live.stats) || null;
+    const n = (v, d = 0) => (+v).toFixed(d);
+    if (status === 'connected' || mediaInfo || st) infoLines.push(`player ${status}${live && live.paused && status === 'connected' ? ' (paused)' : ''}`);
+    if (mediaInfo && (mediaInfo.video || mediaInfo.size || mediaInfo.fps)) infoLines.push([mediaInfo.video, mediaInfo.size, mediaInfo.fps && mediaInfo.fps + ' fps'].filter(Boolean).join('  '));
+    if (mediaInfo && (mediaInfo.profile || mediaInfo.level || mediaInfo.chroma || mediaInfo.kbps)) {
+      infoLines.push([mediaInfo.profile && 'profile ' + mediaInfo.profile, mediaInfo.level && 'level ' + mediaInfo.level, mediaInfo.chroma,
+        mediaInfo.kbps && 'video ' + n(mediaInfo.kbps) + ' kb/s'].filter(Boolean).join('  '));
+    }
+    if (st) {
+      const dropped = live && live.dropped != null ? live.dropped : st.droppedFrames;
+      infoLines.push([st.speed != null && 'speed ' + n(st.speed, 1) + ' KB/s', st.decodedFrames != null && 'decoded ' + n(st.decodedFrames), dropped != null && 'dropped ' + n(dropped)].filter(Boolean).join('   '));
+    }
+    const lat = live && live.lat != null && !isNaN(live.lat) ? 'latency ' + n(live.lat, 2) + ' s' : null;
+    if (lat || (st && st.loaderType)) infoLines.push([lat, st && st.loaderType && 'via ' + st.loaderType].filter(Boolean).join('   '));
+  }
+  const showInfo = infoOn === '1' && infoLines.length > 0;
+
   // Two columns so the controls and the picture fit on one screen without scrolling
   // (they stack below 1100 px, see .grid-12 in styles.css). The video box is
   // 16:9 and capped to what is left of the window height after the cards' chrome.
@@ -398,7 +446,10 @@ function Webtioune({ d }) {
               <div className="kv"><span>State</span><b className="mono" style={{ fontSize: 12.5 }}>{rxRunning ? (lm.rx_state || '—') : rxKnown ? 'stopped' : '—'}</b></div>
               <div className="kv"><span>Signal</span><b className="mono" style={{ fontSize: 12.5 }}>{rxRunning && lm.modulation ? `${lm.modulation} ${lm.fec || ''}` : '—'}</b></div>
               <div className="kv"><span>MER</span><b className="mono" style={{ fontSize: 12.5 }}>{rxRunning && lm.mer ? lm.mer + ' dB' : '—'}</b></div>
-              <div className="kv"><span>Service</span><b className="mono" style={{ fontSize: 12.5 }}>{rxRunning && lm.service_name ? lm.service_name : '—'}</b></div>
+              <div className="kv"><span>Margin</span><b className="mono" style={{ fontSize: 12.5 }}>{rxRunning && lm.margin_db != null ? lm.margin_db + ' dB' : '—'}</b></div>
+              <div className="kv"><span>LDPC errors</span><b className="mono" style={{ fontSize: 12.5 }}>{rxRunning && lm.ldpc_errors != null ? lm.ldpc_errors : '—'}</b></div>
+              <div className="kv"><span>Type</span><b className="mono" style={{ fontSize: 12.5 }}>{rxRunning && lm.short_frame != null && lm.modulation ? (lm.short_frame === '1' ? 'Short' : 'Long') : '—'}</b></div>
+              <div className="kv" style={{ gridColumn: 'span 2' }}><span>Pilots</span><b className="mono" style={{ fontSize: 12.5 }}>{rxRunning && lm.pilots != null && lm.modulation ? (lm.pilots === '1' ? 'On' : 'Off') : '—'}</b></div>
             </div>
             {!rxKnown && (
               <div className="info-note" style={{ marginTop: 10 }}>
@@ -433,11 +484,20 @@ function Webtioune({ d }) {
               <p>{errorMsg}</p>
             </div>
           )}
-          <div style={{ position: 'relative', marginTop: 12 }}>
-            <video ref={videoRef} controls muted playsInline
-              style={{ display: 'block', width: '100%', aspectRatio: '16 / 9', maxHeight: expertOpen === '1' ? 'calc(100vh - 560px)' : 'calc(100vh - 300px)', minHeight: expertOpen === '1' ? 150 : 200, background: '#000' }} />
-            {serviceName && (
-              <div style={{ position: 'absolute', top: 14, left: 18, right: 18, pointerEvents: 'none', color: '#fff', fontSize: 'clamp(22px, 3.2vw, 44px)', fontWeight: 700, lineHeight: 1.1, textShadow: '0 2px 6px rgba(0,0,0,.9), 0 0 2px #000', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{serviceName}</div>
+          <div style={{ marginTop: 12 }}>
+            <Checkbox checked={infoOn === '1'} onChange={(on) => setInfoOn(on ? '1' : '0')} label="Info (mpegts.js status and statistics)" />
+          </div>
+          <div style={{ position: 'relative', marginTop: 8 }}>
+            <video ref={videoRef} controls playsInline
+              style={{ display: 'block', width: '100%', aspectRatio: '16 / 9', maxHeight: `calc(100vh - ${(expertOpen === '1' ? 560 : 300) + 30}px)`, minHeight: expertOpen === '1' ? 150 : 200, background: '#000' }} />
+            {locked && lm.margin_db != null && !isNaN(parseInt(lm.margin_db)) && (
+              <div title={`margin ${lm.margin_db} dB`} style={{ position: 'absolute', top: 14, right: 18, pointerEvents: 'none', color: '#fff', fontSize: 'clamp(22px, 3.2vw, 44px)', fontWeight: 700, lineHeight: 1.1, textShadow: '0 2px 6px rgba(0,0,0,.9), 0 0 2px #000' }}>D{Math.max(0, parseInt(lm.margin_db))}</div>
+            )}
+            {(serviceName || showInfo) && (
+              <div style={{ position: 'absolute', top: 14, left: 18, right: 'clamp(70px, 8vw, 120px)', pointerEvents: 'none', color: '#fff', textShadow: '0 2px 6px rgba(0,0,0,.9), 0 0 2px #000', overflow: 'hidden' }}>
+                {serviceName && <div style={{ fontSize: 'clamp(22px, 3.2vw, 44px)', fontWeight: 700, lineHeight: 1.1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{serviceName}</div>}
+                {showInfo && <div className="mono" style={{ marginTop: 6, fontSize: 'clamp(11px, 1.1vw, 14px)', lineHeight: 1.35 }}>{infoLines.map((l, k) => <div key={k}>{l}</div>)}</div>}
+              </div>
             )}
           </div>
         </Card>
