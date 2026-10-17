@@ -329,15 +329,29 @@ the transmitting Pluto's spurs show up in the ratio too, none above the second t
 The markers follow the largest ratio bins and the AUTO scale fits them (REF 91, range 108 on the Pluto+).
 Screenshots `boardserved-plutoplus-radioastro-cal.jpg`, `boardserved-pluto-radioastro-cal.jpg`.
 
-**Radio Astronomy FSW** (Pluto+ page, INTEG 5 s, OFS 500 kHz). The receive LO read over ssh alternates
-between 2400.000 and 2400.500 MHz, and the receiver sees the strong tone at bin 3310 and bin 2491 in the two
-positions (103 dB over a 29 dB median). The page shows SIG - REF between about -16 and +8 dB, with markers at
-2399.2287 MHz (+8.1 dB) and 2400.7731 MHz (+6.8 dB), i.e. far below the +/-70 dB that two clean dwells of a
-CW tone would give. My explanation (from reading the code, not measured): the retune is an MQTT command, so
-the first frames of every dwell are still at the old LO, and a leak of a few percent of a tone that is 70 dB
-above the noise limits the ratio to roughly 10 dB. FSW is meant for weak lines; a strong CW tone is not a
-good test signal for its ratio. With INTEG 1 s the trace was unusable (one frame per dwell). Screenshot
+**Radio Astronomy FSW, strong line** (Pluto+ page, INTEG 5 s, OFS 500 kHz). The receive LO read over ssh
+alternates between 2400.000 and 2400.500 MHz, and the receiver sees the strong tone at two different bins
+(103 dB over a 29 dB median). SIG - REF shows only about -16 to +8 dB, where two clean dwells would give about
++/-70 dB. With INTEG 1 s the trace is unusable (one frame per dwell). Screenshot
 `boardserved-plutoplus-radioastro-fsw.jpg`.
+
+Cause, measured afterwards: an MQTT retune command reaches the LO within 130 to 220 ms (six retunes timed on
+the Pluto+), so the retune itself is not the problem. The /waterfall frames are the problem: after each
+retune the first frame that arrives still shows the old LO position (at a 0.42 s frame period, the first
+frame after the command was stale in 4 of 6 retunes and every later frame was new). At the page's 1 fps this
+is about one stale frame in every dwell, i.e. 1/INTEG of the window (20 % at INTEG 5 s). A stale fraction p of
+a tone that is 70 dB above the noise limits the SIG - REF ratio to about 10*log10(1/p): 7 dB at p = 20 %,
+about 15 dB at p = 3 % (INTEG 30 s). My earlier explanation of a slow MQTT retune (previous version of this
+section) was wrong.
+
+**Radio Astronomy FSW, weak line** (Pluto+ page, INTEG 30 s, OFS 500 kHz, Pluto TX gain -64 dB). The line sits
+at 2400.7719 MHz, 39.3 dB in the plain spectrum, about 10 dB above the local noise (screenshot
+`boardserved-plutoplus-radioastro-weakline-plain.jpg`). After both dwells (about 75 s) SIG - REF shows the
+line at 2400.771861 MHz, +16.2 dB (P1), a flat baseline close to 0 dB (the bandpass shape cancels), and the
+mirror image of the line 0.5 MHz lower as a negative spike (about -12 dB at 2400.27 MHz), as frequency switching should
+do. P2 (+9.6 dB, 2399.9756 MHz) is one of the transmitter's spurs. Screenshot
+`boardserved-plutoplus-radioastro-fsw-weakline.jpg`. So FSW works for a weak line; for a strong line the stale
+frame limits the ratio. Skipping the first frame of each dwell would remove that limit (not implemented).
 
 ## Limits and not tested
 
