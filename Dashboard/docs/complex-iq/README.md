@@ -237,6 +237,27 @@ Radio Astronomy auto scale outlier filter moved with the clamp (floor -100 dB in
 2.5 MS/s, where the Radio Astronomy page leaves the board): screenshots
 `radioastro-power-scale-pluto-plus.jpg` and `classifier-power-scale-pluto-plus.jpg`.
 
+### Firmware image newdash3 (Spectrum markers, 10*log10 on all three pages)
+
+Pluto flashed from the .frm, Pluto+ from the SD image, both serving the page from the image
+(the /root/index.html md5 equals the build output). Suite (rf_iq_check with automatic
+offset, rf_phase_check, rf_iq_frame_phase_check at 2.5, 10, 20, 30.72 and 61.44 MS/s on both
+boards): 30 steps, every restore matched; 69 checks ok, 1 FAIL, then passed 3 of 3 when
+re-run alone.
+
+* The FAIL: Pluto+ at 2.5 MS/s, tone -600 kHz, raw capture against magnitude waterfall
+  correlation 0.961 (peaks were right: 984/984/984). Re-run three times: 0.9998, 1.0, 1.0.
+  Not root-caused, so treat it as an intermittent capture at the band edge.
+* Frame rotation measured minus predicted -0.0010..+0.0024 rad, scatter at most 0.0018 rad;
+  OFDM log correlation 0.989..0.999; phase derived frequency minus time domain -12.9..+4.8 Hz;
+  model error at most 1.16 deg and 0.22 dB.
+* Spectrum page served by the Pluto (Pluto+ sends the unequal tones at 10 MS/s):
+  P1 2400.869565 MHz 93.8 dB, P2 2400.889106 MHz 81.4 dB (difference 12.4 dB); Python
+  decode: bins 2404/2412 = 2400.869141/2400.888672 MHz, difference 12.45 dB. The Pluto+
+  page showed 2400.771861 MHz and 2400.791402 MHz with a difference of about 12 dB.
+
+![Pluto serving the Spectrum page with peak markers](firmware-image-pluto-spectrum-markers.jpg)
+
 ## Limits and not tested
 
 * Chrome only; no touch, no other browsers; high-DPI scaling only in the new page.
