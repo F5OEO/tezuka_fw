@@ -175,8 +175,8 @@ Phase-derived minus time-domain frequency: Pluto -8.0 to +4.2 Hz, Pluto+ -12.6 t
 Model error at most 2.1 degrees and 0.37 dB (Pluto), 1.8 degrees and 0.40 dB (Pluto+).
 The dashboard served from the flashed Pluto (not from RAM) shows both peak markers with
 frequency and level for unequal tones (`firmware-image-pluto-markers-magphase.jpg`).
-Not tested with these images: the other views from the flashed boards (they were tested from RAM
-with the same file), other boards. A first run of the suite was started too early while the Pluto was
+The other views from the flashed boards were tested later with the newdash4 images (section on CAL, FSW
+and the Real/Imaginary, Bode and Smith views below). Not tested: other boards. A first run of the suite was started too early while the Pluto was
 still flashing and was stopped before any check ran.
 
 ### Reproduce
@@ -274,7 +274,7 @@ sends the unequal tones, Pluto+ receives:
   verified. The marker reports the second highest bin of what the page displays.
   Screenshot `radioastro-peak-markers-pluto-plus.jpg`.
 * In CAL or FSW mode the page shows a ratio in dB and the markers then mark the strongest
-  ratio bins. This was not tested.
+  ratio bins (tested, see the section on CAL and FSW below).
 
 ### Firmware image newdash4 (peak markers on all four spectrum pages)
 
@@ -297,6 +297,47 @@ Board-served pages with the unequal two tones (10 MS/s, the other board transmit
 Screenshots: `firmware-image-pluto-classifier-markers.png`,
 `firmware-image-pluto-radioastro-markers.jpg`, `firmware-image-plutoplus-classifier-markers.png`,
 `firmware-image-plutoplus-radioastro-markers.jpg`.
+
+### Radio Astronomy CAL and FSW, and the Real/Imaginary, Bode and Smith views, served by the boards
+
+Images newdash4, pages served by the boards themselves, unequal two tones (second tone 12.4 dB
+below the first), one board transmits and the other receives.
+
+**Complex I/Q views.** Independent Python decode of the same stream first, then the page:
+
+| Board | Decode | Page |
+|---|---|---|
+| Pluto+ (2.5 MS/s, page default) | bin 3311, 2400.770874 MHz, 65.1 dB; bin 3344, 2400.791016 MHz, 52.7 dB; difference 12.4 dB | same bins and frequencies, 65.1/65.0 dB and 52.7 dB, 12.3-12.4 dB below the peak |
+| Pluto (10 MS/s) | bin 2404, 2400.869141 MHz, 66.6 dB; bin 2412, 2400.888672 MHz, 54.4 dB; difference 12.3 dB | same bins and frequencies, 66.5/66.6 dB and 54.5 dB, 12.1 dB below the peak |
+
+* Real / Imaginary (unit circle): the peak reads 1.000 + j0.000 on both boards. The second tone reads
+  0.164 + j0.176 (Pluto+) and 0.193 + j0.156 (Pluto); recomputed from the page's own magnitude and phase
+  readout (10^(-12.4/20) at +0.820 rad, and 10^(-12.1/20) at +0.680 rad) this is 0.164 + j0.175 and 0.193 + j0.156.
+* Bode: the offset of the peak from the LO is 770.9 kHz (Pluto+, bin 3311, 770.87 kHz expected) and 869.1 kHz
+  (Pluto, bin 2404, 869.14 kHz expected); the magnitude is the same as in the Magnitude / Phase view.
+* Smith chart: the peak sits at Gamma = 1.00 + j0.00 and the second tone at 0.18 + j0.16 (Pluto+) and
+  -0.14 - j0.21 (Pluto); |Gamma| is 0.24 and 0.25, the same 12 dB ratio. Recomputed from the readout
+  phases: 0.184 + j0.155 and -0.137 - j0.207.
+
+Screenshots: `boardserved-{pluto,plutoplus}-complexiq-{realimag,bode,smith}.jpg`.
+
+**Radio Astronomy CAL.** The transmitter was silenced (TX gain -89 dB), the page loaded, CAL pressed once
+the window held 12-15 frames (ratio around 0 dB, markers at 0.1 dB), then the tones were switched on and
+AUTO pressed. Pluto+ page: P1 2400.771251 MHz +78.3 dB, P2 2400.792013 MHz +66.2 dB (12.1 dB apart, as sent);
+the transmitting Pluto's spurs show up in the ratio too, none above the second tone. Pluto page: P1 about
++66 dB and P2 about +55 dB at 2400.870 and 2400.889 MHz (the values move from frame to frame).
+The markers follow the largest ratio bins and the AUTO scale fits them (REF 91, range 108 on the Pluto+).
+Screenshots `boardserved-plutoplus-radioastro-cal.jpg`, `boardserved-pluto-radioastro-cal.jpg`.
+
+**Radio Astronomy FSW** (Pluto+ page, INTEG 5 s, OFS 500 kHz). The receive LO read over ssh alternates
+between 2400.000 and 2400.500 MHz, and the receiver sees the strong tone at bin 3310 and bin 2491 in the two
+positions (103 dB over a 29 dB median). The page shows SIG - REF between about -16 and +8 dB, with markers at
+2399.2287 MHz (+8.1 dB) and 2400.7731 MHz (+6.8 dB), i.e. far below the +/-70 dB that two clean dwells of a
+CW tone would give. My explanation (from reading the code, not measured): the retune is an MQTT command, so
+the first frames of every dwell are still at the old LO, and a leak of a few percent of a tone that is 70 dB
+above the noise limits the ratio to roughly 10 dB. FSW is meant for weak lines; a strong CW tone is not a
+good test signal for its ratio. With INTEG 1 s the trace was unusable (one frame per dwell). Screenshot
+`boardserved-plutoplus-radioastro-fsw.jpg`.
 
 ## Limits and not tested
 
