@@ -122,13 +122,28 @@ frequency labels of that plot were then moved up so they do not collide with the
 canvas (`classifier-reference-match-axes-synthetic.png`), the final layout has not seen a
 real match.
 
+### 4. Two tones with different levels
+
+With equal levels the peak can be either tone. The second tone was transmitted 12.04 dB
+below the first (amplitudes 1 and 0.25), so the peak is always tone 1 (820.0 kHz) and tone 2
+(840.4 kHz) is the 2nd peak, which the page now shows in its own readout line (strongest bin
+at least 6 bins from the peak and from DC). Board-served, 10 MS/s:
+
+| RX board | python (13 frames) | browser |
+|---|---|---|
+| Pluto+ | peak bin 2364, 2400.771484 MHz, 66.02 dB; 2nd bin 2372, 2400.791016 MHz, 53.82 dB | peak bin 2364, 66.0 dB; 2nd bin 2372, 2400.791016 MHz, 53.8 dB, 12.2 dB below |
+| Pluto | peak bin 2404, 2400.869141 MHz, 66.36 dB; 2nd bin 2412, 2400.888672 MHz, 54.45 dB | peak bin 2404, 66.4 dB; 2nd bin 2412, 2400.888672 MHz, 54.4 dB, 12.1 dB below |
+
+Screenshots `boardserved-*-uneven-tones-magphase.jpg`. The measured ratio is 12.2 and 12.1 dB
+(python 12.2 and 11.9 dB) against 12.04 dB transmitted.
+
 ### Reproduce
 
 ```
 python3 test/mock_iq_waterfall.py rc 8765         # or: tones 8766
 # serve the bundle, set MQTT_DEV_HOST to a board, then in the page console:
 #   window._tezukaDevHost = '127.0.0.1:8765'      # and open the page again from the menu
-python3 test/reference_peak.py TXHOST RXHOST 10000000 two 40   # transmit and decode in python
+python3 test/reference_peak.py TXHOST RXHOST 10000000 two 40   # or: tone, uneq (second tone 12 dB lower)   # transmit and decode in python
 ```
 
 ## Limits and not tested

@@ -39,7 +39,12 @@ function ciqAnalyse(I, Q) {
     ph[k] = Math.atan2(Q[k], I[k]);
     if (Math.abs(k - n / 2) > 2 && db[k] > pkDb) { pkDb = db[k]; pk = k; }
   }
-  return { db, ph, pk, pkDb };
+  // second strongest peak: at least 6 bins from the first one and from DC
+  let pk2 = -1, pk2Db = -Infinity;
+  for (let k = 0; k < n; k++) {
+    if (Math.abs(k - n / 2) > 2 && Math.abs(k - pk) > 6 && db[k] > pk2Db) { pk2Db = db[k]; pk2 = k; }
+  }
+  return { db, ph, pk, pkDb, pk2, pk2Db };
 }
 
 const ciqFreq = (st, k) => st.centerHz + ((k - CIQ_N / 2) / CIQ_N) * st.spanHz;
@@ -401,8 +406,9 @@ function ComplexIqPage({ d }) {
       const now = performance.now();
       if (now - lastPeak > 250 && an.pk >= 0) {
         lastPeak = now;
-        setPeak({ f: st.centerHz != null ? ciqFreq(st, an.pk) : null, db: an.pkDb, ph: an.ph[an.pk],
-                  i: fr.I[an.pk], q: fr.Q[an.pk], k: an.pk });
+        const pkInfo = (k) => ({ f: st.centerHz != null ? ciqFreq(st, k) : null, db: an.db[k], ph: an.ph[k],
+                                 i: fr.I[k], q: fr.Q[k], k });
+        setPeak({ ...pkInfo(an.pk), second: an.pk2 >= 0 ? pkInfo(an.pk2) : null });
       }
       if (hx != null && geo.rects && now - lastMk > 100) {
         lastMk = now;
@@ -501,8 +507,9 @@ function ComplexIqPage({ d }) {
           <canvas ref={canvasRef} onMouseMove={onMove} onMouseLeave={onLeave}
             style={{ width: '100%', height: '100%', display: 'block', borderRadius: 8, cursor: 'crosshair' }} />
         </div>
-        <div className="mono" style={{ marginTop: 8, fontSize: 12, minHeight: 34 }}>
+        <div className="mono" style={{ marginTop: 8, fontSize: 12, minHeight: 50 }}>
           <div id="ciq-peak">{peak ? 'Peak (excl. DC): ' + ro(peak) : 'Peak: waiting for data'}</div>
+          <div id="ciq-peak2">{peak && peak.second ? '2nd peak: ' + ro(peak.second) + '   (' + (peak.db - peak.second.db).toFixed(1) + ' dB below the peak)' : ''}</div>
           <div id="ciq-cursor" className="dim">{mk ? 'Cursor: ' + ro(mk) : 'Cursor: move the mouse over a plot'}</div>
         </div>
         <p className="dim" style={{ marginTop: 8 }}>

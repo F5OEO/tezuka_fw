@@ -5,9 +5,10 @@ import hwlib
 tx, rx, fs, what = sys.argv[1], sys.argv[2], int(sys.argv[3]), sys.argv[4]
 LO = 2_400_000_000
 hwlib.configure(tx, rx, fs, min(int(0.8*fs), 50_000_000), LO, int(sys.argv[5]) if len(sys.argv)>5 else 40)
-ks = {'tone': [2050], 'two': [2050, 2101]}[what]
+ks = {'tone': [2050], 'two': [2050, 2101], 'uneq': [2050, 2101]}[what]
+amps = [1.0, 0.25] if what == 'uneq' else [1.0]*len(ks)
 ft = [hwlib.tone_freq(fs, k) for k in ks]
-hwlib.start_tx(tx, sum(hwlib.tone(fs, f) for f in ft), 6000)
+hwlib.start_tx(tx, sum(a*hwlib.tone(fs, f) for a, f in zip(amps, ft)), 6000)
 import time; time.sleep(1)
 fr = asyncio.run(hwlib.grab_ws(rx, 'iq-waterfall', 3))
 fr = [m for m in fr if isinstance(m, bytes) and len(m) == 4*hwlib.FRAME]
