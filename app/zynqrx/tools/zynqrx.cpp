@@ -41,7 +41,7 @@
 //   zynqrx rx --iio --iq-format cs8   (Tezuka firmware: 8-bit I/Q from the FPGA instead of 16-bit, less memory traffic, less dynamic range; the default; --iq-format cs16 or cmd/zynqrx/iqformat cs16 gives 12-bit samples in 16 bits)
 //   zynqrx rx --iio --mqtt broker[:port] [--freq MHz --rs Msym] [--udp addr:port] ...
 //       Control and status over MQTT in the scheme of longmynd (F5OEO/longmynd, mymqtt.c): the scripts and dashboards made for that receiver work with it.
-//       Commands (cmd/zynqrx/...): frequency (kHz, 70000 - 6000000), sr (kS, 33 - 7680), tsip (IPv4 of the transport stream output, the port stays that
+//       Commands (cmd/zynqrx/...): frequency (kHz, 70000 - 6000000, 0.1 kHz steps), sr (kS, 33 - 7680), tsip (IPv4 of the transport stream output, the port stays that
 //       of --udp, else 1234), swport and polar (accepted and reported back, no such hardware). A new frequency or symbol rate restarts the receiver
 //       (a few seconds); tsip takes effect at once. Without --freq/--rs the receiver waits for frequency and sr.
 //       Process control: without --start the receiver is stopped at launch (only MQTT and the --ws/--udp outputs are up, the radio is not opened);
@@ -418,7 +418,8 @@ struct RxCtl {
     std::function<void()> cancelRead;         // wakes the reader thread of the session
     bool restart = false;                     // a new frequency or symbol rate wants a new session
     bool enabled = false;                     // the receiver process is started (--start, or cmd/zynqrx/process start); stopped, the radio is not opened
-    long freqKHz = 0, srKS = 0, swport = 0;
+    double freqKHz = 0;                       // kHz, rounded to 0.1 kHz
+    long srKS = 0, swport = 0;
     int lnbSupply = 0, lnbHorizontal = 0;
     std::string tsip;
     RxTune tune;                              // the settings above (cmd/zynqrx/gain ... pls)
@@ -615,8 +616,8 @@ int runSession(RxOpts& o, RxCtl& ctl) {
 }
 
 // The receiver for the session of the longmynd way: frequency in kHz and symbol rate in kS from the command line or from MQTT
-bool datvSessionOpts(RxOpts& o, long freqKHz, long srKS) {
-    o.freqMHz = (double)freqKHz / 1000.0;
+bool datvSessionOpts(RxOpts& o, double freqKHz, long srKS) {
+    o.freqMHz = freqKHz / 1000.0;
     o.rs = (double)srKS / 1000.0;
     o.secsMax = 0;
     o.useIio = true;
@@ -642,7 +643,7 @@ int runDaemon(RxOpts& o) {
     RxCtl ctl;
     MqttLink mq;
     ctl.mq = &mq;
-    ctl.freqKHz = std::lround(o.freqMHz * 1000.0);
+    ctl.freqKHz = std::round(o.freqMHz * 10000.0) / 10.0;
     ctl.srKS = std::lround(o.rs * 1000.0);
     ctl.udpTtl = o.udpTtl;
     ctl.udpIf = o.udpIf;
@@ -658,19 +659,19 @@ int runDaemon(RxOpts& o) {
     auto onCommand = [&ctl](const std::string& key, const std::string& val) {
         char* end = nullptr;
         if (key == "frequency" || key == "sr") {
-            const long v = strtol(val.c_str(), &end, 10);
             const bool freq = key == "frequency";
-            if (val.empty() || *end || v < (freq ? 70000L : 33L) || v > (freq ? 6000000L : 7680L)) {
+            // the frequency is in kHz with up to one decimal (0.1 kHz steps), the symbol rate in whole kS
+            const double v = freq ? std::round(strtod(val.c_str(), &end) * 10.0) / 10.0 : (double)strtol(val.c_str(), &end, 10);
+            if (val.empty() || *end || !(v >= (freq ? 70000.0 : 33.0) && v <= (freq ? 6000000.0 : 7680.0))) {
                 fprintf(stderr, "mqtt: cmd/zynqrx/%s \"%s\" ignored (%s)\n", key.c_str(), val.c_str(), freq ? "kHz, 70000 - 6000000" : "kS, 33 - 7680");
                 return;
             }
             std::lock_guard<std::mutex> lk(ctl.mu);
-            long& cur = freq ? ctl.freqKHz : ctl.srKS;
-            if (cur == v) return;
-            cur = v;
-            if (!ctl.enabled) { fprintf(stderr, "mqtt: %s = %ld (receiver stopped, used at the next start)\n", freq ? "frequency (kHz)" : "symbol rate (kS)", v); return; }
+            if (freq ? ctl.freqKHz == v : ctl.srKS == (long)v) return;
+            if (freq) ctl.freqKHz = v; else ctl.srKS = (long)v;
+            if (!ctl.enabled) { fprintf(stderr, "mqtt: %s = %.1f (receiver stopped, used at the next start)\n", freq ? "frequency (kHz)" : "symbol rate (kS)", v); return; }
             ctl.restart = true;
-            fprintf(stderr, "mqtt: %s = %ld, restarting the receiver\n", freq ? "frequency (kHz)" : "symbol rate (kS)", v);
+            fprintf(stderr, "mqtt: %s = %.1f, restarting the receiver\n", freq ? "frequency (kHz)" : "symbol rate (kS)", v);
             ctl.stop = true;
             if (ctl.cancelRead) ctl.cancelRead();
         } else if (key == "process") {
@@ -723,7 +724,8 @@ int runDaemon(RxOpts& o) {
         datvPublish(mq, st);
     };
     while (!gStop) {
-        long fk, sk;
+        double fk;
+        long sk;
         bool on;
         {   // take the settings and clear the flags in one step: a command that comes after this sets them again
             std::lock_guard<std::mutex> lk(ctl.mu);
@@ -734,7 +736,7 @@ int runDaemon(RxOpts& o) {
         RxOpts so = o;
         { std::lock_guard<std::mutex> lk(ctl.mu); tuneApply(ctl.tune, so); }
         datvSessionOpts(so, fk, sk);
-        fprintf(stderr, "receiver: %.3f MHz, %ld kS (%s)\n", (double)fk / 1000.0, sk, so.prefilt ? "radio RRC filter" : "software matched filter");
+        fprintf(stderr, "receiver: %.4f MHz, %ld kS (%s)\n", fk / 1000.0, sk, so.prefilt ? "radio RRC filter" : "software matched filter");
         const int rc = runSession(so, ctl);
         if (gStop) break;
         bool again, stopped;

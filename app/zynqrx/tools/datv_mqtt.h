@@ -15,7 +15,8 @@
 struct DatvStatus {
     bool running = false;                // the receiver process is started (cmd/zynqrx/process start), not stopped
     int state = 0;                       // 0 Init, 1 Hunting, 2 found header, 3 demod_s, 4 demod_s2 (longmynd's rx_state)
-    long freqKHz = 0, srKS = 0;          // what was asked for (the set/ echoes)
+    double freqKHz = 0;                  // what was asked for (the set/ echoes), rounded to 0.1 kHz
+    long srKS = 0;
     long swport = 0;
     std::string tsip;
     int lnbSupply = 0, lnbHorizontal = 0;
@@ -100,7 +101,12 @@ inline void datvPublish(MqttLink& mq, const DatvStatus& s) {
     pub("process", s.running ? "start" : "stop");
     pub("rx_state", states[std::min(4, std::max(0, s.state))]);
     mq.publish("dt/zynqrx/set/sr", std::to_string(s.srKS));
-    mq.publish("dt/zynqrx/set/frequency", std::to_string(s.freqKHz));
+    {   // whole kHz as longmynd sends it, with one decimal only when the frequency has one
+        char fb[32];
+        const long long tenth = std::llround(s.freqKHz * 10.0);
+        if (tenth % 10) snprintf(fb, sizeof fb, "%lld.%lld", tenth / 10, std::llabs(tenth) % 10); else snprintf(fb, sizeof fb, "%lld", tenth / 10);
+        mq.publish("dt/zynqrx/set/frequency", fb);
+    }
     mq.publish("dt/zynqrx/set/swport", std::to_string(s.swport));
     mq.publish("dt/zynqrx/set/tsip", s.tsip);
     for (const auto& kv : s.settings) mq.publish("dt/zynqrx/set/" + kv.first, kv.second);
@@ -119,7 +125,7 @@ inline void datvPublish(MqttLink& mq, const DatvStatus& s) {
         if (s.haveTel && t.standard == 1) { const std::string& r = t.codeRate; n = r == "1/2" ? 1 : r == "2/3" ? 2 : r == "3/4" ? 3 : r == "5/6" ? 5 : r == "7/8" ? 7 : 0; }
         num("puncrate", n);
     }
-    num("carrier_frequency", s.freqKHz + (long long)std::llround(s.haveTel ? t.cfoHz / 1000.0 : 0.0));
+    num("carrier_frequency", (long long)std::llround(s.freqKHz + (s.haveTel ? t.cfoHz / 1000.0 : 0.0)));
     num("lnb_supply", s.lnbSupply);
     num("polarisation", s.lnbHorizontal);
     num("symbolrate", s.haveTel && t.symbolRate > 0 ? (long long)(((long long)std::llround(t.symbolRate) + 500) / 1000) : s.srKS);
