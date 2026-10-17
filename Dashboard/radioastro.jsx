@@ -39,6 +39,7 @@ function RadioAstronomyPage({ d }) {
   const fswSigRef      = useRRa(null);        // Float64Array raw linear, last completed SIG dwell
   const fswRefRef      = useRRa(null);        // Float64Array raw linear, last completed REF dwell
   const fswPhaseStartRef = useRRa(0);         // performance.now() of the current dwell's start
+  const fswSkipRef       = useRRa(0);         // frames still to drop after a retune (they show the old LO)
 
   const [bandwidth, setBandwidth] = useSRa(bandwidthRef.current);
   const [integSec,  setIntegSec]  = useSRa(integSecRef.current);
@@ -159,8 +160,11 @@ function RadioAstronomyPage({ d }) {
 
         // FSW: if the current dwell has run its course, snapshot it (raw
         // linear average of whatever accumulated), flip SIG<->REF, retune
-        // the hardware, and start the new dwell's window fresh — all before
-        // this frame is folded in, so it belongs to the new phase.
+        // the hardware, and start the new dwell's window fresh. The frame
+        // that triggers the flip was taken before the retune and the next one
+        // is still integrating while the LO moves, so both are dropped (see
+        // fswSkipRef below): a stale fraction p of a strong line would limit
+        // the SIG - REF ratio to about 10*log10(1/p).
         if (fswOnRef.current && ringRef.current.length > 0) {
           const now = performance.now();
           const periodMs = Math.max(1, integSecRef.current) * 1000;
@@ -177,8 +181,10 @@ function RadioAstronomyPage({ d }) {
               : centerHzRef.current + fswOffsetRef.current * 1000;
             d.publish('rx/frequency', Math.round(targetHz));
             resetWindow(len);
+            fswSkipRef.current = 2;   // this frame and the next one
           }
         }
+        if (fswOnRef.current && fswSkipRef.current > 0) { fswSkipRef.current--; return; }
 
         const sum = sumRef.current;
         const frame = new Float32Array(len);
@@ -284,6 +290,7 @@ function RadioAstronomyPage({ d }) {
     fswPhaseRef.current = 'sig';
     setFswPhase('sig');
     sumRef.current = null; // fresh plain window next frame
+    fswSkipRef.current = 0;
     d.publish('rx/frequency', Math.round(centerHzRef.current)); // park back on SIG
   };
   const toggleFsw = () => {
@@ -294,6 +301,7 @@ function RadioAstronomyPage({ d }) {
     setFswPhase('sig');
     fswPhaseStartRef.current = performance.now();
     sumRef.current = null;
+    fswSkipRef.current = 0;
     setFswOn(true);
   };
 

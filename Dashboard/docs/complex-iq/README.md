@@ -351,7 +351,17 @@ line at 2400.771861 MHz, +16.2 dB (P1), a flat baseline close to 0 dB (the bandp
 mirror image of the line 0.5 MHz lower as a negative spike (about -12 dB at 2400.27 MHz), as frequency switching should
 do. P2 (+9.6 dB, 2399.9756 MHz) is one of the transmitter's spurs. Screenshot
 `boardserved-plutoplus-radioastro-fsw-weakline.jpg`. So FSW works for a weak line; for a strong line the stale
-frame limits the ratio. Skipping the first frame of each dwell would remove that limit (not implemented).
+frame limits the ratio.
+
+**Radio Astronomy FSW, fix: drop the stale frames.** After each retune the page now drops the frame that
+triggered the flip (taken before the retune) and the next one (still integrating while the LO moves); the
+window of the new dwell starts with the third frame (`fswSkipRef` in `radioastro.jsx`). The dwell then holds
+INTEG - 2 clean frames. Check with the strong two tones (Pluto TX gain 0, Pluto+ page host-served with the
+fixed bundle, INTEG 30 s, OFS 500 kHz, after both dwells): SIG - REF shows P1 2400.771251 MHz +73.5 dB and P2
+2400.792013 MHz +61.6 dB (11.9 dB apart, 12.4 dB sent), and the mirror lines as negative spikes (about -72 dB
+at 2400.27 MHz), against about +7 dB (INTEG 5 s) and an expected ceiling of about 15 dB (INTEG 30 s) before.
+Screenshot `radioastro-fsw-strong-line-skip-frames.jpg`. Not tested: INTEG 1 s and 5 s with the fix (my
+clicks on the INTEG digits did not register on that run), and the fix is not in the newdash4 images.
 
 ## Limits and not tested
 
