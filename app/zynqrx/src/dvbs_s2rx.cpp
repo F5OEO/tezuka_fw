@@ -545,6 +545,14 @@ struct S2Rx::Impl {
             Result r; r.seq = seqNext++; r.frameSyms = fs; r.dummy = true;
             deposit(std::move(r));
         } else {
+            static const bool merOnly = getenv("DVBS_MERONLY") != nullptr;   // bench: stop after the MER / header stage (no refine, demap, LDPC)
+            if (merOnly) {
+                Result r; r.seq = seqNext++; r.frameSyms = fs; r.dummy = true;
+                frameSyms.clear();
+                deposit(std::move(r));
+                pos = 0; L = 90; daErr = 0; daN = 0;
+                return;
+            }
             Job j;
             j.seq = seqNext++; j.modcod = modcod; j.mod = mod; j.rate = rate; j.sh = sh;
             j.syms = std::move(frameSyms); j.sigma2 = (float)sigma2; j.frameSyms = fs;
