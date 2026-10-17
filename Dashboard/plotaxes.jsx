@@ -183,10 +183,10 @@ function paDrawNormAxes(ctx, W, H, ax) {
     for (let i = 0; i <= cols; i++) {
       const x = (i / cols) * W, f = ax.centerHz + (i / cols - 0.5) * ax.spanHz;
       ctx.strokeStyle = PA_GRID; ctx.beginPath(); ctx.moveTo(Math.round(x) + 0.5, 0); ctx.lineTo(Math.round(x) + 0.5, H); ctx.stroke();
-      paText(ctx, (f / 1e6).toFixed(dec), i === 0 ? x + 3 : i === cols ? x - 3 : x, H - 8,
+      paText(ctx, (f / 1e6).toFixed(dec), i === 0 ? x + 3 : i === cols ? x - 3 : x, H - 24,
              { align: i === 0 ? 'left' : i === cols ? 'right' : 'center', halo });
     }
-    paText(ctx, 'Frequency (MHz)', W / 2, H - 22, { align: 'center', halo, color: PA_DIM, font: PA_FONT_S });
+    paText(ctx, 'Frequency (MHz)', W / 2, 8, { align: 'center', halo, color: PA_DIM, font: PA_FONT_S });
   }
   ctx.restore();
 }

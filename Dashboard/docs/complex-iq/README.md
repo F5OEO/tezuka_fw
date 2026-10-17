@@ -34,9 +34,10 @@ page shows `disconnected` and no data. The raw capture card is unchanged.
 
 ## How it was tested
 
-The page was served from a local web server and pointed at the boards (MQTT and WebSocket
-to the board address), in Chrome. It was **not** installed on the boards' own web server in
-this test, the bundle is the same `bundle.py` output (see Limits).
+Two ways, both in Chrome: sections 1 and 2 below with the page served from a local web
+server and pointed at the boards (MQTT and WebSocket to the board address), and section 3
+with the `bundle.py` output copied to each board's `/root/index.html` and opened from the
+board's own web server (`http://192.168.2.1/`, `http://192.168.3.1/`).
 
 Rig: original Pluto (192.168.2.1) and Pluto+ (192.168.3.1) on a cabled 40 dB link, firmware
 v0.3.23-32-g0c2165c (tezuka_fw v0.3.23 + open fixes + maia-sdr PR #12 + upstream main), RX LO
@@ -98,6 +99,29 @@ the cursor is placed on it, one pixel is 8 kHz), the labels follow the span (10 
 2405; Radio Astronomy 2.5 MHz: 2398.75 to 2401.25; 30.72 MHz: 2384.640 to 2415.360).
 Screenshots: `pluto-*.jpg`, `plutoplus-*.jpg` in this directory.
 
+### 3. From the boards' own web servers
+
+The final bundle (`python3 bundle.py`) was streamed over ssh to `/root/index.html` of both
+boards (the root file system is in RAM, a reboot restores the original page) and the same
+checks were repeated at 10 MS/s with the two tones, Pluto+ receiving from the Pluto and the
+Pluto receiving from the Pluto+:
+
+| Page served by | python peak | browser peak (page origin = board) |
+|---|---|---|
+| Pluto+ (192.168.3.1) | bin 2364 / 2372 (two equal tones, 63.30 and 63.27 dB), 2400.771484 / 2400.791016 MHz | bin 2372, 2400.791016 MHz, 63.3 dB |
+| Pluto (192.168.2.1) | bin 2404, 2400.869141 MHz, 63.78 dB | bin 2404, 2400.869141 MHz, 63.8 dB |
+
+On both boards all four views of the complex page, the negative-offset Bode view, Spectrum,
+Radio Astronomy and Signal Classifier were opened in turn: every view draws (non-empty
+canvas), no JavaScript error was raised. Screenshots `boardserved-*.jpg`.
+During this run the Signal Classifier on the Pluto matched a real signal (an interferer
+around 2402 MHz, label CW / Beacon, 53 percent) and drew the Reference match plot with data
+(`boardserved-pluto-classifier-real-match.jpg`, taken with the first label layout). The
+frequency labels of that plot were then moved up so they do not collide with the
+`matched:` caption; the final layout was checked by drawing a synthetic curve on the real
+canvas (`classifier-reference-match-axes-synthetic.png`), the final layout has not seen a
+real match.
+
 ### Reproduce
 
 ```
@@ -110,9 +134,9 @@ python3 test/reference_peak.py TXHOST RXHOST 10000000 two 40   # transmit and de
 ## Limits and not tested
 
 * Chrome only; no touch, no other browsers; high-DPI scaling only in the new page.
-* Served from the test machine, not from the boards' own web server.
-* The Reference match axes were drawn with a synthetic test curve only: no signal in the
-  test matched a classifier template, so the plot never showed real data.
+* The final Reference match label layout was only checked with a synthetic curve (see
+  section 3).
+* Board-served tests: 10 MS/s only; 2.5 and 30.72 MS/s were checked with the host-served page.
 * The Bode phase is unwrapped inside each run of bins above the threshold; for a single tone
   it only shows the window leakage. It is meaningful for a broadband stimulus (see the
   synthetic low-pass).
