@@ -64,6 +64,8 @@ function ciqLinX(st, r) {
     x0: lo, x1: hi,
     xTicks: t.ticks.map((v) => ({ v, label: v.toFixed(t.dec) })),
     xLabel: known ? 'Frequency (MHz)' : 'Bin number (span unknown)',
+    topTicks: [0, 512, 1024, 1536, 2048, 2560, 3072, 3584, 4096].map((k) => ({ v: lo + (k / CIQ_N) * (hi - lo), label: String(k) })),
+    topLabel: 'Bin number (2048 = LO, DC)',
     toBin: (v) => Math.round(((v - lo) / (hi - lo)) * CIQ_N),
     fromBin: (k) => lo + (k / CIQ_N) * (hi - lo),
   };
@@ -105,7 +107,7 @@ function ciqDrawMag(ctx, r, st, ax, an, first) {
 function ciqDrawPhase(ctx, r, st, ax, an, thrDb) {
   const P = Math.PI;
   const { X, Y } = paPanel(ctx, r, {
-    ...ax, y0: -P, y1: P,
+    ...ax, topTicks: null, topLabel: null, y0: -P, y1: P,
     yTicks: [-P, -P / 2, 0, P / 2, P].map((v, i) => ({ v, label: ['-π', '-π/2', '0', '+π/2', '+π'][i] })),
     yLabel: 'Phase (rad)', showX: true,
   });
@@ -121,7 +123,7 @@ function ciqDrawPhase(ctx, r, st, ax, an, thrDb) {
 }
 
 function ciqDrawMagPhase(ctx, w, h, st, an, thrDb) {
-  const L = 70, R = 34, T = 8, GAP = 16, B = 40;
+  const L = 70, R = 34, T = 38, GAP = 16, B = 40;
   const ph = (h - T - B - GAP) / 2;
   const r1 = { x: L, y: T, w: w - L - R, h: ph }, r2 = { x: L, y: T + ph + GAP, w: w - L - R, h: ph };
   const ax = ciqLinX(st, r1);
@@ -138,18 +140,37 @@ function ciqDrawMagPhase(ctx, w, h, st, an, thrDb) {
   return { kind: 'lin', r: r1, ax, rects: [r1, r2], X: m.X };
 }
 
-function ciqDrawReIm(ctx, w, h, st) {
-  const L = 70, R = 34, T = 8, GAP = 16, B = 40;
+function ciqDrawReIm(ctx, w, h, st, an, norm) {
+  const L = 70, R = 34, T = 38, GAP = 16, B = 40;
   const ph = (h - T - B - GAP) / 2;
   const r1 = { x: L, y: T, w: w - L - R, h: ph }, r2 = { x: L, y: T + ph + GAP, w: w - L - R, h: ph };
   const ax = ciqLinX(st, r1);
-  let mx = 1;
-  for (let k = 0; k < CIQ_N; k++) mx = Math.max(mx, Math.abs(st.I[k]), Math.abs(st.Q[k]));
-  const sc = ciqNiceCeil(mx * 1.1);
-  const yt = paTicks(-sc, sc, 6);
-  const mkTicks = () => yt.ticks.map((v) => ({ v, label: String(v) }));
+  // norm: 'raw' = LSB of the int16 FFT output (autoscaled); 'unit' = divided by the
+  // magnitude of the strongest bin, so the peak lies on the unit circle; 'unitrot' =
+  // additionally rotated so the peak is exactly 1 + j0 (removes the frame to frame phase)
+  let I = st.I, Q = st.Q, unit = 'LSB';
+  if (norm !== 'raw' && an.pk >= 0) {
+    const a = st.I[an.pk], b = st.Q[an.pk], m2 = a * a + b * b;
+    I = new Float32Array(CIQ_N); Q = new Float32Array(CIQ_N);
+    for (let k = 0; k < CIQ_N; k++) {
+      if (norm === 'unitrot') { I[k] = (st.I[k] * a + st.Q[k] * b) / m2; Q[k] = (st.Q[k] * a - st.I[k] * b) / m2; }
+      else { const m = Math.sqrt(m2); I[k] = st.I[k] / m; Q[k] = st.Q[k] / m; }
+    }
+    unit = norm === 'unitrot' ? 'normalised, peak at 0 rad' : 'normalised to the peak';
+  }
+  let sc, ticks;
+  if (unit === 'LSB') {
+    let mx = 1;
+    for (let k = 0; k < CIQ_N; k++) mx = Math.max(mx, Math.abs(I[k]), Math.abs(Q[k]));
+    sc = ciqNiceCeil(mx * 1.1);
+    ticks = paTicks(-sc, sc, 6).ticks.map((v) => ({ v, label: String(v) }));
+  } else {
+    sc = 1.1;   // the peak is on the unit circle; a fixed scale, so the plot does not breathe
+    ticks = [-1, -0.5, 0, 0.5, 1].map((v) => ({ v, label: v.toFixed(1) }));
+  }
   const draw = (r, arr, col, name, showX) => {
-    const { X, Y } = paPanel(ctx, r, { ...ax, y0: -sc, y1: sc, yTicks: mkTicks(), yLabel: name + ' (LSB)', showX });
+    const yl = unit === 'LSB' ? name + ' (LSB)' : name + ' (normalised, unitless)';
+    const { X, Y } = paPanel(ctx, r, { ...ax, topTicks: showX ? null : ax.topTicks, topLabel: showX ? null : ax.topLabel, y0: -sc, y1: sc, yTicks: ticks, yLabel: yl, showX });
     ctx.save(); ctx.beginPath(); ctx.rect(r.x, r.y, r.w, r.h); ctx.clip();
     ctx.strokeStyle = col; ctx.lineWidth = 1.2; ctx.beginPath();
     for (let k = 0; k < CIQ_N; k++) {
@@ -159,13 +180,13 @@ function ciqDrawReIm(ctx, w, h, st) {
     ctx.stroke(); ctx.restore();
     ciqLegend(ctx, r, [[col, name === 'Real' ? 'Real part I' : 'Imaginary part Q']]);
   };
-  draw(r1, st.I, CIQ_COL.re, 'Real', false);
-  draw(r2, st.Q, CIQ_COL.im, 'Imaginary', true);
+  draw(r1, I, CIQ_COL.re, 'Real', false);
+  draw(r2, Q, CIQ_COL.im, 'Imaginary', true);
   return { kind: 'lin', r: r1, ax, rects: [r1, r2] };
 }
 
 function ciqDrawBode(ctx, w, h, st, an, thrDb, side) {
-  const L = 70, R = 34, T = 8, GAP = 16, B = 40;
+  const L = 70, R = 34, T = 38, GAP = 16, B = 40;
   const ph = (h - T - B - GAP) / 2;
   const r1 = { x: L, y: T, w: w - L - R, h: ph }, r2 = { x: L, y: T + ph + GAP, w: w - L - R, h: ph };
   const binHz = st.spanHz != null ? st.spanHz / CIQ_N : 1;
@@ -180,7 +201,9 @@ function ciqDrawBode(ctx, w, h, st, an, thrDb, side) {
         xTicks.push({ v: Math.log10(v), label: unitHz ? paFmtHz(v, 0) : String(v) });
     }
   }
-  const ax = { x0: lo, x1: hi, xTicks,
+  const topTicks = [];
+  for (let e = 0; e <= 3; e++) for (const m of [1, 2, 5]) { const kk = m * Math.pow(10, e); if (kk <= kMax) topTicks.push({ v: Math.log10(binHz * kk), label: String(kk) }); }
+  const ax = { x0: lo, x1: hi, xTicks, topTicks, topLabel: 'Offset from the LO in bins (bin number = 2048 ' + (side > 0 ? '+' : '-') + ' offset)',
                xLabel: unitHz ? 'Frequency offset ' + (side > 0 ? 'above' : 'below') + ' the LO (log scale, Hz)' : 'Offset (bins, log scale)' };
   const idx = (m) => CIQ_N / 2 + side * m;         // offset bins -> bin
   const top = Math.ceil((an.pkDb + 3) / 10) * 10, bot = top - 80;
@@ -212,7 +235,7 @@ function ciqDrawBode(ctx, w, h, st, an, thrDb, side) {
   for (const run of runs) for (const [, v] of run) { pmin = Math.min(pmin, v); pmax = Math.max(pmax, v); }
   const ps = paTicks(Math.floor(pmin / 90) * 90, Math.ceil(pmax / 90) * 90, 6);
   const y0 = ps.ticks[0], y1 = ps.ticks[ps.ticks.length - 1];
-  const p2 = paPanel(ctx, r2, { ...ax, y0, y1,
+  const p2 = paPanel(ctx, r2, { ...ax, topTicks: null, topLabel: null, y0, y1,
     yTicks: ps.ticks.map((v) => ({ v, label: String(Math.round(v)) })), yLabel: 'Phase (deg, unwrapped)', showX: true });
   ctx.save(); ctx.beginPath(); ctx.rect(r2.x, r2.y, r2.w, r2.h); ctx.clip();
   ctx.strokeStyle = CIQ_COL.im; ctx.fillStyle = CIQ_COL.im; ctx.lineWidth = 1.2;
@@ -313,11 +336,13 @@ function ComplexIqPage({ d }) {
   const geoRef = useRCx(null);
   const modeRef = useRCx('magphase');
   const thrRef = useRCx(40);
+  const normRef = useRCx('unitrot');
   const sideRef = useRCx(1);
   const holdRef = useRCx(false);
   const cfgRef = useRCx({ centerHz: null, spanHz: null });
   const [mode, setMode] = useSCx('magphase');
   const [thr, setThr] = useSCx(40);
+  const [norm, setNorm] = useSCx('unitrot');
   const [side, setSide] = useSCx(1);
   const [hold, setHold] = useSCx(false);
   const [wsState, setWsState] = useSCx('connecting');
@@ -331,6 +356,7 @@ function ComplexIqPage({ d }) {
   cfgRef.current = { centerHz, spanHz };
   useECx(() => { modeRef.current = mode; dirtyRef.current = true; }, [mode]);
   useECx(() => { thrRef.current = thr; dirtyRef.current = true; }, [thr]);
+  useECx(() => { normRef.current = norm; dirtyRef.current = true; }, [norm]);
   useECx(() => { sideRef.current = side; dirtyRef.current = true; }, [side]);
   useECx(() => { holdRef.current = hold; }, [hold]);
   useECx(() => { dirtyRef.current = true; }, [centerHz, spanHz]);
@@ -392,7 +418,7 @@ function ComplexIqPage({ d }) {
       const m = modeRef.current, thrDb = thrRef.current;
       let geo;
       if (m === 'magphase') geo = ciqDrawMagPhase(ctx, cw, ch, st, an, thrDb);
-      else if (m === 'reim') geo = ciqDrawReIm(ctx, cw, ch, st);
+      else if (m === 'reim') geo = ciqDrawReIm(ctx, cw, ch, st, an, normRef.current);
       else if (m === 'bode') geo = ciqDrawBode(ctx, cw, ch, st, an, thrDb, sideRef.current);
       else geo = ciqDrawSmith(ctx, cw, ch, st, an, thrDb);
       geoRef.current = { ...geo, an, st };
@@ -420,7 +446,14 @@ function ComplexIqPage({ d }) {
           k = Math.round(CIQ_N / 2 + geo.side * Math.pow(10, e) / geo.binHz);
         }
         if (k != null && k >= 0 && k < CIQ_N) {
-          setMk({ k, f: st.centerHz != null ? ciqFreq(st, k) : null, db: an.db[k], ph: an.ph[k], i: fr.I[k], q: fr.Q[k] });
+          let nrm = null;
+          if (m === 'reim' && normRef.current !== 'raw' && an.pk >= 0) {
+            const a0 = fr.I[an.pk], b0 = fr.Q[an.pk], m2 = a0 * a0 + b0 * b0;
+            nrm = normRef.current === 'unitrot'
+              ? [(fr.I[k] * a0 + fr.Q[k] * b0) / m2, (fr.Q[k] * a0 - fr.I[k] * b0) / m2]
+              : [fr.I[k] / Math.sqrt(m2), fr.Q[k] / Math.sqrt(m2)];
+          }
+          setMk({ k, f: st.centerHz != null ? ciqFreq(st, k) : null, db: an.db[k], ph: an.ph[k], i: fr.I[k], q: fr.Q[k], nrm });
         } else setMk(null);
       }
     };
@@ -472,7 +505,8 @@ function ComplexIqPage({ d }) {
 
   const fmtF = (f) => f == null ? 'n/a' : (f / 1e6).toFixed(6) + ' MHz';
   const ro = (p) => p == null ? '' :
-    `${fmtF(p.f)}   |X| ${p.db.toFixed(1)} dB   phase ${p.ph.toFixed(3)} rad (${(p.ph * 180 / Math.PI).toFixed(1)}°)   I ${p.i}   Q ${p.q}   bin ${p.k}`;
+    `${fmtF(p.f)}   |X| ${p.db.toFixed(1)} dB   phase ${p.ph.toFixed(3)} rad (${(p.ph * 180 / Math.PI).toFixed(1)}°)   I ${p.i}   Q ${p.q}   bin ${p.k}` +
+    (p.nrm ? `   normalised Re ${p.nrm[0].toFixed(3)} Im ${p.nrm[1].toFixed(3)}` : '');
   const hasThr = mode !== 'reim';
   return (
     <>
@@ -487,6 +521,15 @@ function ComplexIqPage({ d }) {
               <button key={id} className={mode === id ? 'seg-on' : ''} onClick={() => setMode(id)}>{label}</button>
             ))}
           </div>
+          {mode === 'reim' && (
+            <label className="dim" style={{ display: 'inline-flex', gap: 6, alignItems: 'center' }}>
+              scale
+              <Select value={norm} onChange={setNorm} options={[
+                { v: 'unitrot', l: 'unit circle, peak at 0 rad' },
+                { v: 'unit', l: 'unit circle (peak magnitude = 1)' },
+                { v: 'raw', l: 'raw LSB (autoscale)' }]} />
+            </label>
+          )}
           {hasThr && (
             <label className="dim" style={{ display: 'inline-flex', gap: 6, alignItems: 'center' }}>
               show phase within
@@ -514,7 +557,7 @@ function ComplexIqPage({ d }) {
         </div>
         <p className="dim" style={{ marginTop: 8 }}>
           {mode === 'magphase' && 'Top: magnitude 20·log10(|X|) in dB re 1 LSB (uncalibrated, not dBm). Bottom: phase atan2(Q, I) in rad from -π to +π, colour = phase.'}
-          {mode === 'reim' && 'Real part I (top) and imaginary part Q (bottom) of every bin in LSB of the int16 FFT output.'}
+          {mode === 'reim' && (norm === 'raw' ? 'Real part I (top) and imaginary part Q (bottom) of every bin in LSB of the int16 FFT output (autoscaled).' : (norm === 'unitrot' ? 'Real part (top) and imaginary part (bottom) of every bin divided by the complex value of the strongest bin (so the peak is exactly 1 + j0)' : 'Real part (top) and imaginary part (bottom) of every bin divided by the magnitude of the strongest bin (the peak lies on the unit circle, its phase still changes from frame to frame)') + '. Fixed scale -1.1 to +1.1. The readout line below stays in LSB.')}
           {mode === 'bode' && 'Magnitude in dB and phase in degrees (unwrapped inside each run of bins) over the frequency offset from the LO on a log axis, one side at a time. The phase is only meaningful where a signal is present.'}
           {mode === 'smith' && 'Γ = X[f] / X[peak]: every bin normalised to the strongest one (|Γ| ≤ 1), colour = frequency. Constant-r circles and constant-x arcs are those of a normalised Smith chart.'}
         </p>

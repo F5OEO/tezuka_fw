@@ -156,6 +156,16 @@ function paPanel(ctx, r, o) {
     }
     if (o.xLabel) paText(ctx, o.xLabel, r.x + r.w / 2, r.y + r.h + 29, { align: 'center', color: PA_DIM });
   }
+  // secondary scale along the top edge (for example the bin number)
+  if (o.topTicks) {
+    for (const t of o.topTicks) {
+      const x = X(t.v);
+      if (x < r.x - 1 || x > r.x + r.w + 1) continue;
+      ctx.strokeStyle = PA_FRAME; ctx.beginPath(); ctx.moveTo(Math.round(x) + 0.5, r.y); ctx.lineTo(Math.round(x) + 0.5, r.y - 4); ctx.stroke();
+      paText(ctx, t.label, x, r.y - 11, { align: 'center' });
+    }
+    if (o.topLabel) paText(ctx, o.topLabel, r.x + r.w / 2, r.y - 25, { align: 'center', color: PA_DIM });
+  }
   if (o.yLabel) {
     ctx.translate(r.x - 46, r.y + r.h / 2);
     ctx.rotate(-Math.PI / 2);
