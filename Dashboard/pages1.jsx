@@ -504,6 +504,26 @@ function spDraw(ctx, W, H, bins, refDb, range, vs = 0, ve = 1, fosfor = 'off', a
 
   // In fosfor mode redraw graticule on top so it stays crisp
   if (decay > 0) spDrawGraticule(ctx, W, H);
+  // Bins above the top of the screen are drawn flat at the top edge: mark them
+  // so a clipped peak is not mistaken for the real signal shape
+  if (ax) {
+    let over = 0, peak = -Infinity;
+    for (let i = i0; i <= i1; i++) {
+      if (bins[i] > top) {
+        over++;
+        ctx.fillStyle = 'rgba(255,70,50,0.95)';
+        ctx.fillRect(toX(i) - 1, 0, 3, 7);
+      }
+      if (bins[i] > peak) peak = bins[i];
+    }
+    if (over > 0) {
+      ctx.font = '600 12px "IBM Plex Mono", ui-monospace, monospace';
+      ctx.textAlign = 'center'; ctx.textBaseline = 'top';
+      ctx.lineWidth = 3; ctx.strokeStyle = 'rgba(10,6,0,0.85)';
+      const msg = 'OVER REF: peak ' + peak.toFixed(1) + ' dB (raise REF)';
+      ctx.strokeText(msg, W / 2, 9); ctx.fillStyle = '#ff7a66'; ctx.fillText(msg, W / 2, 9);
+    }
+  }
   // Axis scales with units on top of the graticule
   if (ax) spDrawAxes(ctx, W, H, { ...ax, refDb, range, vs, ve });
 }

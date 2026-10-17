@@ -146,6 +146,23 @@ python3 test/mock_iq_waterfall.py rc 8765         # or: tones 8766
 python3 test/reference_peak.py TXHOST RXHOST 10000000 two 40   # or: tone, uneq (second tone 12 dB lower)   # transmit and decode in python
 ```
 
+## Switching between the displays
+
+Switching Spectrum, Radio Astronomy, Signal Classifier and the complex page back and forth
+(checked on the Pluto+, 10 MS/s tone, reading `/api/spectrometer` and `/api/ad9361` after
+each switch): the complex page, Spectrum and Signal Classifier change nothing on the board.
+**Radio Astronomy does**: opening it sets the RX sample rate to 2.5 MS/s, the spectrometer to
+1 frame per second and gain mode manual, and leaving it does not restore them, so the
+Spectrum page afterwards shows a 2.5 MHz span at 1 fps (existing behaviour, unchanged).
+
+A strong signal can also look capped on the Spectrum page: bins above the REF level are drawn
+flat at the top edge. The test tone (about 65 dB on the complex page) read 206 dB on the
+Spectrum scale against the default REF of 130 dB, so its top was cut off. The Spectrum page
+now marks bins above REF with red ticks at the top edge and prints
+`OVER REF: peak <value> dB (raise REF)` (`boardserved-plutoplus-spectrum-over-ref-marker.jpg`).
+On the complex page, magnitude bins that are exactly zero are drawn at -6 dB (the plot floor is
+`20*log10(max(abs(X), 0.5))`), which shows as a flat floor in the noise.
+
 ## Limits and not tested
 
 * Chrome only; no touch, no other browsers; high-DPI scaling only in the new page.
