@@ -143,7 +143,8 @@ function ClassifierPage({ d }) {
     if (w <= 0 || h <= 0) return;
     if (canvas.width !== w || canvas.height !== h) { canvas.width = w; canvas.height = h; }
     const ctx = canvas.getContext('2d');
-    spDraw(ctx, w, h, binsRef.current, refDb, range, 0, 1, 'off');
+    spDraw(ctx, w, h, binsRef.current, refDb, range, 0, 1, 'off',
+           { centerHz, spanHz, bottomInset: bandPlan.length ? 14 : 0 });
 
     // Label chip + marker, positioned at freq_offset (a bin index into
     // the live frame, published by the daemon in the same bin space it
@@ -355,6 +356,7 @@ function ClassifierPage({ d }) {
       ctx.lineWidth = 1.6;
       ctx.stroke();
     };
+    paDrawNormAxes(ctx, w, h, { centerHz, spanHz });
     drawTrace(liveNorm, 'rgba(255,200,40,0.9)');
 
     ctx.fillStyle = '#ffcd46';

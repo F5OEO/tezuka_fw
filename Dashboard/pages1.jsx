@@ -446,7 +446,7 @@ function spDrawGraticule(ctx, W, H) {
 
 const FOSFOR_DECAY = { off: 0, light: 0.04, medium: 0.015, high: 0.005 };
 
-function spDraw(ctx, W, H, bins, refDb, range, vs = 0, ve = 1, fosfor = 'off') {
+function spDraw(ctx, W, H, bins, refDb, range, vs = 0, ve = 1, fosfor = 'off', ax = null) {
   const decay = FOSFOR_DECAY[fosfor] ?? 0;
   if (decay > 0) {
     // Fade previous frame instead of clearing — trace accumulates with decay
@@ -460,6 +460,7 @@ function spDraw(ctx, W, H, bins, refDb, range, vs = 0, ve = 1, fosfor = 'off') {
 
   if (!bins || bins.length < 2) {
     if (decay > 0) spDrawGraticule(ctx, W, H);
+    if (ax) spDrawAxes(ctx, W, H, { ...ax, refDb, range, vs, ve });
     return;
   }
 
@@ -503,6 +504,8 @@ function spDraw(ctx, W, H, bins, refDb, range, vs = 0, ve = 1, fosfor = 'off') {
 
   // In fosfor mode redraw graticule on top so it stays crisp
   if (decay > 0) spDrawGraticule(ctx, W, H);
+  // Axis scales with units on top of the graticule
+  if (ax) spDrawAxes(ctx, W, H, { ...ax, refDb, range, vs, ve });
 }
 
 function spDrawCursor(ctx, W, H, mp, bins, centerHz, spanHz, refDb, range, vs = 0, ve = 1) {
@@ -876,7 +879,8 @@ function SpectrumPage({ d }) {
         const bins = isSweepR.current ? sweepBuf.current : binsRef.current;
         const vz = viewZoomR.current, vc = viewCenterR.current;
         const vs = vc - 0.5 / vz, ve = vc + 0.5 / vz;
-        spDraw(ctx, canvas.width, canvas.height, bins, refDbRef.current, rangeRef.current, vs, ve, fosforRef.current);
+        spDraw(ctx, canvas.width, canvas.height, bins, refDbRef.current, rangeRef.current, vs, ve, fosforRef.current,
+               { centerHz: centerHzRef.current, spanHz: spanHzRef.current });
         spDrawCursor(ctx, canvas.width, canvas.height, mousePosRef.current, bins,
                      centerHzRef.current, spanHzRef.current, refDbRef.current, rangeRef.current, vs, ve);
         // Keep header MKR in sync with every new frame

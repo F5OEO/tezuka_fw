@@ -61,7 +61,8 @@ function RadioAstronomyPage({ d }) {
     if (w <= 0 || h <= 0) return;
     if (canvas.width !== w || canvas.height !== h) { canvas.width = w; canvas.height = h; }
     const ctx = canvas.getContext('2d');
-    spDraw(ctx, w, h, binsRef.current, refDbRef.current, rangeRef.current, 0, 1, 'off');
+    spDraw(ctx, w, h, binsRef.current, refDbRef.current, rangeRef.current, 0, 1, 'off',
+           { centerHz: centerHzRef.current, spanHz: bandwidthRef.current });
     spDrawCursor(ctx, w, h, mousePosRef.current, binsRef.current,
                  centerHzRef.current, bandwidthRef.current, refDbRef.current, rangeRef.current, 0, 1);
   }
