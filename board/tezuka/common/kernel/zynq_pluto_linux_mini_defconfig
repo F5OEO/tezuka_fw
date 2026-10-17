@@ -336,3 +336,11 @@ CONFIG_OF_CONFIGFS=y
 CONFIG_ETHTOOL_NETLINK=Y
 #CONFIG_AD5660_MP=y
 CONFIG_SERIAL_UARTLITE=y
+# Spectre v2 branch predictor hardening (BPIALL on context switch for the
+# Cortex-A9). Measured on a Pluto+: about 8 % fewer pipe round trips and
+# about 25 % slower null syscalls, no change in IQ streaming throughput or
+# maia-httpd load. Both are only user-settable with CONFIG_EXPERT=y: to turn
+# them off, for a device that never runs untrusted code and needs the syscall
+# speed, set CONFIG_EXPERT=y and both to "is not set".
+CONFIG_HARDEN_BRANCH_PREDICTOR=y
+CONFIG_HARDEN_BRANCH_HISTORY=y
