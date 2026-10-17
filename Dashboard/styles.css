@@ -549,6 +549,10 @@ body {
 .ftuner { display: flex; align-items: flex-end; background: var(--inset); border: 1px solid var(--border); border-radius: var(--r-sm); padding: 12px 12px 9px; font-family: "IBM Plex Mono", monospace; user-select: none; outline: none; overflow-x: auto; }
 .ftuner::-webkit-scrollbar { height: 0; }
 .ftuner:focus-within { border-color: var(--accent); }
+.rx-tuner-compact .ftuner { padding: 8px 8px 6px; }
+.rx-tuner-compact .fdig, .rx-tuner-compact .fdot { font-size: 18px; }
+.rx-tuner-compact .select-wrap { flex: 1; display: flex; }
+.rx-tuner-compact .select { height: auto; }
 .fd { position: relative; cursor: pointer; line-height: 1; }
 .fdig { font-size: 23px; font-weight: 600; color: var(--text); display: block; padding: 0 1.5px; transition: color .1s; }
 .fd.dim .fdig { color: var(--dim-2); }
