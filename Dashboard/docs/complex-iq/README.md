@@ -148,6 +148,18 @@ so 2.0 rad ahead of the peak) reads normalised Re -0.104, Im +0.227 at the curso
 peak at 1.0 and the peak phase no longer moves between frames
 (`boardserved-plutoplus-reim-unitcircle.jpg`, `boardserved-plutoplus-binscale-*.jpg`).
 
+### 6. Peak markers
+
+Every view marks the strongest bin (yellow, `1:`) and the second strongest (blue, `2:`) with a
+triangle on the trace and a label with its frequency in MHz and level in dB (Magnitude/Phase:
+also the phase in rad on the phase plot; Real/Imaginary: the real or imaginary value, normalised
+or in LSB, and the level; Bode: also the offset from the LO; Smith: also Gamma). The markers
+follow the peaks from frame to frame. Board check on the Pluto+ (unequal tones, 10 MS/s): marker 1
+at 2400.769043 MHz, 65.8 to 65.9 dB, marker 2 at 2400.791016 MHz, 53.7 to 53.8 dB, the same
+values as the readout line (`boardserved-plutoplus-markers-*.jpg`). In the Smith chart marker 2 reads
+Gamma = 0.06 + j0.25, magnitude 0.26, which is the 11.9 to 12.1 dB difference of the tones.
+Labels of the two markers can overlap when the peaks are only a few bins apart.
+
 ### Reproduce
 
 ```

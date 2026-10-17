@@ -71,6 +71,31 @@ function ciqLinX(st, r) {
   };
 }
 
+const CIQ_MK = ['#ffd24a', '#7ee0ff'];   // peak 1 and peak 2 marker colours
+
+// Marker on a trace: a triangle above the point and a label (lines of text) beside it
+function ciqMarker(ctx, r, x, y, lines, col) {
+  if (!(x >= r.x && x <= r.x + r.w)) return;
+  y = Math.max(r.y + 14, Math.min(r.y + r.h - 4, y));
+  ctx.save();
+  ctx.fillStyle = col; ctx.strokeStyle = 'rgba(11,15,20,0.9)'; ctx.lineWidth = 1.5;
+  ctx.beginPath(); ctx.moveTo(x, y - 2); ctx.lineTo(x - 5, y - 10); ctx.lineTo(x + 5, y - 10); ctx.closePath();
+  ctx.stroke(); ctx.fill();
+  const right = x > r.x + r.w - 200;
+  const y0 = Math.max(r.y + 9, y - 13);
+  lines.forEach((t, i) => paText(ctx, t, right ? x - 10 : x + 10, y0 + i * 13,
+    { color: col, align: right ? 'right' : 'left', halo: 'rgba(11,15,20,0.9)' }));
+  ctx.restore();
+}
+
+// the two strongest bins as marker descriptions: { k, tag }
+function ciqPeaks(an) {
+  const p = [{ k: an.pk, tag: '1' }];
+  if (an.pk2 >= 0) p.push({ k: an.pk2, tag: '2' });
+  return p.filter((q) => q.k >= 0);
+}
+const ciqFmtF = (st, k) => (st.centerHz != null ? (ciqFreq(st, k) / 1e6).toFixed(6) + ' MHz' : 'bin ' + k);
+
 function ciqLegend(ctx, r, items) {
   let x = r.x + 8;
   for (const [col, txt] of items) {
@@ -130,6 +155,10 @@ function ciqDrawMagPhase(ctx, w, h, st, an, thrDb) {
   const m = ciqDrawMag(ctx, r1, st, ax, an, true);
   ciqLegend(ctx, r1, [[CIQ_COL.mag, '|X| in dB']]);
   const p = ciqDrawPhase(ctx, r2, st, ax, an, thrDb);
+  ciqPeaks(an).forEach(({ k, tag }, i) => {
+    ciqMarker(ctx, r1, m.X(ax.fromBin(k)), m.Y(an.db[k]), [tag + ': ' + ciqFmtF(st, k), an.db[k].toFixed(1) + ' dB'], CIQ_MK[i]);
+    ciqMarker(ctx, r2, p.X(ax.fromBin(k)), p.Y(an.ph[k]), [tag + ': ' + an.ph[k].toFixed(3) + ' rad'], CIQ_MK[i]);
+  });
   // hue key for the phase dots
   for (let i = 0; i < 60; i++) {
     ctx.fillStyle = ciqPhaseColor(-Math.PI + (i / 59) * 2 * Math.PI);
@@ -179,6 +208,11 @@ function ciqDrawReIm(ctx, w, h, st, an, norm) {
     }
     ctx.stroke(); ctx.restore();
     ciqLegend(ctx, r, [[col, name === 'Real' ? 'Real part I' : 'Imaginary part Q']]);
+    ciqPeaks(an).forEach(({ k, tag }, i) => {
+      const v = arr[k], txt = unit === 'LSB' ? v.toFixed(0) + ' LSB' : v.toFixed(3);
+      ciqMarker(ctx, r, X(ax.fromBin(k)), Y(v),
+        [tag + ': ' + ciqFmtF(st, k), (name === 'Real' ? 'Re ' : 'Im ') + txt + ',  |X| ' + an.db[k].toFixed(1) + ' dB'], CIQ_MK[i]);
+    });
   };
   draw(r1, I, CIQ_COL.re, 'Real', false);
   draw(r2, Q, CIQ_COL.im, 'Imaginary', true);
@@ -218,6 +252,11 @@ function ciqDrawBode(ctx, w, h, st, an, thrDb, side) {
   }
   ctx.stroke(); ctx.restore();
   ciqLegend(ctx, r1, [[CIQ_COL.mag, '|X| in dB']]);
+  ciqPeaks(an).forEach(({ k, tag }, i) => {
+    const m = side * (k - CIQ_N / 2);
+    if (m >= 1 && m <= kMax) ciqMarker(ctx, r1, p1.X(Math.log10(binHz * m)), p1.Y(an.db[k]),
+      [tag + ': ' + ciqFmtF(st, k) + ' (offset ' + (st.spanHz != null ? paFmtHz(binHz * m, 1) : m + ' bins') + ')', an.db[k].toFixed(1) + ' dB'], CIQ_MK[i]);
+  });
   // unwrapped phase in degrees, per contiguous run of bins within thrDb of the peak
   const min = an.pkDb - thrDb;
   const runs = []; let cur = null; let prev = 0, acc = 0;
@@ -300,6 +339,12 @@ function ciqDrawSmith(ctx, w, h, st, an, thrDb) {
     ctx.fillStyle = col; ctx.beginPath(); ctx.arc(U(g[0]), V(g[1]), 2.2, 0, 2 * Math.PI); ctx.fill();
     n++;
   }
+  // the strongest bin is the reference, Gamma = 1; the second peak is plotted relative to it
+  ciqPeaks(an).forEach(({ k, tag }, i) => {
+    const gg = G(k);
+    ciqMarker(ctx, { x: cx - R, y: cy - R, w: 2 * R, h: 2 * R }, U(gg[0]), V(gg[1]) - 2,
+      [tag + ': ' + ciqFmtF(st, k), an.db[k].toFixed(1) + ' dB, \u0393 ' + gg[0].toFixed(2) + (gg[1] < 0 ? '-' : '+') + 'j' + Math.abs(gg[1]).toFixed(2)], CIQ_MK[i]);
+  });
   // outside scales: Re(Gamma) below, Im(Gamma) at the left
   for (const t of [-1, -0.5, 0, 0.5, 1]) {
     paText(ctx, t.toFixed(1), U(t), cy + R + 14, { align: 'center' });
