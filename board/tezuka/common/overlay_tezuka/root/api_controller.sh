@@ -475,7 +475,7 @@ dump_data () {
     local cpu_dt=$(( cpu_total - CPU_PREV_TOTAL ))
     local cpu_dw=$(( cpu_work - CPU_PREV_WORK ))
     local cpu_sample=0
-    [ "$cpu_dt" -gt 0 ] && cpu_sample=$(( cpu_dw * 100 * 2 / cpu_dt ))
+    [ "$cpu_dt" -gt 0 ] && cpu_sample=$(( cpu_dw * 100 / cpu_dt ))
     [ "$cpu_sample" -gt 100 ] && cpu_sample=100
     CPU_EMA=$(( (CPU_EMA * 7 + cpu_sample * 3) / 10 ))
     publish "main/cpu" "$CPU_EMA"
