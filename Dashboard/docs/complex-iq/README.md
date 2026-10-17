@@ -205,6 +205,31 @@ now marks bins above REF with red ticks at the top edge and prints
 On the complex page, magnitude bins that are exactly zero are drawn at -6 dB (the plot floor is
 `20*log10(max(abs(X), 0.5))`), which shows as a flat floor in the noise.
 
+## Spectrum page: peak markers and dB scale
+
+* **Peak markers.** The Spectrum page marks the two strongest bins of the visible window
+  with numbered triangles and lists them top left as `P1`/`P2` with frequency (MHz) and
+  level (dB). The second peak is at least 6 bins from the first; the 3 bins around DC/LO
+  are skipped. The header field `PEAK ON/OFF` switches them.
+* **dB fix.** `/waterfall` bins are power (a 12 dB amplitude ratio arrives as a 16x
+  ratio). The page converted them with `20*log10`, so level differences were shown twice
+  as large. It now uses `10*log10`. Default REF is 100 (was 130) so the noise floor and a
+  strong tone are on screen, and the REF unit is `dB` (uncalibrated, not dBm).
+* **Test** (Pluto sends two tones of different amplitude at 10 MS/s, Pluto+ receives,
+  page host-served, screenshot `spectrum-peak-markers-pluto-plus.jpg`):
+
+| | Python decode of /waterfall | Page | Complex I/Q stream |
+|---|---|---|---|
+| P1 | bin 2364, 2400.771484 MHz, 10*log10(2.21e9) = 93.4 dB | 2400.771861 MHz, 93.4 dB | 66.2 dB |
+| P2 | bin 2372, 2400.791016 MHz, 10*log10(1.25e8) = 81.0 dB | 2400.791402 MHz, 81.1 dB | 53.8 dB |
+| P1 - P2 | 12.4 dB | 12.3 dB (was 24.6 dB) | 12.4 dB |
+
+  The page frequency is about 0.4 kHz above the decode (the page drops the step-index
+  value `f[0]` and maps bin i to i/(n-1)); that is below one bin (2.4 kHz) and the cursor
+  and axes use the same mapping.
+
+![Spectrum with peak markers](spectrum-peak-markers-pluto-plus.jpg)
+
 ## Limits and not tested
 
 * Chrome only; no touch, no other browsers; high-DPI scaling only in the new page.
@@ -220,3 +245,6 @@ On the complex page, magnitude bins that are exactly zero are drawn at -6 dB (th
   QO-100 spectrum, charts on the overview) were not changed.
 * Opening the Radio Astronomy page already sets span, gain mode and spectrometer mode on
   the board (existing behaviour); the boards were rebooted to their defaults after the test.
+* Radio Astronomy and Signal Classifier still convert `/waterfall` with `20*log10`
+  (power read as amplitude); only the Spectrum page was corrected. The peak markers exist
+  on the Spectrum and Complex I/Q pages only.
