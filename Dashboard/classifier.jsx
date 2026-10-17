@@ -85,11 +85,11 @@ function ClassifierPage({ d }) {
   // Fixed display scale — this page isn't a general-purpose analyzer, so it
   // doesn't expose its own ref/range tuner. Must match the rest of the
   // Dashboard's default window (pages1.jsx / radioastro.jsx both default to
-  // refDb=130, range=SP_ROWS*10=80): /waterfall's bins are raw-amplitude-to-
-  // dB, not calibrated dBm, so they land around 50-130, not 0..-100. The
+  // refDb=100, range=SP_ROWS*10=80): /waterfall's bins are power converted
+  // with 10*log10, not calibrated dBm, so they land around 20-100, not 0..-100. The
   // previous 0/-100 window clipped every real bin to the top pixel row,
   // which read as an empty trace.
-  const refDb = 130, range = 80;
+  const refDb = 100, range = 80;
 
   // Band plan: fetched once from maia-httpd's static file serving (see
   // S59bandplan — /root/bandplan.json is a symlink to the persistent copy
@@ -275,13 +275,13 @@ function ClassifierPage({ d }) {
 
   // WebSocket: same /waterfall feed radioastro.jsx and the Spectrum page
   // use. f[0] is a structural step index (unused here); f[1..] are FFT
-  // bins as raw linear amplitude — converted to dB for display only,
-  // the classifier daemon itself works in linear amplitude.
+  // bins as raw linear power — converted to dB (10*log10) for display only,
+  // the classifier daemon itself works in the linear domain.
   useECl(() => {
     let destroyed = false;
     const host  = window._tezukaDevHost || window.location.hostname;
     const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const toDB  = (v) => 20 * Math.log10(v > 0 ? v : 1e-10);
+    const toDB  = (v) => 10 * Math.log10(v > 0 ? v : 1e-10);   // /waterfall bins are power
 
     function connect() {
       if (destroyed) return;

@@ -230,6 +230,13 @@ On the complex page, magnitude bins that are exactly zero are drawn at -6 dB (th
 
 ![Spectrum with peak markers](spectrum-peak-markers-pluto-plus.jpg)
 
+Radio Astronomy and Signal Classifier had the same `20*log10` and now use `10*log10` as
+well (default REF 100 on Radio Astronomy, fixed window 100/80 on the Classifier). The
+Radio Astronomy auto scale outlier filter moved with the clamp (floor -100 dB instead of
+-200 dB). With the same signal both pages read the same peak (102.4 and 102.5 dB at
+2.5 MS/s, where the Radio Astronomy page leaves the board): screenshots
+`radioastro-power-scale-pluto-plus.jpg` and `classifier-power-scale-pluto-plus.jpg`.
+
 ## Limits and not tested
 
 * Chrome only; no touch, no other browsers; high-DPI scaling only in the new page.
@@ -245,6 +252,4 @@ On the complex page, magnitude bins that are exactly zero are drawn at -6 dB (th
   QO-100 spectrum, charts on the overview) were not changed.
 * Opening the Radio Astronomy page already sets span, gain mode and spectrometer mode on
   the board (existing behaviour); the boards were rebooted to their defaults after the test.
-* Radio Astronomy and Signal Classifier still convert `/waterfall` with `20*log10`
-  (power read as amplitude); only the Spectrum page was corrected. The peak markers exist
-  on the Spectrum and Complex I/Q pages only.
+* The peak markers exist on the Spectrum and Complex I/Q pages only.

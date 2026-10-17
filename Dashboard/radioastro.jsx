@@ -26,7 +26,7 @@ function RadioAstronomyPage({ d }) {
   const integSecRef    = useRRa(ra.integSec ?? 30);
   const centerHzRef    = useRRa(ra.centerHz ?? (d.rxFreq ?? 1420405751));
   const bandwidthRef   = useRRa(ra.bandwidth ?? 2.5e6);
-  const refDbRef       = useRRa(ra.refDb ?? 130);
+  const refDbRef       = useRRa(ra.refDb ?? 100);
   const rangeRef       = useRRa(ra.range ?? SP_ROWS * 10);
 
   // Frequency switching (classical Dicke-style calibration): alternate the
@@ -125,7 +125,7 @@ function RadioAstronomyPage({ d }) {
     let destroyed = false;
     const host  = window._tezukaDevHost || window.location.hostname;
     const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const toDB  = (v) => 20 * Math.log10(v > 0 ? v : 1e-10);
+    const toDB  = (v) => 10 * Math.log10(v > 0 ? v : 1e-10);   // /waterfall bins are power
 
     function resetWindow(len) {
       ringRef.current = [];
@@ -292,12 +292,12 @@ function RadioAstronomyPage({ d }) {
     setFswOn(true);
   };
 
-  // toDB() clamps non-positive input to -200 dB. In CAL (ratio) mode a bin
+  // toDB() clamps non-positive input to -100 dB. In CAL (ratio) mode a bin
   // where either the current average or the reference individually hit that
-  // floor produces a difference around ±200 dB, not just -200 — so filter on
-  // magnitude, not just a low-side cutoff. 150 dB is well outside any real
-  // reading in either mode; only floor-clamp artifacts land past it.
-  const AUTO_OUTLIER_DB = 150;
+  // floor produces a difference past ±100 dB — so filter on magnitude, not just
+  // a low-side cutoff. Real readings stay below about +100 dB (power of a full
+  // scale tone); only floor-clamp artifacts land at or below -90 or past ±110.
+  const AUTO_OUTLIER_DB = 110;
 
   const autoScale = () => {
     const bins = binsRef.current;
@@ -305,7 +305,7 @@ function RadioAstronomyPage({ d }) {
     let lo = Infinity, hi = -Infinity;
     for (let i = 0; i < bins.length; i++) {
       const v = bins[i];
-      if (!isFinite(v) || Math.abs(v) > AUTO_OUTLIER_DB) continue;
+      if (!isFinite(v) || v <= -90 || Math.abs(v) > AUTO_OUTLIER_DB) continue;
       if (v < lo) lo = v;
       if (v > hi) hi = v;
     }
