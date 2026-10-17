@@ -258,6 +258,22 @@ re-run alone.
 
 ![Pluto serving the Spectrum page with peak markers](firmware-image-pluto-spectrum-markers.jpg)
 
+### Peak markers on Radio Astronomy and Signal Classifier
+
+The same two markers (`P1`/`P2`, frequency in MHz and level in dB, shared code
+`spFindPeaks`/`spDrawPeaks` of the Spectrum page) are drawn on the Radio Astronomy page (header
+field `PEAK ON/OFF`) and on the Signal Classifier plot (always on). Host-served page, Pluto
+sends the unequal tones, Pluto+ receives:
+
+* Classifier: P1 2400.771251 MHz 103.1 dB, P2 2400.792013 MHz 90.7 dB (the second tone,
+  12.4 dB lower, as sent). Screenshot `classifier-peak-markers-pluto-plus.jpg`.
+* Radio Astronomy: P1 2400.771251 MHz 102.7 dB; P2 was a spur at 2400.192965 MHz (92.6 dB).
+  That page shows a 30 s moving mean and the window still contained frames from before the
+  page changed the board to 2.5 MS/s, so the spur is a leftover of that. The marker follows
+  the second highest bin of what is displayed. Screenshot `radioastro-peak-markers-pluto-plus.jpg`.
+* In CAL or FSW mode the page shows a ratio in dB and the markers then mark the strongest
+  ratio bins. This was not tested.
+
 ## Limits and not tested
 
 * Chrome only; no touch, no other browsers; high-DPI scaling only in the new page.
@@ -273,4 +289,5 @@ re-run alone.
   QO-100 spectrum, charts on the overview) were not changed.
 * Opening the Radio Astronomy page already sets span, gain mode and spectrometer mode on
   the board (existing behaviour); the boards were rebooted to their defaults after the test.
-* The peak markers exist on the Spectrum and Complex I/Q pages only.
+* Peak markers: all four spectrum pages (Spectrum, Radio Astronomy, Classifier, Complex I/Q).
+  The DC/LO bins are skipped, a signal exactly at the LO is not marked.

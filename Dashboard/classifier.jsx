@@ -145,6 +145,7 @@ function ClassifierPage({ d }) {
     const ctx = canvas.getContext('2d');
     spDraw(ctx, w, h, binsRef.current, refDb, range, 0, 1, 'off',
            { centerHz, spanHz, bottomInset: bandPlan.length ? 14 : 0 });
+    spDrawPeaks(ctx, w, h, binsRef.current, centerHz, spanHz, refDb, range, 0, 1);
 
     // Label chip + marker, positioned at freq_offset (a bin index into
     // the live frame, published by the daemon in the same bin space it

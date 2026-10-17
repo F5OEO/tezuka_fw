@@ -28,6 +28,7 @@ function RadioAstronomyPage({ d }) {
   const bandwidthRef   = useRRa(ra.bandwidth ?? 2.5e6);
   const refDbRef       = useRRa(ra.refDb ?? 100);
   const rangeRef       = useRRa(ra.range ?? SP_ROWS * 10);
+  const peaksRef       = useRRa(ra.peaks ?? true);
 
   // Frequency switching (classical Dicke-style calibration): alternate the
   // LO between CENTER (SIG) and CENTER+OFS (REF) every INTEG seconds,
@@ -45,6 +46,7 @@ function RadioAstronomyPage({ d }) {
   const [centerHz,  setCenterHz]  = useSRa(centerHzRef.current);
   const [refDb,     setRefDb]     = useSRa(refDbRef.current);
   const [range,     setRange]     = useSRa(rangeRef.current);
+  const [peaksOn,   setPeaksOn]   = useSRa(peaksRef.current);
   const [wsState,   setWsState]   = useSRa('disconnected');
   const [frames,    setFrames]    = useSRa(0);   // frames currently in the sliding window (caps at integSec)
   const [mkr,       setMkr]       = useSRa(null);
@@ -63,6 +65,8 @@ function RadioAstronomyPage({ d }) {
     const ctx = canvas.getContext('2d');
     spDraw(ctx, w, h, binsRef.current, refDbRef.current, rangeRef.current, 0, 1, 'off',
            { centerHz: centerHzRef.current, spanHz: bandwidthRef.current });
+    if (peaksRef.current) spDrawPeaks(ctx, w, h, binsRef.current,
+                 centerHzRef.current, bandwidthRef.current, refDbRef.current, rangeRef.current, 0, 1);
     spDrawCursor(ctx, w, h, mousePosRef.current, binsRef.current,
                  centerHzRef.current, bandwidthRef.current, refDbRef.current, rangeRef.current, 0, 1);
   }
@@ -73,6 +77,7 @@ function RadioAstronomyPage({ d }) {
   useERa(() => { centerHzRef.current  = centerHz;  ra.centerHz  = centerHz;  redraw(); }, [centerHz]);
   useERa(() => { refDbRef.current     = refDb;     ra.refDb     = refDb;     redraw(); }, [refDb]);
   useERa(() => { rangeRef.current     = range;     ra.range     = range;     redraw(); }, [range]);
+  useERa(() => { peaksRef.current     = peaksOn;   ra.peaks     = peaksOn;   redraw(); }, [peaksOn]);
   useERa(() => { ra.gain = gain; }, [gain]);
   useERa(() => { holdRef.current = hold; }, [hold]);
   useERa(() => { calOnRef.current = calOn; }, [calOn]);
@@ -358,6 +363,10 @@ function RadioAstronomyPage({ d }) {
             <span className="hp-fld" style={{ cursor: 'pointer', userSelect: 'none' }} onClick={() => setHold((h) => !h)}>
               <span className="hp-pfx">HOLD</span>
               <span style={{ color: '#fff3d6' }}>{hold ? 'ON' : 'OFF'}</span>
+            </span>
+            <span className="hp-fld" style={{ cursor: 'pointer', userSelect: 'none' }} onClick={() => setPeaksOn((v) => !v)}>
+              <span className="hp-pfx">PEAK</span>
+              <span style={{ color: '#fff3d6' }}>{peaksOn ? 'ON' : 'OFF'}</span>
             </span>
           </div>
           <div className="hp-row">
