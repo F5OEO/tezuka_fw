@@ -446,7 +446,7 @@ function spDrawGraticule(ctx, W, H) {
 
 const FOSFOR_DECAY = { off: 0, light: 0.04, medium: 0.015, high: 0.005 };
 
-function spDraw(ctx, W, H, bins, refDb, range, vs = 0, ve = 1, fosfor = 'off') {
+function spDraw(ctx, W, H, bins, refDb, range, vs = 0, ve = 1, fosfor = 'off', ax = null) {
   const decay = FOSFOR_DECAY[fosfor] ?? 0;
   if (decay > 0) {
     // Fade previous frame instead of clearing — trace accumulates with decay
@@ -460,6 +460,7 @@ function spDraw(ctx, W, H, bins, refDb, range, vs = 0, ve = 1, fosfor = 'off') {
 
   if (!bins || bins.length < 2) {
     if (decay > 0) spDrawGraticule(ctx, W, H);
+    if (ax) spDrawAxes(ctx, W, H, { ...ax, refDb, range, vs, ve });
     return;
   }
 
@@ -503,6 +504,28 @@ function spDraw(ctx, W, H, bins, refDb, range, vs = 0, ve = 1, fosfor = 'off') {
 
   // In fosfor mode redraw graticule on top so it stays crisp
   if (decay > 0) spDrawGraticule(ctx, W, H);
+  // Bins above the top of the screen are drawn flat at the top edge: mark them
+  // so a clipped peak is not mistaken for the real signal shape
+  if (ax) {
+    let over = 0, peak = -Infinity;
+    for (let i = i0; i <= i1; i++) {
+      if (bins[i] > top) {
+        over++;
+        ctx.fillStyle = 'rgba(255,70,50,0.95)';
+        ctx.fillRect(toX(i) - 1, 0, 3, 7);
+      }
+      if (bins[i] > peak) peak = bins[i];
+    }
+    if (over > 0) {
+      ctx.font = '600 12px "IBM Plex Mono", ui-monospace, monospace';
+      ctx.textAlign = 'center'; ctx.textBaseline = 'top';
+      ctx.lineWidth = 3; ctx.strokeStyle = 'rgba(10,6,0,0.85)';
+      const msg = 'OVER REF: peak ' + peak.toFixed(1) + ' dB (raise REF)';
+      ctx.strokeText(msg, W / 2, 9); ctx.fillStyle = '#ff7a66'; ctx.fillText(msg, W / 2, 9);
+    }
+  }
+  // Axis scales with units on top of the graticule
+  if (ax) spDrawAxes(ctx, W, H, { ...ax, refDb, range, vs, ve });
 }
 
 function spDrawCursor(ctx, W, H, mp, bins, centerHz, spanHz, refDb, range, vs = 0, ve = 1) {
@@ -552,6 +575,49 @@ function spDrawCursor(ctx, W, H, mp, bins, centerHz, spanHz, refDb, range, vs = 
   ctx.restore();
 }
 
+// Peak markers: the two strongest bins of the visible window (the second at
+// least 6 bins from the first). The 3 bins around DC/LO are skipped, the
+// LO leakage spike there is not a signal. Each marker shows frequency and level.
+function spFindPeaks(bins, vs, ve) {
+  const n = bins.length;
+  const lo = Math.max(0, Math.ceil(vs * (n - 1))), hi = Math.min(n - 1, Math.floor(ve * (n - 1)));
+  const dc = n >> 1;
+  const pk = [];
+  for (let t = 0; t < 2; t++) {
+    let best = -1;
+    for (let k = lo; k <= hi; k++) {
+      if (Math.abs(k - dc) <= 1) continue;
+      if (t === 1 && Math.abs(k - pk[0]) < 6) continue;
+      if (best < 0 || bins[k] > bins[best]) best = k;
+    }
+    if (best < 0 || !isFinite(bins[best])) break;
+    pk.push(best);
+  }
+  return pk;
+}
+
+function spDrawPeaks(ctx, W, H, bins, centerHz, spanHz, refDb, range, vs = 0, ve = 1) {
+  if (!bins || bins.length < 8 || centerHz == null || spanHz == null) return;
+  const n = bins.length, top = refDb, bot = refDb - range;
+  const pk = spFindPeaks(bins, vs, ve);
+  ctx.save();
+  pk.forEach((k, i) => {
+    const frac = k / (n - 1);
+    const x = ((frac - vs) / (ve - vs)) * W;
+    const db = bins[k];
+    const y = Math.max(30, Math.min(H - 4, H - ((db - bot) / (top - bot)) * H));
+    const f = centerHz + (frac - 0.5) * spanHz;
+    const col = i === 0 ? '#ffe7a8' : '#9fe8ff';
+    ctx.fillStyle = col; ctx.strokeStyle = 'rgba(10,6,0,0.9)'; ctx.lineWidth = 1.5;
+    ctx.beginPath(); ctx.moveTo(x, y - 2); ctx.lineTo(x - 5, y - 10); ctx.lineTo(x + 5, y - 10); ctx.closePath();
+    ctx.stroke(); ctx.fill();
+    paText(ctx, String(i + 1), x, y - 17, { color: col, align: 'center', halo: 'rgba(10,6,0,0.9)' });
+    paText(ctx, 'P' + (i + 1) + ' ' + (f / 1e6).toFixed(6) + ' MHz  ' + db.toFixed(1) + ' dB', 44, 22 + i * 14,
+           { color: col, halo: 'rgba(10,6,0,0.9)' });
+  });
+  ctx.restore();
+}
+
 // Spectrum UI state — persists across route navigation within the session
 if (!window._sp) window._sp = {};
 
@@ -572,7 +638,7 @@ function SpectrumPage({ d }) {
   const sweepLenR  = useSpR(0);
   const sweepMaskR = useSpR(0);     // bitmask of steps received since last buffer init
   const dirtyRef    = useSpR(true);
-  const refDbRef    = useSpR(sp.refDb  ?? 130);
+  const refDbRef    = useSpR(sp.refDb  ?? 100);
   const rangeRef    = useSpR(sp.range  ?? SP_ROWS * 10);
   const isSweepR    = useSpR(false);
   const mousePosRef = useSpR(null);   // {px} normalised 0-1 when cursor is over canvas
@@ -618,8 +684,9 @@ function SpectrumPage({ d }) {
   const viewCenterR    = useSpR(0.5);  // center of view window as bin fraction 0-1
   const dispZoomRef    = useSpR(1);    // last rendered zoom, guards against redundant setDispZoom
   const fosforRef      = useSpR('off');
+  const peaksRef       = useSpR(sp.peaks ?? true);
 
-  const [refDb,    setRefDb]    = useSpS(() => sp.refDb    ?? 130);
+  const [refDb,    setRefDb]    = useSpS(() => sp.refDb    ?? 100);
   const [range,    setRange]    = useSpS(() => sp.range    ?? SP_ROWS * 10);
   const [centerHz, setCenterHz] = useSpS(() => sp.centerHz ?? (d.rxFreq    ?? 437e6));
   const [spanHz,   setSpanHz]   = useSpS(() => sp.spanHz   ?? (d.span ?? d.rxSampling ?? null));
@@ -631,6 +698,7 @@ function SpectrumPage({ d }) {
   const [mkr,      setMkr]      = useSpS(null);   // {freq, db} when cursor is over canvas
   const [clipBlink,   setClipBlink]   = useSpS(false);
   const [dispZoom,    setDispZoom]    = useSpS(1);
+  const [peaksOn,     setPeaksOn]     = useSpS(sp.peaks ?? true);
   const [fosfor,      setFosfor]      = useSpS('off'); // 'off'|'light'|'medium'|'high'
   // Two distinct mechanisms, because requestFullscreen() requires transient
   // user activation — a trusted synchronous gesture (click, keydown,
@@ -658,6 +726,7 @@ function SpectrumPage({ d }) {
   const toggleCssMaximize = () => setCssMaximized(v => !v);
 
   dRef.current = d;
+  if (peaksRef.current !== peaksOn) { peaksRef.current = peaksOn; sp.peaks = peaksOn; dirtyRef.current = true; }
   if (fosforRef.current !== fosfor) { fosforRef.current = fosfor; dirtyRef.current = true; }
 
   // Shared RX-frequency step logic — used by both JOG_DA (relative encoder)
@@ -876,7 +945,10 @@ function SpectrumPage({ d }) {
         const bins = isSweepR.current ? sweepBuf.current : binsRef.current;
         const vz = viewZoomR.current, vc = viewCenterR.current;
         const vs = vc - 0.5 / vz, ve = vc + 0.5 / vz;
-        spDraw(ctx, canvas.width, canvas.height, bins, refDbRef.current, rangeRef.current, vs, ve, fosforRef.current);
+        spDraw(ctx, canvas.width, canvas.height, bins, refDbRef.current, rangeRef.current, vs, ve, fosforRef.current,
+               { centerHz: centerHzRef.current, spanHz: spanHzRef.current });
+        if (peaksRef.current) spDrawPeaks(ctx, canvas.width, canvas.height, bins,
+                     centerHzRef.current, spanHzRef.current, refDbRef.current, rangeRef.current, vs, ve);
         spDrawCursor(ctx, canvas.width, canvas.height, mousePosRef.current, bins,
                      centerHzRef.current, spanHzRef.current, refDbRef.current, rangeRef.current, vs, ve);
         // Keep header MKR in sync with every new frame
@@ -908,8 +980,8 @@ function SpectrumPage({ d }) {
     const host  = window._tezukaDevHost || window.location.hostname;
     const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
 
-    // Convert raw float amplitude to dBFS
-    const toDB = (v) => 20 * Math.log10(v > 0 ? v : 1e-10);
+    // /waterfall bins are power (a 12 dB amplitude ratio arrives as 16x), so 10*log10
+    const toDB = (v) => 10 * Math.log10(v > 0 ? v : 1e-10);
 
     function connect() {
       if (destroyed) return;
@@ -1249,7 +1321,7 @@ function SpectrumPage({ d }) {
           <div className="hp-row">
             <span className="hp-fld">
               <span className="hp-pfx">REF</span>
-              <DbTuner value={Math.round(refDb)} digits={3} unit="dBm" onChange={setRefDb} />
+              <DbTuner value={Math.round(refDb)} digits={3} unit="dB" onChange={setRefDb} />
             </span>
             <span style={{ display: 'inline-flex', alignItems: 'baseline', gap: '1ch' }}>
               <CrtField pfx="MKR" val={fmtMHz(mkr ? mkr.freq : centerHz)} sfx="MHz" readOnly />
@@ -1259,6 +1331,11 @@ function SpectrumPage({ d }) {
               onClick={toggleOsFullscreen}>
               <span className="hp-pfx">FULL</span>
               <span style={{ color: '#fff3d6' }}>{isFullscreen ? 'ON' : 'OFF'}</span>
+            </span>
+            <span className="hp-fld" style={{ cursor: 'pointer', userSelect: 'none' }}
+              onClick={() => setPeaksOn(v => !v)}>
+              <span className="hp-pfx">PEAK</span>
+              <span style={{ color: '#fff3d6' }}>{peaksOn ? 'ON' : 'OFF'}</span>
             </span>
             <span className="hp-fld" style={{ cursor: 'pointer', userSelect: 'none' }}
               onClick={() => pubInput(rxInput === 'rx1' ? 'rx2' : 'rx1')}>

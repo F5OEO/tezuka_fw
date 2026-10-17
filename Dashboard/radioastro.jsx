@@ -26,8 +26,9 @@ function RadioAstronomyPage({ d }) {
   const integSecRef    = useRRa(ra.integSec ?? 30);
   const centerHzRef    = useRRa(ra.centerHz ?? (d.rxFreq ?? 1420405751));
   const bandwidthRef   = useRRa(ra.bandwidth ?? 2.5e6);
-  const refDbRef       = useRRa(ra.refDb ?? 130);
+  const refDbRef       = useRRa(ra.refDb ?? 100);
   const rangeRef       = useRRa(ra.range ?? SP_ROWS * 10);
+  const peaksRef       = useRRa(ra.peaks ?? true);
 
   // Frequency switching (classical Dicke-style calibration): alternate the
   // LO between CENTER (SIG) and CENTER+OFS (REF) every INTEG seconds,
@@ -38,6 +39,7 @@ function RadioAstronomyPage({ d }) {
   const fswSigRef      = useRRa(null);        // Float64Array raw linear, last completed SIG dwell
   const fswRefRef      = useRRa(null);        // Float64Array raw linear, last completed REF dwell
   const fswPhaseStartRef = useRRa(0);         // performance.now() of the current dwell's start
+  const fswSkipRef       = useRRa(0);         // frames still to drop after a retune (they show the old LO)
 
   const [bandwidth, setBandwidth] = useSRa(bandwidthRef.current);
   const [integSec,  setIntegSec]  = useSRa(integSecRef.current);
@@ -45,6 +47,7 @@ function RadioAstronomyPage({ d }) {
   const [centerHz,  setCenterHz]  = useSRa(centerHzRef.current);
   const [refDb,     setRefDb]     = useSRa(refDbRef.current);
   const [range,     setRange]     = useSRa(rangeRef.current);
+  const [peaksOn,   setPeaksOn]   = useSRa(peaksRef.current);
   const [wsState,   setWsState]   = useSRa('disconnected');
   const [frames,    setFrames]    = useSRa(0);   // frames currently in the sliding window (caps at integSec)
   const [mkr,       setMkr]       = useSRa(null);
@@ -61,7 +64,10 @@ function RadioAstronomyPage({ d }) {
     if (w <= 0 || h <= 0) return;
     if (canvas.width !== w || canvas.height !== h) { canvas.width = w; canvas.height = h; }
     const ctx = canvas.getContext('2d');
-    spDraw(ctx, w, h, binsRef.current, refDbRef.current, rangeRef.current, 0, 1, 'off');
+    spDraw(ctx, w, h, binsRef.current, refDbRef.current, rangeRef.current, 0, 1, 'off',
+           { centerHz: centerHzRef.current, spanHz: bandwidthRef.current });
+    if (peaksRef.current) spDrawPeaks(ctx, w, h, binsRef.current,
+                 centerHzRef.current, bandwidthRef.current, refDbRef.current, rangeRef.current, 0, 1);
     spDrawCursor(ctx, w, h, mousePosRef.current, binsRef.current,
                  centerHzRef.current, bandwidthRef.current, refDbRef.current, rangeRef.current, 0, 1);
   }
@@ -72,6 +78,7 @@ function RadioAstronomyPage({ d }) {
   useERa(() => { centerHzRef.current  = centerHz;  ra.centerHz  = centerHz;  redraw(); }, [centerHz]);
   useERa(() => { refDbRef.current     = refDb;     ra.refDb     = refDb;     redraw(); }, [refDb]);
   useERa(() => { rangeRef.current     = range;     ra.range     = range;     redraw(); }, [range]);
+  useERa(() => { peaksRef.current     = peaksOn;   ra.peaks     = peaksOn;   redraw(); }, [peaksOn]);
   useERa(() => { ra.gain = gain; }, [gain]);
   useERa(() => { holdRef.current = hold; }, [hold]);
   useERa(() => { calOnRef.current = calOn; }, [calOn]);
@@ -124,7 +131,7 @@ function RadioAstronomyPage({ d }) {
     let destroyed = false;
     const host  = window._tezukaDevHost || window.location.hostname;
     const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const toDB  = (v) => 20 * Math.log10(v > 0 ? v : 1e-10);
+    const toDB  = (v) => 10 * Math.log10(v > 0 ? v : 1e-10);   // /waterfall bins are power
 
     function resetWindow(len) {
       ringRef.current = [];
@@ -153,8 +160,11 @@ function RadioAstronomyPage({ d }) {
 
         // FSW: if the current dwell has run its course, snapshot it (raw
         // linear average of whatever accumulated), flip SIG<->REF, retune
-        // the hardware, and start the new dwell's window fresh — all before
-        // this frame is folded in, so it belongs to the new phase.
+        // the hardware, and start the new dwell's window fresh. The frame
+        // that triggers the flip was taken before the retune and the next one
+        // is still integrating while the LO moves, so both are dropped (see
+        // fswSkipRef below): a stale fraction p of a strong line would limit
+        // the SIG - REF ratio to about 10*log10(1/p).
         if (fswOnRef.current && ringRef.current.length > 0) {
           const now = performance.now();
           const periodMs = Math.max(1, integSecRef.current) * 1000;
@@ -171,8 +181,10 @@ function RadioAstronomyPage({ d }) {
               : centerHzRef.current + fswOffsetRef.current * 1000;
             d.publish('rx/frequency', Math.round(targetHz));
             resetWindow(len);
+            fswSkipRef.current = 2;   // this frame and the next one
           }
         }
+        if (fswOnRef.current && fswSkipRef.current > 0) { fswSkipRef.current--; return; }
 
         const sum = sumRef.current;
         const frame = new Float32Array(len);
@@ -278,6 +290,7 @@ function RadioAstronomyPage({ d }) {
     fswPhaseRef.current = 'sig';
     setFswPhase('sig');
     sumRef.current = null; // fresh plain window next frame
+    fswSkipRef.current = 0;
     d.publish('rx/frequency', Math.round(centerHzRef.current)); // park back on SIG
   };
   const toggleFsw = () => {
@@ -288,15 +301,16 @@ function RadioAstronomyPage({ d }) {
     setFswPhase('sig');
     fswPhaseStartRef.current = performance.now();
     sumRef.current = null;
+    fswSkipRef.current = 0;
     setFswOn(true);
   };
 
-  // toDB() clamps non-positive input to -200 dB. In CAL (ratio) mode a bin
+  // toDB() clamps non-positive input to -100 dB. In CAL (ratio) mode a bin
   // where either the current average or the reference individually hit that
-  // floor produces a difference around ±200 dB, not just -200 — so filter on
-  // magnitude, not just a low-side cutoff. 150 dB is well outside any real
-  // reading in either mode; only floor-clamp artifacts land past it.
-  const AUTO_OUTLIER_DB = 150;
+  // floor produces a difference past ±100 dB — so filter on magnitude, not just
+  // a low-side cutoff. Real readings stay below about +100 dB (power of a full
+  // scale tone); only floor-clamp artifacts land at or below -90 or past ±110.
+  const AUTO_OUTLIER_DB = 110;
 
   const autoScale = () => {
     const bins = binsRef.current;
@@ -304,7 +318,7 @@ function RadioAstronomyPage({ d }) {
     let lo = Infinity, hi = -Infinity;
     for (let i = 0; i < bins.length; i++) {
       const v = bins[i];
-      if (!isFinite(v) || Math.abs(v) > AUTO_OUTLIER_DB) continue;
+      if (!isFinite(v) || v <= -90 || Math.abs(v) > AUTO_OUTLIER_DB) continue;
       if (v < lo) lo = v;
       if (v > hi) hi = v;
     }
@@ -357,6 +371,10 @@ function RadioAstronomyPage({ d }) {
             <span className="hp-fld" style={{ cursor: 'pointer', userSelect: 'none' }} onClick={() => setHold((h) => !h)}>
               <span className="hp-pfx">HOLD</span>
               <span style={{ color: '#fff3d6' }}>{hold ? 'ON' : 'OFF'}</span>
+            </span>
+            <span className="hp-fld" style={{ cursor: 'pointer', userSelect: 'none' }} onClick={() => setPeaksOn((v) => !v)}>
+              <span className="hp-pfx">PEAK</span>
+              <span style={{ color: '#fff3d6' }}>{peaksOn ? 'ON' : 'OFF'}</span>
             </span>
           </div>
           <div className="hp-row">
