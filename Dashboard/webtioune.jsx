@@ -586,6 +586,13 @@ function Webtioune({ d }) {
               <div className="kv"><span>Type</span><b className="mono" style={{ fontSize: 12.5 }}>{rxRunning && lm.short_frame != null && lm.modulation ? (lm.short_frame === '1' ? 'Short' : 'Long') : '—'}</b></div>
               <div className="kv" style={{ gridColumn: 'span 2' }}><span>Pilots</span><b className="mono" style={{ fontSize: 12.5 }}>{rxRunning && lm.pilots != null && lm.modulation ? (lm.pilots === '1' ? 'On' : 'Off') : '—'}</b></div>
             </div>
+            {d.cpu != null && !isNaN(d.cpu) && (
+              <div style={{ marginTop: 10 }}>
+                <HBarGauge value={d.cpu} max={100} label="CPU"
+                  color={d.cpu >= 90 ? 'var(--bad)' : d.cpu >= 75 ? 'var(--warn)' : 'var(--ok)'}
+                  fmt={(v) => Math.round(v) + ' %'} />
+              </div>
+            )}
             {!rxKnown && (
               <div className="info-note" style={{ marginTop: 10 }}>
                 <Icon name="bolt" size={16} />
