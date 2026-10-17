@@ -361,7 +361,36 @@ fixed bundle, INTEG 30 s, OFS 500 kHz, after both dwells): SIG - REF shows P1 24
 2400.792013 MHz +61.6 dB (11.9 dB apart, 12.4 dB sent), and the mirror lines as negative spikes (about -72 dB
 at 2400.27 MHz), against about +7 dB (INTEG 5 s) and an expected ceiling of about 15 dB (INTEG 30 s) before.
 Screenshot `radioastro-fsw-strong-line-skip-frames.jpg`. Not tested: INTEG 1 s and 5 s with the fix (my
-clicks on the INTEG digits did not register on that run), and the fix is not in the newdash4 images.
+clicks on the INTEG digits did not register on that run), and the fix is in the newdash5 images (section below).
+
+### Firmware image newdash5 (FSW drops the stale frames)
+
+Pluto flashed from the .frm (frm md5 7f59e9cc19aaf6bcc3f4c1c67206c740), Pluto+ from the SD image; both
+serve a page identical to a fresh bundle of the merged source (index.html md5 e947c2bd...). Suite as before
+(five sample rates, both boards): 30 steps, 70 checks ok, 0 FAIL, every restore matched. Frame rotation measured
+minus predicted -0.0008..+0.0022 rad, scatter at most 0.0020 rad, no frame off by more than 0.3 rad; OFDM
+log correlation 0.988..0.999; phase derived frequency minus time domain -11.6..+3.7 Hz.
+
+One outlier in the printed (not scored) model numbers: Pluto phase check at 2.5 MS/s, tone 205 kHz, model phase
+error 178.92 deg, amplitude error 88.45 dB, I/Q against raw phase difference 178.9 deg (all earlier runs of that
+item: at most 0.51 deg, 0.22 dB, 14 deg). The tone sat 0.51 of a bin from a bin centre (253606.3 Hz / 610.35 Hz).
+Four re-runs of that check (12 tones) gave model errors of at most 1.8 deg and 0.37 dB; the only other tone at
+a fractional bin position of 0.52 gave an I/Q against raw difference of 64.7 deg, all others at most 20.6 deg. My
+reading, not proven: at a half-bin position two bins are about equally strong, the peak bin chosen by the model
+fit can differ from the one used for the measurement, and the ratios to the neighbouring bins then differ by
+the sign flips of the window sidelobes. It is a weakness of this analysis at that frequency, not of the firmware
+(the pass criteria, frequency, scatter and peak bin, were met). Same cause family as the single-bin criterion
+that was relaxed in rf_iq_check.py.
+
+Board-served Pluto+ page, FSW with the fix, INTEG 30 s, OFS 500 kHz:
+
+* Strong two tones (Pluto TX gain 0): SIG - REF P1 2400.771251 MHz +74.2 dB, P2 2400.791402 MHz +62.3 dB
+  (11.9 dB apart), mirror lines about -72 dB at 2400.27 MHz (before the fix about +7 dB at INTEG 5 s).
+  Screenshot `firmware-image-plutoplus-radioastro-fsw-strong-fixed.jpg`.
+* Weak line (TX gain -64 dB, about 10 dB above the noise): P1 2400.771861 MHz +17.6 dB (+16.2 dB before the
+  fix), flat baseline. Screenshot `firmware-image-plutoplus-radioastro-fsw-weak-fixed.jpg`.
+* Not tested: the Pluto-served page in FSW mode (same bundle), INTEG 1 s and 5 s (the INTEG digit clicks
+  did not register in the fresh browser tab on two attempts).
 
 ## Limits and not tested
 
