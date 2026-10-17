@@ -267,12 +267,36 @@ sends the unequal tones, Pluto+ receives:
 
 * Classifier: P1 2400.771251 MHz 103.1 dB, P2 2400.792013 MHz 90.7 dB (the second tone,
   12.4 dB lower, as sent). Screenshot `classifier-peak-markers-pluto-plus.jpg`.
-* Radio Astronomy: P1 2400.771251 MHz 102.7 dB; P2 was a spur at 2400.192965 MHz (92.6 dB).
-  That page shows a 30 s moving mean and the window still contained frames from before the
-  page changed the board to 2.5 MS/s, so the spur is a leftover of that. The marker follows
-  the second highest bin of what is displayed. Screenshot `radioastro-peak-markers-pluto-plus.jpg`.
+* Radio Astronomy: P1 2400.771251 MHz 102.7 dB; P2 was a spur at 2400.192965 MHz (92.6 dB),
+  not the second tone. The spur came back at the same frequency in later runs (92.0 dB) when
+  the Pluto transmitted and the Pluto+ received, and was absent when the Pluto received. It is
+  probably a spur of the transmitting Pluto seen through the 2.5 MS/s view; this was not
+  verified. The marker reports the second highest bin of what the page displays.
+  Screenshot `radioastro-peak-markers-pluto-plus.jpg`.
 * In CAL or FSW mode the page shows a ratio in dB and the markers then mark the strongest
   ratio bins. This was not tested.
+
+### Firmware image newdash4 (peak markers on all four spectrum pages)
+
+Pluto flashed from the .frm, Pluto+ from the SD image; both serve the page from the image
+(index.html md5 equals the build output, bitstreams equal their packages). Suite (same as
+newdash3, five sample rates on both boards): 30 steps, 70 checks ok, 0 FAIL, every restore
+matched. Frame rotation measured minus predicted -0.0010..+0.0022 rad, scatter at most
+0.0019 rad, no frame off by more than 0.3 rad; OFDM log correlation 0.987..0.999; phase
+derived frequency minus time domain -12.1..+3.2 Hz; model error at most 2.04 deg and 0.48 dB.
+
+Board-served pages with the unequal two tones (10 MS/s, the other board transmits):
+
+| Page, served by | P1 | P2 |
+|---|---|---|
+| Classifier, Pluto | 2400.869565 MHz 93.6 dB | 2400.891549 MHz 81.1 dB |
+| Radio Astronomy, Pluto | 2400.870176 MHz 102.3 dB | 2400.890327 MHz 90.2 dB |
+| Classifier, Pluto+ | 2400.771861 MHz 92.7 dB | 2400.791402 MHz 81.2 dB |
+| Radio Astronomy, Pluto+ | 2400.770640 MHz 102.2 dB | 2400.192965 MHz 92.0 dB (the spur above) |
+
+Screenshots: `firmware-image-pluto-classifier-markers.png`,
+`firmware-image-pluto-radioastro-markers.jpg`, `firmware-image-plutoplus-classifier-markers.png`,
+`firmware-image-plutoplus-radioastro-markers.jpg`.
 
 ## Limits and not tested
 
