@@ -160,6 +160,25 @@ values as the readout line (`boardserved-plutoplus-markers-*.jpg`). In the Smith
 Gamma = 0.06 + j0.25, magnitude 0.26, which is the 11.9 to 12.1 dB difference of the tones.
 Labels of the two markers can overlap when the peaks are only a few bins apart.
 
+### 7. Firmware images with this dashboard, both boards
+
+Images built from the test branch `test/allfixes-pr12-layout-main` (tezuka_fw v0.3.23 plus the
+open fixes, maia-sdr PR 12 and this dashboard branch at 7eeaefb); the dashboard file inside each image
+is byte-identical to the page tested above. Pluto+ from the SD image, Pluto from the `.frm`,
+both boot, `maia-httpd` and the four maia-sdr devices come up, no kernel oops, BIST ok on both.
+Suite on both boards (the other board transmits over the 40 dB cable), 2.5, 10, 20, 30.72 and
+61.44 MS/s: `rf_iq_check.py` (automatic carrier offset), `rf_phase_check.py`,
+`rf_iq_frame_phase_check.py`: 70 results ok, none failed, every settings restore matched.
+I/Q frame rotation measured minus predicted: Pluto -0.0009 to +0.0001 rad, Pluto+ 0.0000 to +0.0022 rad,
+scatter at most 0.0022 rad, no frame off by more than 0.3 rad. OFDM log correlation 0.988 to 0.999 on both.
+Phase-derived minus time-domain frequency: Pluto -8.0 to +4.2 Hz, Pluto+ -12.6 to +0.9 Hz.
+Model error at most 2.1 degrees and 0.37 dB (Pluto), 1.8 degrees and 0.40 dB (Pluto+).
+The dashboard served from the flashed Pluto (not from RAM) shows both peak markers with
+frequency and level for unequal tones (`firmware-image-pluto-markers-magphase.jpg`).
+Not tested with these images: the other views from the flashed boards (they were tested from RAM
+with the same file), other boards. A first run of the suite was started too early while the Pluto was
+still flashing and was stopped before any check ran.
+
 ### Reproduce
 
 ```
