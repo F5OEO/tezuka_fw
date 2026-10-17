@@ -144,6 +144,28 @@ struct S2Rx::Impl {
     const std::vector<uint8_t>* rn = nullptr;
     std::vector<cf32> frameSyms;
     cf32 hdr[90];
+    // timing aid (see S2Rx::setTimingAid): sums of the receiver thread, moved to tedShared at the end of each frame
+    std::atomic<bool> tedOn{false};
+    double tedSum = 0; uint64_t tedN = 0;
+    cf32 tedPx{0.f, 0.f}, tedPa{0.f, 0.f};   // the previous data symbol and its decision
+    int tedPr = 0;                           // the scrambling rotation (0..3) of that symbol
+    bool tedHave = false;
+    std::mutex tedMu;
+    double tedShSum = 0; uint64_t tedShN = 0;
+    // Real part of z turned by j^n. The pulse's intersymbol interference acts on the symbols as transmitted, scrambled: the pair terms of the detector
+    // are formed with the scrambling put back, e = Re{ j^d x1 conj(a0) - j^-d x0 conj(a1) } with d the difference of the two rotations
+    static DVBS_INLINE float rotRe(const cf32& z, int n) {
+        switch (n & 3) { case 0: return z.real(); case 1: return -z.imag(); case 2: return -z.real(); default: return z.imag(); }
+    }
+    static DVBS_INLINE float tedPair(const cf32& x1, const cf32& a1, int r1, const cf32& x0, const cf32& a0, int r0) {
+        const int d = (r1 - r0) & 3;
+        return rotRe(x1 * std::conj(a0), d) - rotRe(x0 * std::conj(a1), 4 - d);
+    }
+    bool tedData() const { return tedOn.load(std::memory_order_relaxed) && !dry && mod <= k8psk; }
+    DVBS_INLINE cf32 hardPsk(const cf32& x) const {
+        if (mod == kQpsk) { const float a = 0.70710678f; return cf32(x.real() > 0 ? a : -a, x.imag() > 0 ? a : -a); }
+        return constel[nearest->index(x.real(), x.imag())];
+    }
     double daErr = 0; int daN = 0;           // error energy and count of known symbols in this frame
     double phErr2 = 0; uint64_t phN = 0;
     double merEma = 0;
@@ -204,6 +226,8 @@ struct S2Rx::Impl {
         phErr2 = 0; phN = 0; merEma = 0;
         dryMetric = 0; dryHeaders = 0; dryAbort = false;
         tail.clear(); tailing = false;
+        tedSum = 0; tedN = 0; tedHave = false;
+        { std::lock_guard<std::mutex> lk(tedMu); tedShSum = 0; tedShN = 0; }
         lastHeaderL = 0;
         plN = o.plCode_.load() < 0 ? 0 : o.plCode_.load();
         rn = &s2ScramblingRn(plN);
@@ -332,7 +356,9 @@ struct S2Rx::Impl {
             else if (pil) { const int per = i % 1476; isPilot = per >= 1440; }
             if (skip) {
                 // nothing is known of these symbols: no error for the loop
+                tedHave = false;
             } else if (isPilot) {
+                tedHave = false;
                 known = true; ref = kPilot;
                 err = x.imag() * ref.real() - x.real() * ref.imag();
                 daErr += std::norm(x - ref); daN++;
@@ -344,6 +370,12 @@ struct S2Rx::Impl {
                 err = ddError(x);
                 frameSyms.push_back(x);
                 if ((frameSyms.size() & 7) == 0) { cellRing[cellPos] = x; cellPos = (cellPos + 1) & 2047; cellCount++; }
+                if (tedData()) {
+                    const cf32 a = hardPsk(x);
+                    const int r = (int)(*rn)[pos - 90];
+                    if (tedHave) { tedSum += (double)tedPair(x, a, r, tedPx, tedPa, tedPr); tedN++; }
+                    tedPx = x; tedPa = a; tedPr = r; tedHave = true;
+                }
             }
         }
         if (known) { phErr2 += (double)err * err; phN++; }
@@ -462,6 +494,18 @@ struct S2Rx::Impl {
         const cf32 rot = a2 / std::max(1e-6f, std::abs(a2));      // residual phase of the header
         for (int k = 0; k < 90; k++) e2 += std::norm(hdr[k] * std::conj(rot) / std::max(g, 0.2f) - known[k]);
         daErr = e2; daN = 90;
+        tedHave = false;
+        if (tedOn.load(std::memory_order_relaxed) && !dry) {
+            // the header is a known sequence with transitions: Mueller and Muller on its 90 symbols, the residual phase taken out
+            const cf32 cr = std::conj(rot) * (1.f / std::max(g, 0.2f));
+            cf32 xp = hdr[0] * cr;
+            for (int k = 1; k < 90; k++) {
+                const cf32 x = hdr[k] * cr;
+                tedSum += (double)(x.real() * known[k - 1].real() + x.imag() * known[k - 1].imag() - xp.real() * known[k].real() - xp.imag() * known[k].imag());
+                xp = x;
+            }
+            tedN += 89;
+        }
         // Frame rate update of the carrier loop from the 90 known symbols: the phase error of the loop over the header is the phase and, from one
         // header to the next, the frequency error times the frame length (a few millionths of a radian per symbol precision, far better than the data
         // loop could find in noise). A large error is a slip of the loop: the phase is put back and the frequency left alone.
@@ -521,6 +565,8 @@ struct S2Rx::Impl {
     }
 
     void finishFrame() {
+        if (tedN) { std::lock_guard<std::mutex> lk(tedMu); tedShSum += tedSum; tedShN += tedN; }
+        tedSum = 0; tedN = 0; tedHave = false;
         if (dry) { frameSyms.clear(); pos = 0; L = 90; daErr = 0; daN = 0; return; }
         const uint32_t fs = (uint32_t)L;
         const double sigma2 = daN > 0 ? std::max(1e-4, daErr / daN / 2.0) : 0.1;    // per real dimension
@@ -751,6 +797,9 @@ struct S2Rx::Impl {
         int dN = daN;
         uint64_t pN = phN;
         int pc = phCount, p = pos;
+        const bool ted = tedData();
+        double tS = 0; uint64_t tN = 0;
+        cf32 tPx = tedPx, tPa = tedPa; int tPr = tedPr; bool tHave = tedHave;
         size_t k = 0;
         for (; k < cnt; k++) {
             if (pilots && per == 1475) break;
@@ -766,10 +815,17 @@ struct S2Rx::Impl {
                 dErr += (double)(dr * dr + di * di); dN++;
                 pacc = cf32(pacc.real() + (x.real() * kPilot.real() + x.imag() * kPilot.imag()), pacc.imag() + (x.imag() * kPilot.real() - x.real() * kPilot.imag()));
                 pe2 += (double)err * err; pN++;
+                tHave = false;
             } else {
                 err = ddError(x);
                 frameSyms.push_back(x);
                 if ((frameSyms.size() & 7) == 0) { cellRing[cellPos] = x; cellPos = (cellPos + 1) & 2047; cellCount++; }
+                if (ted) {
+                    const cf32 a = hardPsk(x);
+                    const int r = (int)rnv[p - 90];
+                    if (tHave) { tS += (double)tedPair(x, a, r, tPx, tPa, tPr); tN++; }
+                    tPx = x; tPa = a; tPr = r; tHave = true;
+                }
             }
             const float de = std::max(-0.5f, std::min(0.5f, err));
             const float kap = kpiD * de, k2 = kap * kap;
@@ -782,6 +838,7 @@ struct S2Rx::Impl {
         }
         ph = phl; pilotAcc = pacc; theta = th; omega = om; daErr = dErr; phErr2 = pe2;
         daN = dN; phN = pN; phCount = pc; pos = p;
+        tedSum += tS; tedN += tN; tedPx = tPx; tedPa = tPa; tedPr = tPr; tedHave = tHave;
         return k;
     }
 
@@ -1183,6 +1240,13 @@ void S2Rx::stop() {
 void S2Rx::setComputeMode(int m) { p_->compute.mode = m; }
 void S2Rx::setLdpc8(bool on) { p_->force8 = on; }
 void S2Rx::setNoBch(bool on) { p_->gNoBch = on; }
+void S2Rx::setTimingAid(bool on) { p_->tedOn = on; }
+bool S2Rx::takeTimingError(double& sum, uint64_t& n) {
+    std::lock_guard<std::mutex> lk(p_->tedMu);
+    sum = p_->tedShSum; n = p_->tedShN;
+    p_->tedShSum = 0; p_->tedShN = 0;
+    return n > 0;
+}
 
 S2Stats S2Rx::stats() const { std::lock_guard<std::mutex> lk(p_->statMu); return p_->st; }
 void S2Rx::cells(std::vector<cf32>& out) const { std::lock_guard<std::mutex> lk(p_->statMu); out = p_->cellSnap; }

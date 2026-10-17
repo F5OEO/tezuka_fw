@@ -42,6 +42,7 @@ public:
     void setConstantModcod(bool on);                     // DVB-S2: the stream keeps the MODCOD it was first found with (CCM): later hunts after a loss of the signal test that code word only (cheap), with a full hunt after every 1.5 s of signal
     void setNoBch(bool on);                              // DVB-S2: skip the BCH stage (the LDPC output is taken as is, the BBHEADER CRC still checks); saves a pass over each frame
     void setLdpc8(bool on);                              // DVB-S2: the 8-bit CPU LDPC decoder at every code rate. Much cheaper on a small ARM core; a frame it cannot finish still goes to the float decoder, but low code rates lose sensitivity (about 2 dB at QPSK 2/5)
+    void setTimingAid(bool on);                          // DVB-S2: the symbol timing loop also follows a data aided detector (known header symbols, decided QPSK/8PSK data); default off, DVBS_TED=1 in the environment
     void setFastTiming(bool on);                         // cheaper symbol timing once the loop has settled (8 symbols per filter row, timing detector on every second block): about a quarter less time in the timer for a little less accuracy of the sampling instants (about 0.1 dB near the threshold on a signal with phase noise)
     void setBlocking(bool blocking);                     // recordings: wait for the decoder threads instead of dropping frames when behind
     void flush();                                        // waits until everything fed so far is decoded and delivered (recordings, tests; not for the engine)

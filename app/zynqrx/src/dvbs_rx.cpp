@@ -159,6 +159,7 @@ struct DvbsReceiver::Impl {
     } s1Snap;
     std::mutex s1Mu, cellMu;
     uint64_t s2Symbols = 0;
+    std::atomic<bool> tedAid{getenv("DVBS_TED") != nullptr && atoi(getenv("DVBS_TED")) != 0};
     std::atomic<bool> tsLockFlag{false};
     bool huntCodes[256] = {};          // the PLS codes the hunt looks for when huntRestrict is set (setHuntModulations)
     std::atomic<bool> huntRestrict{false};
@@ -348,6 +349,7 @@ struct DvbsReceiver::Impl {
         s2.setPlCode(plCode.load());
         s2.setIsi(isiSel.load());
         s2.setBlocking(blocking.load());
+        s2.setTimingAid(tedAid.load());
         s2.setPacketCallback([this](const uint8_t* p, size_t np, double secs) {
             std::function<void(const uint8_t*, size_t, double)> cb;
             { std::lock_guard<std::mutex> lk(cbMu); cb = pktCb; }
@@ -368,9 +370,23 @@ struct DvbsReceiver::Impl {
         return true;
     }
 
+    // The frame receiver's Mueller and Muller sums (about -1.8 per symbol of lateness) become a slow correction of the Gardner loop. The frame thread
+    // runs a few frames behind the timer, so the integrator gain is small, and one header alone (89 pairs) counts for little.
+    void applyTimingAid() {
+        double sum; uint64_t n;
+        if (!s2.takeTimingError(sum, n) || n < 60) return;
+        const double late = std::max(-0.3, std::min(0.3, -sum / (double)n / 1.8));
+        const double w = (double)n / ((double)n + 1500.0);
+        front.timer().addTimingError(late, 0.1 * w);
+        tedLateRms = 0.95 * tedLateRms + 0.05 * late * late;
+        if (getenv("DVBS_TED_LOG")) fprintf(stderr, "ted: n %llu late %+.4f offset %+.4f\n", (unsigned long long)n, late, front.timer().timingOffset());
+    }
+    double tedLateRms = 0;
+
     void s2Push() {
         s2Symbols += sym.size();
         s2.push(sym.data(), sym.size());
+        if (tedAid.load() && s2Symbols > 300000) applyTimingAid();    // (not while the frame thread works through the window the hunt handed it)
         if (s2.lost()) {
             s2.stop();
             tsLockFlag = false;
@@ -614,6 +630,7 @@ void DvbsReceiver::setHuntModulations(int mask) {
 void DvbsReceiver::setLdpc8(bool on) { p_->s2.setLdpc8(on); }
 void DvbsReceiver::setNoBch(bool on) { p_->s2.setNoBch(on); }
 void DvbsReceiver::setFastTiming(bool on) { p_->front.timer().setFast(on); }
+void DvbsReceiver::setTimingAid(bool on) { p_->tedAid = on; }
 void DvbsReceiver::setComputeMode(int m) { p_->computeMode = m; p_->s2.setComputeMode(m); p_->s1Compute.mode = m; }
 void DvbsReceiver::setBlocking(bool b) { p_->blocking = b; }
 void DvbsReceiver::flush() {
