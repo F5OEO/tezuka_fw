@@ -23,7 +23,35 @@ fi
 
 # Extract raw kernel from zImage and compress with lzma
 skip=$(LC_ALL=C grep -a -b -o -P '\x1f\x8b\x08' "$BIN_DIR/zImage" | head -1 | cut -d: -f1)
-dd if="$BIN_DIR/zImage" bs=1 skip="$skip" | gunzip > "$BIN_DIR/Image" 2>/dev/null || true
+if [ -z "$skip" ]; then
+    echo "ERROR: no gzip stream found in $BIN_DIR/zImage" >&2
+    exit 1
+fi
+# The zImage goes on after the compressed kernel, so a good extraction ends
+# with gunzip exit status 2 and "trailing garbage ignored". Accept exactly
+# that; any other failure (wrong offset, truncated or corrupt stream) would
+# otherwise leave a short Image that still passes the size guard below.
+gunzip_rc=0
+dd if="$BIN_DIR/zImage" bs=1 skip="$skip" | gunzip > "$BIN_DIR/Image" 2> "$BIN_DIR/Image.gunzip.log" || gunzip_rc=$?
+if [ "$gunzip_rc" -ne 0 ] && \
+   ! { [ "$gunzip_rc" -eq 2 ] && grep -q "trailing garbage ignored" "$BIN_DIR/Image.gunzip.log"; }; then
+    echo "ERROR: extracting the kernel from zImage failed (gunzip exit $gunzip_rc):" >&2
+    cat "$BIN_DIR/Image.gunzip.log" >&2
+    exit 1
+fi
+rm -f "$BIN_DIR/Image.gunzip.log"
+if [ ! -s "$BIN_DIR/Image" ]; then
+    echo "ERROR: kernel Image extracted from zImage is empty" >&2
+    exit 1
+fi
+# Where the kernel build left its own uncompressed Image, the extracted one
+# must be identical to it.
+for KBUILD_IMAGE in "$BUILD_DIR"/linux-*/arch/arm/boot/Image; do
+    if [ -f "$KBUILD_IMAGE" ] && ! cmp -s "$KBUILD_IMAGE" "$BIN_DIR/Image"; then
+        echo "ERROR: kernel Image extracted from zImage differs from $KBUILD_IMAGE" >&2
+        exit 1
+    fi
+done
 
 # Guard against the zImage self-decompression corruption from issue #450:
 # every board's flash FIT (plutomaia.its) loads the kernel at 0x8000 and
