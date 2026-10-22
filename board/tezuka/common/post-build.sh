@@ -31,7 +31,11 @@ try:
     print(r[0] if r else '')
 except: pass
 " 2>/dev/null)
-FPGA_VERS=$(cat "${BOARD_DIR}/../${_board}/bitstream/maia-iio/bit.txt" 2>/dev/null || echo "")
+# maia-sdr's `make install` writes <project>.version next to <project>.xsa
+# (e.g. "maia-sdr 9c1cd646a1 pluto vivado v2023.2"); older trees had maia-iio/bit.txt.
+_fpga_project=$(grep '^BR2_PACKAGE_BOARD_FPGA_PROJECT=' "${BR2_CONFIG}" | cut -d= -f2 | tr -d '"')
+FPGA_VERS=$(cat "${BOARD_DIR}/../${_board}/bitstream/${_fpga_project:-tezuka}.version" 2>/dev/null \
+	|| cat "${BOARD_DIR}/../${_board}/bitstream/maia-iio/bit.txt" 2>/dev/null || echo "")
 
 {
 	echo "device-fw tezuka-${FW_VERSION}"
