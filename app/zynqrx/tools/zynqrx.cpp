@@ -16,7 +16,7 @@
 //   zynqrx rx recording --symbols --rs Msym [--format cs16|cf32] ...
 //       The recording holds timing-recovered symbols at one per sample, unit mean power at a quarter of full scale (cs16: 512 of 2048), as the FPGA symbol front end
 //       makes them (mixer, interpolator, Gardner loop, AGC): the receiver skips its own front end.
-//   zynqrx rx --iio --fpga-front --freq MHz --rs Msym [--roll 0.35] [--center Hz] ...
+//   zynqrx rx --iio --fpga-front --freq MHz --rs Msym [--roll 0.35] [--center Hz] ...   (also --mqtt, and cmd/zynqrx/fpgafront 0|1)
 //       Live input through the FPGA symbol front end (bitstream with maia-hdl's symfront core): the radio's RRC FIR at 2 samples per symbol, then
 //       the fabric's mixer, Gardner loop and AGC; the receiver gets one symbol per sample and skips its own front end. Needs root (/dev/mem).
 //   zynqrx rx --iio [uri] --freq MHz --rate Msps [--bw MHz] [--gain dB] [--rs ..] [--std ..] [--ts out.ts] [--secs 0]
@@ -350,6 +350,7 @@ struct RxTune {
     double gainDb = -1, bwMHz = 0, roll = 0, maxLag = 4;   // gain -1 = the radio's AGC, bw 0 = 3 x the symbol rate, roll 0 = 0.35 on the radio's filter
     int stdHint = 0, isi = -1, pls = -1, modsMask = 0, fastTiming = 2;
     bool ccm = false, presence = false, ldpc8 = false, wsKeyframe = false, noBch = false, cs8 = true;
+    bool fpgaFront = false;                   // fpgafront: the FPGA symbol front end (from 261 kS, where the radio's RRC filter is used)
 };
 
 // "qpsk,8psk" -> mask; false when a name is not one of the four
@@ -378,7 +379,7 @@ std::string modsName(int mask) {
 void tuneApply(const RxTune& t, RxOpts& o) {
     o.gainDb = t.gainDb; o.bwMHz = t.bwMHz; o.roll = t.roll; o.maxLag = t.maxLag;
     o.stdHint = t.stdHint; o.isi = t.isi; o.pls = t.pls; o.modsMask = t.modsMask; o.fastTiming = t.fastTiming;
-    o.ccm = t.ccm; o.presence = t.presence; o.ldpc8 = t.ldpc8; o.noBch = t.noBch; o.cs8 = t.cs8;
+    o.ccm = t.ccm; o.presence = t.presence; o.ldpc8 = t.ldpc8; o.noBch = t.noBch; o.cs8 = t.cs8; o.fpgaFront = t.fpgaFront;
 }
 
 std::vector<std::pair<std::string, std::string>> tuneSettings(const RxTune& t) {
@@ -386,7 +387,8 @@ std::vector<std::pair<std::string, std::string>> tuneSettings(const RxTune& t) {
     return {{"gain", t.gainDb < 0 ? "auto" : d(t.gainDb, "%.1f")}, {"bw", std::to_string(std::lround(t.bwMHz * 1000.0))}, {"std", std::to_string(t.stdHint)},
             {"roll", d(t.roll, "%.2f")}, {"mods", modsName(t.modsMask)}, {"ccm", t.ccm ? "1" : "0"}, {"presence", t.presence ? "1" : "0"},
             {"fasttiming", t.fastTiming == 1 ? "on" : t.fastTiming == 0 ? "off" : "auto"}, {"ldpc8", t.ldpc8 ? "1" : "0"}, {"maxlag", d(t.maxLag, "%.1f")},
-            {"isi", std::to_string(t.isi)}, {"pls", std::to_string(t.pls)}, {"wskeyframe", t.wsKeyframe ? "1" : "0"}, {"nobch", t.noBch ? "1" : "0"}, {"iqformat", t.cs8 ? "cs8" : "cs16"}};
+            {"isi", std::to_string(t.isi)}, {"pls", std::to_string(t.pls)}, {"wskeyframe", t.wsKeyframe ? "1" : "0"}, {"nobch", t.noBch ? "1" : "0"}, {"iqformat", t.cs8 ? "cs8" : "cs16"},
+            {"fpgafront", t.fpgaFront ? "1" : "0"}};
 }
 
 // Applies cmd/zynqrx/<key>. 0 = not one of these settings, 1 = set (changed tells whether the value differs), -1 = value refused (why says what is accepted)
@@ -411,6 +413,7 @@ int tuneSet(RxTune& t, const std::string& key, const std::string& val, bool& cha
     if (key == "iqformat") return val == "cs8" || val == "cs16" ? setB2(t.cs8, val == "cs8") : bad("cs8 or cs16");
     if (key == "nobch") return isBool ? setB(t.noBch) : bad("0 or 1");
     if (key == "ldpc8") return isBool ? setB(t.ldpc8) : bad("0 or 1");
+    if (key == "fpgafront") return isBool ? setB(t.fpgaFront) : bad("0 or 1");
     if (key == "fasttiming") return val == "on" || val == "off" || val == "auto" ? setI(t.fastTiming, val == "on" ? 1 : val == "off" ? 0 : 2) : bad("on, off or auto");
     if (key == "maxlag") return num && dv >= 0 ? setD(t.maxLag, dv) : bad("seconds, 0 = off");
     if (key == "isi") return num && dv >= -1 && dv <= 255 ? setI(t.isi, (int)dv) : bad("-1 (any) - 255");
@@ -445,7 +448,8 @@ int runSession(RxOpts& o, RxCtl& ctl) {
     ctl.locked = false;
     std::string& path = o.path; std::string& tsOut = o.tsOut; std::string format = o.format;
     double& rate = o.rate; double& rs = o.rs; double& roll = o.roll;
-    const bool useIio = o.useIio, prefilt = o.prefilt;
+    const bool useIio = o.useIio;
+    bool prefilt = o.prefilt;
     std::ifstream f;
     IioSource iio;
 #ifdef ZYNQRX_IIO
@@ -454,11 +458,22 @@ int runSession(RxOpts& o, RxCtl& ctl) {
     if (useIio && o.fpgaFront) {
 #ifdef ZYNQRX_IIO
         // the radio's RRC FIR at 2 samples per symbol, then the fabric makes one symbol per sample: the receiver runs at the symbol rate
-        if (!iio.open(o.iioUri, 2 * rs * 1e6, o.freqMHz * 1e6, o.bwMHz * 1e6, o.gainDb, roll, o.cs8)) return 1;
-        if (!fpga.open()) return 1;
-        fpga.configure(o.haveCenter ? o.center : 0.0, 2 * rs * 1e6, roll);
-        fpga.enable(true);
-        rate = rs;
+        if (fpga.open()) {
+            if (!iio.open(o.iioUri, 2 * rs * 1e6, o.freqMHz * 1e6, o.bwMHz * 1e6, o.gainDb, roll, o.cs8)) return 1;
+            fpga.configure(o.haveCenter ? o.center : 0.0, 2 * rs * 1e6, roll);
+            fpga.enable(true);
+            rate = rs;
+        } else {
+            // a bitstream without the core: the same radio settings with the CPU front end
+            fprintf(stderr, "fpga front end unavailable, using the CPU front end\n");
+            o.fpgaFront = false;
+            prefilt = o.prefilt = true;
+            rate = 2 * rs;
+            if (!iio.open(o.iioUri, rate * 1e6, o.freqMHz * 1e6, o.bwMHz * 1e6, o.gainDb, roll, o.cs8)) return 1;
+        }
+#else
+        fprintf(stderr, "--fpga-front needs a build with IIO=1\n");
+        return 1;
 #endif
     }
     else if (useIio) { if (!iio.open(o.iioUri, rate * 1e6, o.freqMHz * 1e6, o.bwMHz * 1e6, o.gainDb, prefilt ? roll : 0, o.cs8)) return 1; }
@@ -675,7 +690,7 @@ int runDaemon(RxOpts& o) {
     ctl.udpTtl = o.udpTtl;
     ctl.udpIf = o.udpIf;
     ctl.enabled = o.start;
-    ctl.tune = RxTune{o.gainDb, o.bwMHz, o.roll, o.maxLag, o.stdHint, o.isi, o.pls, o.modsMask, o.fastTiming, o.ccm, o.presence, o.ldpc8, o.wsKeyframe, o.noBch, o.cs8};
+    ctl.tune = RxTune{o.gainDb, o.bwMHz, o.roll, o.maxLag, o.stdHint, o.isi, o.pls, o.modsMask, o.fastTiming, o.ccm, o.presence, o.ldpc8, o.wsKeyframe, o.noBch, o.cs8, o.fpgaFront};
     if (!o.udpDest.empty()) {
         const size_t c = o.udpDest.rfind(':');
         ctl.tsip = o.udpDest.substr(0, c);
@@ -762,7 +777,13 @@ int runDaemon(RxOpts& o) {
         RxOpts so = o;
         { std::lock_guard<std::mutex> lk(ctl.mu); tuneApply(ctl.tune, so); }
         datvSessionOpts(so, fk, sk);
-        fprintf(stderr, "receiver: %.3f MHz, %ld kS (%s)\n", (double)fk / 1000.0, sk, so.prefilt ? "radio RRC filter" : "software matched filter");
+        if (so.fpgaFront) {
+            // the FPGA front end takes the radio's RRC filter output (2 samples per symbol); below 261 kS there is none and the CPU front end runs
+            if (so.prefilt) so.prefilt = false;
+            else { so.fpgaFront = false; fprintf(stderr, "receiver: fpgafront needs 261 kS or more, using the CPU front end\n"); }
+        }
+        fprintf(stderr, "receiver: %.3f MHz, %ld kS (%s)\n", (double)fk / 1000.0, sk,
+                so.fpgaFront ? "radio RRC filter, FPGA symbol front end" : so.prefilt ? "radio RRC filter" : "software matched filter");
         const int rc = runSession(so, ctl);
         if (gStop) break;
         bool again, stopped;
@@ -839,7 +860,6 @@ int cmdRx(int argc, char** argv) {
         const int nv = o.niceValue != 99 ? o.niceValue : (o.useIio || !o.mqttHost.empty()) ? -10 : 0;
         if (nv != 0 && setpriority(PRIO_PROCESS, 0, nv) != 0 && o.niceValue != 99) fprintf(stderr, "--nice %d: not allowed (run as root)\n", nv);
     }
-    if (!o.mqttHost.empty() && o.fpgaFront) { fprintf(stderr, "--fpga-front works with --iio from the command line (not --mqtt yet)\n"); return 1; }
     if (!o.mqttHost.empty()) {
         // longmynd's way: --freq and --rs are optional here (the receiver waits for MQTT commands without them), the radio's RRC filter is chosen by the symbol rate
         if (!o.path.empty()) { fprintf(stderr, "--mqtt works with the radio (--iio), not a recording\n"); return 1; }
@@ -857,7 +877,7 @@ int cmdRx(int argc, char** argv) {
         o.haveCenter = true;   // below 2 Msps the receiver runs without its spectrum search: the carrier is taken to be on the LO unless --center says otherwise
     }
     if (o.fpgaFront) {   // live: the radio's RRC FIR (2 samples per symbol), then the FPGA front end (1 symbol per sample)
-        if (!o.useIio || !o.mqttHost.empty()) { fprintf(stderr, "--fpga-front works with --iio from the command line (not --mqtt yet)\n"); return 1; }
+        if (!o.useIio) { fprintf(stderr, "--fpga-front works with live input (--iio or --mqtt)\n"); return 1; }
         if (o.rs <= 0) { fprintf(stderr, "--fpga-front needs --rs\n"); return 1; }
         if (o.roll <= 0) o.roll = 0.35;
         o.prefilt = false;

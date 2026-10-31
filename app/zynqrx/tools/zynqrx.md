@@ -71,12 +71,13 @@ Commands (`cmd/zynqrx/...`):
 | `roll` | Roll-off 0.05 - 0.35, 0 = default (0.35 on the radio filter). Same as `--roll`. |
 | `mods` | Modulations to search for, e.g. `qpsk,8psk`. Same as `--mods`. |
 | `ccm`, `presence`, `ldpc8` | `0` or `1`. Same as `--ccm`, `--presence`/`--no-presence`, `--ldpc8`. |
+| `fpgafront` | `0` or `1`. Same as `--fpga-front`: the FPGA symbol front end (bitstream with the symfront core, 261 kS and up; otherwise the CPU front end runs). |
 | `fasttiming` | `on`, `off` or `auto`. Same as `--fast-timing`. |
 | `maxlag` | Seconds, 0 = off. Same as `--max-lag`. |
 | `isi`, `pls` | Input stream identifier (-1 - 255) and scrambling code (-1 - 262142), -1 = any. Same as `--isi`, `--pls`. |
 | `wskeyframe` | `0` or `1`, takes effect at once. Same as `--ws-keyframe`. |
 
-Every command except `wskeyframe` restarts the receiver when it is running, which takes a few seconds (while stopped the value is kept for the next start). Each setting is echoed on `dt/zynqrx/set/<name>` (same names: `gain`, `bw`, `std`, `roll`, `mods`, `ccm`, `presence`, `fasttiming`, `ldpc8`, `maxlag`, `isi`, `pls`, `wskeyframe`). A refused value is logged and ignored. The initial values come from the command line options.
+Every command except `wskeyframe` restarts the receiver when it is running, which takes a few seconds (while stopped the value is kept for the next start). Each setting is echoed on `dt/zynqrx/set/<name>` (same names: `gain`, `bw`, `std`, `roll`, `mods`, `ccm`, `presence`, `fasttiming`, `ldpc8`, `fpgafront`, `maxlag`, `isi`, `pls`, `wskeyframe`). A refused value is logged and ignored. The initial values come from the command line options.
 
 Not available over MQTT: `--prefiltered` (chosen from the symbol rate), `--rate`, `--center`, `--ts`, `--secs`, `--nice`, `--ttl`, `--udp-if`, `--udp` port.
 
