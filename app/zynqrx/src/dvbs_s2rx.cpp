@@ -8,6 +8,7 @@
 #include <chrono>
 #include <cmath>
 #include <condition_variable>
+#include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <deque>
@@ -858,6 +859,9 @@ struct S2Rx::Impl {
         for (auto& t : workers) if (t.joinable()) t.join();
         workers.clear();
         queue.clear();
+        if (refineLazy() && lazyHits + lazyMiss > 0)
+            fprintf(stderr, "lazy refinement: %llu frames decoded without it, %llu refined after a failed attempt\n", (unsigned long long)lazyHits.load(), (unsigned long long)lazyMiss.load());
+        lazyHits = 0; lazyMiss = 0;
     }
 
     void submit(Job&& j) {
@@ -879,10 +883,10 @@ struct S2Rx::Impl {
     ComputeChoice compute;
 
     // The front half of a frame's work: phase refinement, demapper, bit deinterleaver. dl receives the LDPC input (nldpc values).
-    static bool prepareFrame(Job& j, const S2Dims& d, std::vector<float>& llr, float* dl) {
+    static bool prepareFrame(Job& j, const S2Dims& d, std::vector<float>& llr, float* dl, bool refine = true) {
         if ((int)j.syms.size() != d.xfecSymbols) return false;
         llr.resize((size_t)d.xfecSymbols * (size_t)d.bitsPerSym);
-        {
+        if (refine) {
             // the phase error the carrier loop left, measured in blocks against decisions (block length from the noise level)
             const float es = 1.f / (2.f * std::max(j.sigma2, 1e-3f));
             const int W = std::max(8, std::min(512, (int)(83.f / es)));
@@ -894,6 +898,22 @@ struct S2Rx::Impl {
         s2BitDeinterleaveLlr(llr.data(), d.nldpc, j.mod, j.rate, dl);
         return true;
     }
+
+    // On by default on the Zynq, where the refinement is a tenth of the receiver's work and a clean signal decodes as well without it; DECT2_REFINE_LAZY=0/1
+    // overrides
+    static bool refineLazy() {
+        static const bool v = [] {
+            if (const char* e = getenv("DECT2_REFINE_LAZY")) return atoi(e) != 0;
+#if defined(__arm__) && !defined(__aarch64__)
+            return true;
+#else
+            return false;
+#endif
+        }();
+        return v;
+    }
+    static constexpr int kLazyIters = 10;     // iterations of the attempt without refinement
+    std::atomic<uint64_t> lazyHits{0}, lazyMiss{0};
 
     // set by setNoBch(), or at start by the environment variable DECT2_NO_BCH=1
     static inline std::atomic<bool> gNoBch{[] { const char* e = getenv("DECT2_NO_BCH"); return e && atoi(e) != 0; }()};
@@ -934,8 +954,8 @@ struct S2Rx::Impl {
             if (off > 0 && cur < 0) setpriority(PRIO_PROCESS, (id_t)syscall(SYS_gettid), std::min(19, cur + off));
         }
 #endif
-        int quickScore = 8;
-        unsigned quickTick = 0;
+        int quickScore = 8, lazyScore = 8;
+        unsigned quickTick = 0, lazyTick = 0;
         std::vector<float> llr, dlAll;
         std::vector<uint8_t> hard, bb, hardAll, okAll;
         std::vector<int> itAll;
@@ -963,9 +983,16 @@ struct S2Rx::Impl {
             std::vector<Result> res(nb);
             std::vector<char> usable(nb, 0);
             dlAll.resize(nb * (size_t)d.nldpc);
+            // Lazy phase refinement (the default on 32-bit ARM, DECT2_REFINE_LAZY=0/1, CPU decoder only): the frame is first decoded without the refinement, with a few
+            // iterations; on a clean signal that is enough and the refinement is saved. A frame that does not converge is refined and decoded as
+            // usual. On a marginal signal the first attempt is mostly wasted: as for the quick 8-bit attempt, a score of recent attempts turns it
+            // off, and one frame in 32 tries again.
+            const bool lazy = !gpu && refineLazy() && (lazyScore > 4 || (++lazyTick & 31) == 0);
+            std::vector<char> refined(nb, 0);
             for (size_t i = 0; i < nb; i++) {
                 res[i].seq = jobs[i].seq; res[i].frameSyms = jobs[i].frameSyms; res[i].mod = jobs[i].mod; res[i].rate = jobs[i].rate; res[i].sh = jobs[i].sh;
-                usable[i] = prepareFrame(jobs[i], d, llr, dlAll.data() + i * (size_t)d.nldpc) ? 1 : 0;
+                usable[i] = prepareFrame(jobs[i], d, llr, dlAll.data() + i * (size_t)d.nldpc, !lazy) ? 1 : 0;
+                refined[i] = !lazy;
             }
             const LdpcCode& code = s2Ldpc(j0.rate, j0.sh);
             const float alpha = s2LdpcAlpha(j0.rate);
@@ -986,6 +1013,15 @@ struct S2Rx::Impl {
                 const uint8_t* hp = nullptr;
                 if (gpuDone && okAll[i]) { ok = true; onGpu = true; iters = itAll[i]; hp = hardAll.data() + i * (size_t)d.nldpc; }
                 else {
+                    if (!refined[i]) {
+                        dlv.assign(dl, dl + d.nldpc);
+                        const bool q8 = force8.load() || s2RateValue(j0.rate) >= q8MinRate();
+                        ok = q8 ? code.decodeFast8(dlv, kLazyIters, hard, &iters) : code.decodeFast(dlv, kLazyIters, hard, &iters, alpha);
+                        lazyScore = ok ? std::min(16, lazyScore + 1) : std::max(0, lazyScore - 4);
+                        if (ok) { lazyHits++; finishFrame(jobs[i], d, dl, hard.data(), ok, iters, false, bb, res[i]); deposit(std::move(res[i])); continue; }
+                        lazyMiss++;
+                        prepareFrame(jobs[i], d, llr, dlAll.data() + i * (size_t)d.nldpc, true);
+                    }
                     // the CPU decoder: the chosen path, or the answer for a frame the GPU could not decode (it uses the same code with the right scaling)
                     dlv.assign(dl, dl + d.nldpc);
                     const auto t0 = std::chrono::steady_clock::now();
