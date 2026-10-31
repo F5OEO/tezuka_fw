@@ -40,6 +40,12 @@ inline cf32 cmul(cf32 a, cf32 b) {
     return cf32(a.real() * b.real() - a.imag() * b.imag(), a.real() * b.imag() + a.imag() * b.real());
 }
 
+// x / |x| for a phasor that stays near the unit circle: sqrtf is one VFP instruction, std::abs of a complex is a call to hypotf
+inline cf32 unitPhasor(cf32 x) {
+    const float g = 1.f / std::sqrt(x.real() * x.real() + x.imag() * x.imag());
+    return cf32(x.real() * g, x.imag() * g);
+}
+
 // e^{-j d} for small d: the loop never turns by more than a fraction of a radian per symbol
 inline cf32 smallRot(float d) {
     const float d2 = d * d;
@@ -296,7 +302,7 @@ struct S2Rx::Impl {
         ph = cmul(P, cf32(1.f - k2 * 0.5f, -(kap * (1.f - k2 * (1.f / 6.f)))));
         theta += (float)omega + kap;
         omega += kiD * de;
-        if ((++phCount & 31) == 0) ph /= std::abs(ph);
+        if ((++phCount & 31) == 0) ph = unitPhasor(ph);
     }
 
     void step(const cf32 z) {
@@ -768,7 +774,7 @@ struct S2Rx::Impl {
             phl = cmul(P, cf32(1.f - k2 * 0.5f, -(kap * (1.f - k2 * (1.f / 6.f)))));
             th += (float)om + kap;
             om += kiD * de;
-            if ((++pc & 31) == 0) phl /= std::abs(phl);
+            if ((++pc & 31) == 0) phl = unitPhasor(phl);
             p++;
             if (pilots) per++;
         }
@@ -905,8 +911,14 @@ struct S2Rx::Impl {
         s2BbScramble(bb.data(), d.kbch);
         r.ok = true; r.bchFixed = fixed; r.bb = bb;
         // bit errors before the LDPC decoder: hard decisions on the input against the decoded code word
+        // in blocks of 255 with an 8-bit count, which the compiler turns into NEON compares and adds (the plain loop was about 2% of the CPU)
         size_t diff = 0;
-        for (int i = 0; i < d.nldpc; i++) diff += (dl[(size_t)i] < 0) != (hard[(size_t)i] != 0);
+        for (int i0 = 0; i0 < d.nldpc; i0 += 255) {
+            const int i1 = std::min(d.nldpc, i0 + 255);
+            uint8_t c = 0;
+            for (int i = i0; i < i1; i++) c += (uint8_t)((dl[(size_t)i] < 0.f) != (hard[(size_t)i] != 0));
+            diff += c;
+        }
         r.berPre = (double)diff / d.nldpc;
     }
 
