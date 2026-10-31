@@ -21,6 +21,19 @@ debug_folder="/sys/kernel/debug/iio/$(basename "${folder%/}")/"
 
 # Static version strings — read once at startup, never change at runtime
 IIO_VERSION=$(iio_info --version 2>/dev/null | awk 'NR==1{print $3; exit}')
+STATIC_HW_MODEL=$(grep 'hw_model='                 /etc/libiio.ini | sed 's,hw_model=,,')
+STATIC_FW_VERSION=$(grep 'fw_version='             /etc/libiio.ini | sed 's,fw_version=,,')
+STATIC_FIRMWARE_VERSION=$(grep 'firmware_version=' /etc/libiio.ini | sed 's,firmware_version=,,')
+STATIC_LINUX=$(uname -r)
+STATIC_UBOOT=$(grep '^uboot '     /opt/VERSIONS 2>/dev/null | cut -d' ' -f2)
+STATIC_BR=$(grep '^buildroot '    /opt/VERSIONS 2>/dev/null | cut -d' ' -f2)
+STATIC_FPGA=$(grep '^fpga '       /opt/VERSIONS 2>/dev/null | cut -d' ' -f2)
+HAVE_GPSPIPE=0; command -v gpspipe >/dev/null 2>&1 && HAVE_GPSPIPE=1
+
+# debugfs folders of the ADC and DDS cores (their direct_reg_access holds the
+# underflow/overflow status read in dump_data)
+adc_debug_folder=""; [ "$adc_folder" != "/" ] && adc_debug_folder="/sys/kernel/debug/iio/$(basename "${adc_folder%/}")/"
+dds_debug_folder=""; [ "$dds_folder" != "/" ] && dds_debug_folder="/sys/kernel/debug/iio/$(basename "${dds_folder%/}")/"
 
 # Base XO oscillator frequency — captured before any correction is applied
 XO_BASE=$(<"${folder}xo_correction" 2>/dev/null)
@@ -247,6 +260,53 @@ read_file () {
 }
 
 
+# Fork-free counterparts of read_file for the 2 s status loop. rd sets REPLY
+# to what "$(read_file f)" would give (n/a when f is not readable); rd_raw to
+# what "$(cat f 2>/dev/null)" would give (empty when missing). Both strip the
+# trailing newlines as command substitution does.
+rd_raw () {
+  REPLY=""
+  { IFS= read -r -d '' REPLY < "$1"; } 2>/dev/null
+  while [[ $REPLY == *$'\n' ]]; do REPLY=${REPLY%$'\n'}; done
+  return 0
+}
+
+rd () {
+  if [ -r "$1" ]; then rd_raw "$1"; else REPLY='n/a'; fi
+}
+
+# A register through an IIO device's debugfs direct_reg_access, as
+# "iio_attr -D <dev> direct_reg_access <addr>" does: write the address, read
+# the value back. REPLY is empty when the device has no debugfs entry.
+reg_read () {
+  REPLY=""
+  [ -n "$1" ] && [ -w "${1}direct_reg_access" ] || return 1
+  echo "$2" > "${1}direct_reg_access" 2>/dev/null || return 1
+  rd_raw "${1}direct_reg_access"
+}
+
+# The whole u-boot environment with one fw_printenv call, into FWENV
+declare -A FWENV
+load_fwenv () {
+  local _l
+  FWENV=()
+  while IFS= read -r _l; do
+    [[ $_l == *=* ]] && FWENV[${_l%%=*}]=${_l#*=}
+  done < <(fw_printenv 2>/dev/null)
+}
+
+# prefix_to_mask without the subshell: the mask in REPLY
+prefix_to_mask_v () {
+  local p=$1 i octet m="" b
+  for i in 1 2 3 4; do
+    b=$(( p > 8 ? 8 : p < 0 ? 0 : p ))
+    octet=$(( b == 0 ? 0 : 256 - (1 << (8 - b)) ))
+    m="${m:+$m.}$octet"
+    p=$(( p - b ))
+  done
+  REPLY=$m
+}
+
 # Boolean state ("1"/"0") for a /sys/class/leds/<name> — used by both the
 # periodic gpio/<name> publish below and the cmd/gpio/<name> handler, so
 # both always agree on what "on" means regardless of that LED's actual
@@ -278,16 +338,17 @@ prefix_to_mask () {
 # line we keep, field 2 (preshared-key) is explicitly discarded.
 publish_vpn_status () {
   local up=0 pubkey="" peer_pubkey="" endpoint="" allowed_ips="" handshake=0 rx=0 tx=0 _psk _keepalive
-  if ip link show wg0 >/dev/null 2>&1; then
+  if [ -e /sys/class/net/wg0 ]; then
     up=1
     pubkey=$(wg show wg0 public-key 2>/dev/null)
     read -r peer_pubkey _psk endpoint allowed_ips handshake rx tx _keepalive \
       < <(wg show wg0 dump 2>/dev/null | tail -n +2 | head -1)
   fi
-  local json
-  json=$(printf '{"up":%s,"pubkey":"%s","peer_pubkey":"%s","endpoint":"%s","allowed_ips":"%s","latest_handshake":%s,"rx_bytes":%s,"tx_bytes":%s}' \
-    "$([ "$up" = 1 ] && echo true || echo false)" \
-    "$pubkey" "${peer_pubkey:-}" "${endpoint:-}" "${allowed_ips:-}" "${handshake:-0}" "${rx:-0}" "${tx:-0}")
+  local json upb=false
+  [ "$up" = 1 ] && upb=true
+  printf -v json '{"up":%s,"pubkey":"%s","peer_pubkey":"%s","endpoint":"%s","allowed_ips":"%s","latest_handshake":%s,"rx_bytes":%s,"tx_bytes":%s}' \
+    "$upb" \
+    "$pubkey" "${peer_pubkey:-}" "${endpoint:-}" "${allowed_ips:-}" "${handshake:-0}" "${rx:-0}" "${tx:-0}"
   publish "vpn/status" "$json"
 }
 
@@ -296,38 +357,41 @@ publish_vpn_status () {
 # ============================================================
 
 dump_data () {
-  for K in "${!VMAP[@]}"; do publish "${VMAP[$K]}" "$(read_file "$K")"; done
-  for K in "${!cVMAP[@]}"; do publish "${cVMAP[$K]}" "$(read_file "$K")"; done
+  # Everything below runs every 2 s, so it avoids forking: files are read
+  # with rd (bash builtins, no $(...) subshell), the u-boot environment is
+  # read with one fw_printenv per cycle, and the AD9361/DMA status registers
+  # go through debugfs directly instead of iio_attr. The published topics and
+  # values are the same as before.
+  local K
+  for K in "${!VMAP[@]}"; do rd "$K"; publish "${VMAP[$K]}" "$REPLY"; done
+  for K in "${!cVMAP[@]}"; do rd "$K"; publish "${cVMAP[$K]}" "$REPLY"; done
 
-  publish "system/xo_correction" "$(read_file "${folder}xo_correction")"
+  rd "${folder}xo_correction"; publish "system/xo_correction" "$REPLY"
 
-  local _oc; _oc=$(fw_printenv overclock_profile 2>/dev/null | sed 's/overclock_profile=//')
-  [ -n "$_oc" ] && publish "system/overclock" "$_oc"
+  load_fwenv
+  [ -n "${FWENV[overclock_profile]}" ] && publish "system/overclock" "${FWENV[overclock_profile]}"
 
-  publish "main/serial"            "$(read_file /etc/serial)"
-  publish "main/hw_model"          "$(grep 'hw_model='          /etc/libiio.ini | sed 's,hw_model=,,')"
-  publish "main/fw_version"        "$(grep 'fw_version='        /etc/libiio.ini | sed 's,fw_version=,,')"
-  publish "main/firmware_version"  "$(grep 'firmware_version='  /etc/libiio.ini | sed 's,firmware_version=,,')"
-  publish "main/linux"             "$(uname -r)"
-  
-  local _uboot_ver; _uboot_ver=$(grep '^uboot '     /opt/VERSIONS 2>/dev/null | cut -d' ' -f2)
-  [ -n "$_uboot_ver" ]   && publish "main/uboot"     "$_uboot_ver"
-  local _br_ver;    _br_ver=$(grep '^buildroot ' /opt/VERSIONS 2>/dev/null | cut -d' ' -f2)
-  [ -n "$_br_ver" ]      && publish "main/buildroot"  "$_br_ver"
-  local _fpga_ver;  _fpga_ver=$(grep '^fpga '     /opt/VERSIONS 2>/dev/null | cut -d' ' -f2)
-  [ -n "$_fpga_ver" ]    && publish "main/fpga"       "$_fpga_ver"
+  rd /etc/serial; publish "main/serial" "$REPLY"
+  publish "main/hw_model"          "$STATIC_HW_MODEL"
+  publish "main/fw_version"        "$STATIC_FW_VERSION"
+  publish "main/firmware_version"  "$STATIC_FIRMWARE_VERSION"
+  publish "main/linux"             "$STATIC_LINUX"
+
+  [ -n "$STATIC_UBOOT" ] && publish "main/uboot"     "$STATIC_UBOOT"
+  [ -n "$STATIC_BR" ]    && publish "main/buildroot" "$STATIC_BR"
+  [ -n "$STATIC_FPGA" ]  && publish "main/fpga"      "$STATIC_FPGA"
   [ -n "$IIO_VERSION" ] && publish "main/iio" "$IIO_VERSION"
 
   # Station identity — device is the source of truth (u-boot env), the
   # Dashboard's Operator page reflects these instead of its own localStorage.
-  publish "operator/name"     "$(fw_printenv -n operator_name 2>/dev/null)"
-  publish "operator/callsign" "$(fw_printenv -n call          2>/dev/null)"
-  publish "operator/locator"  "$(fw_printenv -n locator       2>/dev/null)"
+  publish "operator/name"     "${FWENV[operator_name]}"
+  publish "operator/callsign" "${FWENV[call]}"
+  publish "operator/locator"  "${FWENV[locator]}"
 
-  publish "vpn/enabled" "$([ "$(fw_printenv -n wireguard_enabled 2>/dev/null)" = "1" ] && echo on || echo off)"
+  if [ "${FWENV[wireguard_enabled]}" = "1" ]; then publish "vpn/enabled" on; else publish "vpn/enabled" off; fi
   publish_vpn_status
 
-  publish "classifier/enabled" "$([ "$(fw_printenv -n classifier_enabled 2>/dev/null)" = "1" ] && echo on || echo off)"
+  if [ "${FWENV[classifier_enabled]}" = "1" ]; then publish "classifier/enabled" on; else publish "classifier/enabled" off; fi
 
   # Reference clock status. On boards with the vctcxo_lock IP (VCXO_BASE
   # set at startup — see top of file), read real registers per
@@ -386,7 +450,7 @@ dump_data () {
     fi
     publish "system/clkref/correction" "n/a"
   else
-    local _clkref_src; _clkref_src=$(fw_printenv -n refclk_source 2>/dev/null)
+    local _clkref_src; _clkref_src=${FWENV[refclk_source]}
     _clkref_src=${_clkref_src:-internal}
     publish "system/clkref/source"      "$_clkref_src"
     if [ "$_clkref_src" = "external" ]; then
@@ -398,19 +462,38 @@ dump_data () {
     publish "system/clkref/correction"  "n/a"
   fi
 
-  local _iface _cidr _prefix _mac _gw _dns
-  publish "net/hostname" "$(hostname 2>/dev/null || echo 'n/a')"
-  _gw=$(ip route show default 2>/dev/null | awk '/default/{print $3; exit}')
+  local _iface _cidr _mac _gw _dns _line _f
+  rd /proc/sys/kernel/hostname; publish "net/hostname" "${REPLY:-n/a}"
+  # default route: the first line of /proc/net/route with destination 0,
+  # gateway in little-endian hex
+  _gw=""
+  while read -r _iface _f _line _; do
+    if [ "$_f" = "00000000" ] && [ "$_line" != "Gateway" ]; then
+      _gw="$(( 0x${_line:6:2} )).$(( 0x${_line:4:2} )).$(( 0x${_line:2:2} )).$(( 0x${_line:0:2} ))"
+      break
+    fi
+  done < /proc/net/route 2>/dev/null
   publish "net/gateway" "${_gw:-n/a}"
-  _dns=$(awk '/^nameserver/{print $2; exit}' /etc/resolv.conf 2>/dev/null)
+  _dns=""
+  if [ -r /etc/resolv.conf ]; then
+    while read -r _f _line _; do
+      [ "$_f" = nameserver ] && { _dns=$_line; break; }
+    done < /etc/resolv.conf
+  fi
   publish "net/dns" "${_dns:-n/a}"
+  # one ip call for the IPv4 addresses of all interfaces
+  declare -A _addr4=()
+  while read -r _ _iface _f _cidr _; do
+    [ "$_f" = inet ] && [ -z "${_addr4[$_iface]}" ] && _addr4[$_iface]=$_cidr
+  done < <(ip -o -4 addr show 2>/dev/null)
   for _iface in usb0 eth0; do
     [ -d "/sys/class/net/$_iface" ] || continue
-    _cidr=$(ip -4 addr show "$_iface" 2>/dev/null | awk '/inet /{print $2; exit}')
-    _mac=$(ip link show "$_iface" 2>/dev/null | awk '/ether/{print $2; exit}')
+    _cidr=${_addr4[$_iface]}
+    rd "/sys/class/net/$_iface/address"; _mac=$REPLY
+    [ "$_mac" = "n/a" ] && _mac=""
     [ -n "$_cidr" ] && publish "net/$_iface/ip"   "${_cidr%%/*}"
     if [ -n "$_cidr" ] && [[ "$_cidr" == */* ]]; then
-      publish "net/$_iface/mask" "$(prefix_to_mask "${_cidr##*/}")"
+      prefix_to_mask_v "${_cidr##*/}"; publish "net/$_iface/mask" "$REPLY"
     fi
     [ -n "$_mac" ] && publish "net/$_iface/mac" "$_mac"
   done
@@ -422,10 +505,11 @@ dump_data () {
   # the sample rate back down via cmd/rx/sampling (which doesn't touch this
   # file) left it stuck at "1" forever, permanently skipping the sync branch
   # below and leaving state/rx/span stuck at the old high value.
-  local sweep_hw; sweep_hw=$(cat "${debug_folder}adi,rx-fastlock-pincontrol-enable" 2>/dev/null)
-  local s_freq; s_freq=$(cat /tmp/sweep_frequency 2>/dev/null)
-  local s_span; s_span=$(cat /tmp/sweep_span 2>/dev/null)
-  local hw_sr; hw_sr=$(read_file "${folder}in_voltage_sampling_frequency")
+  local sweep_hw s_freq s_span hw_sr
+  rd_raw "${debug_folder}adi,rx-fastlock-pincontrol-enable"; sweep_hw=$REPLY
+  rd_raw /tmp/sweep_frequency; s_freq=$REPLY
+  rd_raw /tmp/sweep_span; s_span=$REPLY
+  rd "${folder}in_voltage_sampling_frequency"; hw_sr=$REPLY
 
   if [ "$sweep_hw" == "1" ] || { [ "$hw_sr" != "n/a" ] && [ "${hw_sr:-0}" -gt "43000000" ]; }; then
     publish "rx/sweep/engaged" "1"
@@ -452,16 +536,21 @@ dump_data () {
   publish "rx/sweep/frequency" "${s_freq:-0}"
   publish "rx/span"            "${s_span:-0}"
   publish "rx/sweep/span"      "${s_span:-0}"
-  publish "main/fir_config"    "$(head -1 "${folder}filter_fir_config" 2>/dev/null || echo 'n/a')"
+  if [ -r "${folder}filter_fir_config" ]; then
+    rd_raw "${folder}filter_fir_config"
+    publish "main/fir_config" "${REPLY%%$'\n'*}"
+  else
+    publish "main/fir_config" "n/a"
+  fi
 
-  publish "rx/buffer_size" "$(read_file "${adc_folder}buffer/length")"
-  publish "tx/buffer_size" "$(read_file "${dds_folder}buffer/length")"
+  rd "${adc_folder}buffer/length"; publish "rx/buffer_size" "$REPLY"
+  rd "${dds_folder}buffer/length"; publish "tx/buffer_size" "$REPLY"
 
-  rx_overload=$(iio_attr -D ad9361-phy direct_reg_access 0x5E 2>/dev/null)
+  reg_read "$debug_folder" 0x5E; rx_overload=$REPLY
   rx_overload=$((rx_overload & 1))
   publish "rx/overload" "$rx_overload"
 
-  tx_overload=$(iio_attr -D ad9361-phy direct_reg_access 0x5F 2>/dev/null)
+  reg_read "$debug_folder" 0x5F; tx_overload=$REPLY
   if (( (tx_overload & 0x7C) != 0 )); then
     publish "tx/overload" "1"
   else
@@ -492,12 +581,12 @@ dump_data () {
   done < /proc/meminfo
   publish "main/mem" $(( (mem_total - mem_avail) * 100 / mem_total ))
 
-  local temp_raw; temp_raw=$(read_file "${folder}in_temp0_input")
+  local temp_raw; rd "${folder}in_temp0_input"; temp_raw=$REPLY
   [ "$temp_raw" != "n/a" ] && publish "main/temp" $(( temp_raw / 1000 ))
 
-  local fpga_raw; fpga_raw=$(read_file "${xadc_folder}in_temp0_input")
+  local fpga_raw; rd "${xadc_folder}in_temp0_input"; fpga_raw=$REPLY
   if [ "$fpga_raw" = "n/a" ] && [ -n "$xadc_folder" ] && [ "$xadc_folder" != "/" ]; then
-    local xraw xoff; xraw=$(read_file "${xadc_folder}in_temp0_raw"); xoff=$(read_file "${xadc_folder}in_temp0_offset")
+    local xraw xoff; rd "${xadc_folder}in_temp0_raw"; xraw=$REPLY; rd "${xadc_folder}in_temp0_offset"; xoff=$REPLY
     [ "$xraw" != "n/a" ] && fpga_raw=$(( (xraw + xoff) * 123 ))
   fi
   [ "$fpga_raw" != "n/a" ] && publish "main/fpga_temp" $(( fpga_raw / 1000 - 20 ))
@@ -505,40 +594,68 @@ dump_data () {
   local uptime_s; read -r uptime_s _ < /proc/uptime
   publish "main/uptime" "${uptime_s%%.*}"
 
-  local tx_dma_now tx_dma_rate=0
-  tx_dma_now=$(grep "7c42" /proc/interrupts 2>/dev/null | head -1 | awk '{s=0; for(i=2;i<=NF;i++){if($i~/^[0-9]+$/)s+=$i}; print s}')
+  # both DMA interrupt counts in one pass over /proc/interrupts (the sum of
+  # every numeric field after the first, as the former awk did)
+  local tx_dma_now="" rx_dma_now="" _sum _w
+  while read -r _line; do
+    case $_line in
+      *7c42*|*7c40*)
+        _sum=0
+        set -f; set -- $_line; set +f; shift
+        for _w in "$@"; do [[ $_w =~ ^[0-9]+$ ]] && _sum=$(( _sum + 10#$_w )); done
+        case $_line in
+          *7c42*) [ -z "$tx_dma_now" ] && tx_dma_now=$_sum ;;
+          *)      [ -z "$rx_dma_now" ] && rx_dma_now=$_sum ;;
+        esac ;;
+    esac
+  done < /proc/interrupts
+
+  local tx_dma_rate=0
   if [ -n "$tx_dma_now" ] && [ "$TX_DMA_PREV" -gt 0 ]; then
     tx_dma_rate=$(( (tx_dma_now - TX_DMA_PREV) / 2 ))
     publish "tx/dma_transfer" "$tx_dma_rate"
   fi
   [ -n "$tx_dma_now" ] && TX_DMA_PREV=$tx_dma_now
 
-  tx_under_raw=$(iio_attr -D cf-ad9361-dds-core-lpc direct_reg_access 0x80000088 2>/dev/null)
+  reg_read "$dds_debug_folder" 0x80000088; tx_under_raw=$REPLY
   if [ -n "$tx_under_raw" ] && (( (tx_under_raw & 4) != 0 )) && (( tx_dma_rate > 0 )); then
     publish "tx/underflow" "1"
-    iio_attr -D cf-ad9361-dds-core-lpc direct_reg_access "0x80000088 $tx_under_raw" >/dev/null 2>&1
+    echo "0x80000088 $tx_under_raw" > "${dds_debug_folder}direct_reg_access" 2>/dev/null
   else
     publish "tx/underflow" "0"
   fi
 
-  local rx_dma_now rx_dma_rate=0
-  rx_dma_now=$(grep "7c40" /proc/interrupts 2>/dev/null | head -1 | awk '{s=0; for(i=2;i<=NF;i++){if($i~/^[0-9]+$/)s+=$i}; print s}')
+  local rx_dma_rate=0
   if [ -n "$rx_dma_now" ] && [ "$RX_DMA_PREV" -gt 0 ]; then
     rx_dma_rate=$(( (rx_dma_now - RX_DMA_PREV) / 2 ))
     publish "rx/dma_transfer" "$rx_dma_rate"
   fi
   [ -n "$rx_dma_now" ] && RX_DMA_PREV=$rx_dma_now
 
-  rx_under_raw=$(iio_attr -D cf-ad9361-lpc direct_reg_access 0x80000088 2>/dev/null)
+  reg_read "$adc_debug_folder" 0x80000088; rx_under_raw=$REPLY
   if [ -n "$rx_under_raw" ] && (( (rx_under_raw & 4) != 0 )) && (( rx_dma_rate > 0 )); then
     publish "rx/underflow" "1"
-    iio_attr -D cf-ad9361-lpc direct_reg_access "0x80000088 $rx_under_raw" >/dev/null 2>&1
+    echo "0x80000088 $rx_under_raw" > "${adc_debug_folder}direct_reg_access" 2>/dev/null
   else
     publish "rx/underflow" "0"
   fi
 
-  local iq_rx iq_tx
-  read -r iq_rx iq_tx <<< "$(grep "${IQ_IFF}:" /proc/net/dev 2>/dev/null | awk '{print $2, $10}')"
+  # both interfaces in one pass over /proc/net/dev (fields 2 and 10 of the
+  # interface's line, as the former grep | awk did)
+  local iq_rx="" iq_tx="" usb_rx="" usb_tx="" _a _b
+  while read -r _line; do
+    case $_line in
+      "${IQ_IFF}:"*|usb0:*)
+        set -f; set -- $_line; set +f
+        _a=$2; _b=${10}
+        case $_line in
+          "${IQ_IFF}:"*) [ -z "$iq_rx" ] && { iq_rx=$_a; iq_tx=$_b; } ;;
+        esac
+        case $_line in
+          usb0:*) [ -z "$usb_rx" ] && { usb_rx=$_a; usb_tx=$_b; } ;;
+        esac ;;
+    esac
+  done < /proc/net/dev
   if [ -n "$iq_rx" ]; then
     if [ "$IQ_INIT" -eq 1 ]; then
       publish "rx/rate" $(( (iq_rx - IQ_RX_PREV) / 2 ))
@@ -549,8 +666,6 @@ dump_data () {
     IQ_INIT=1
   fi
 
-  local usb_rx usb_tx
-  read -r usb_rx usb_tx <<< "$(grep "usb0:" /proc/net/dev 2>/dev/null | awk '{print $2, $10}')"
   if [ -n "$usb_rx" ]; then
     if [ "$USB_INIT" -eq 1 ]; then
       publish "usb/rx_rate" $(( (usb_rx - USB_RX_PREV) / 2 ))
@@ -561,7 +676,16 @@ dump_data () {
     USB_INIT=1
   fi
 
-  if pgrep iio_ws_proxy >/dev/null 2>&1; then
+  # iio_ws_proxy and gpsd: one pass over /proc/*/comm instead of pgrep/pidof
+  local _have_proxy=0 _have_gpsd=0 _comm
+  for _f in /proc/[0-9]*/comm; do
+    read -r _comm < "$_f" 2>/dev/null || continue
+    case $_comm in
+      *iio_ws_proxy*) _have_proxy=1 ;;
+    esac
+    [ "$_comm" = gpsd ] && _have_gpsd=1
+  done
+  if [ "$_have_proxy" = 1 ]; then
     publish "system/iqtape" "on"
     publish "system/siggen" "on"
   else
@@ -570,15 +694,15 @@ dump_data () {
   fi
 
   # GPS fix and Maidenhead locator — poll via gpsd every 5 cycles (~10 s)
-  if pidof gpsd >/dev/null 2>&1 && command -v gpspipe >/dev/null 2>&1; then
+  if [ "$_have_gpsd" = 1 ] && [ "$HAVE_GPSPIPE" = 1 ]; then
     GPS_TICK=$(( GPS_TICK + 1 ))
     [ $(( GPS_TICK % 5 )) -eq 1 ] && poll_gps &
   else
     printf 'none' > /tmp/gps_fix
   fi
   local _gfix _gloc
-  _gfix=$(cat /tmp/gps_fix 2>/dev/null)
-  _gloc=$(cat /tmp/gps_locator 2>/dev/null)
+  rd_raw /tmp/gps_fix; _gfix=$REPLY
+  rd_raw /tmp/gps_locator; _gloc=$REPLY
   publish "system/gps/fix" "${_gfix:-none}"
   [ -n "$_gloc" ] && publish "system/gps/locator" "$_gloc"
 
@@ -587,11 +711,12 @@ dump_data () {
   # kernel "heartbeat" trigger, so it will keep blinking on its own in the
   # UI; that trigger also means a manual cmd/gpio/led0 toggle can get
   # immediately overridden by the next heartbeat pulse.
-  local _led_dir _led
+  local _led_dir _led _b
   for _led_dir in /sys/class/leds/*/; do
     [ -d "$_led_dir" ] || continue
-    _led=$(basename "$_led_dir")
-    publish "gpio/$_led" "$(led_state "$_led")"
+    _led=${_led_dir%/}; _led=${_led##*/}
+    rd "${_led_dir}brightness"; _b=$REPLY
+    if [ "$_b" != "n/a" ] && [ "$_b" -gt 0 ] 2>/dev/null; then publish "gpio/$_led" 1; else publish "gpio/$_led" 0; fi
   done
 }
 
