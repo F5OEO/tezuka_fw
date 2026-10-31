@@ -316,22 +316,7 @@ function Webtioune({ d }) {
     return () => clearInterval(id);
   }, [infoOn]);
 
-  // Browsers' Media Source Extensions do not take every broadcast audio codec (MPEG-1 Layer II, common on DATV, is refused by Chrome),
-  // and with hasAudio a refused audio track can stop the video too. A player that errors or shows no picture within a few seconds is
-  // reopened once with video only, until the tuning changes.
-  const audioOffRef = useWtR(false);
-  const [audioOff, setAudioOff] = useWtS(false);
-  const watchdogRef = useWtR(null);
-  const videoOnly = (player) => {
-    if (playerRef.current !== player || audioOffRef.current) return false;
-    audioOffRef.current = true;
-    setAudioOff(true);
-    setTimeout(() => connect(), 0);
-    return true;
-  };
-
   const stop = () => {
-    if (watchdogRef.current) { clearTimeout(watchdogRef.current); watchdogRef.current = null; }
     const p = playerRef.current;
     if (p) {
       playerRef.current = null;
@@ -361,14 +346,13 @@ function Webtioune({ d }) {
       return;
     }
     const player = mp.createPlayer(
-      { type: 'mpegts', isLive: true, url: wsTsUrl(), hasAudio: !audioOffRef.current },
+      { type: 'mpegts', isLive: true, url: wsTsUrl(), hasAudio: true },
       { enableWorker: true, liveBufferLatencyChasing: true, liveBufferLatencyMaxLatency: 3, liveBufferLatencyMinRemain: 0.5 }
     );
     playerRef.current = player;
     // a player that was stopped meanwhile (lock lost) must not report anything
     player.on(mp.Events.ERROR, (type, detail, info) => {
       if (playerRef.current !== player) return;
-      if (videoOnly(player)) return;
       setStatus('error');
       setErrorMsg(`${type}: ${detail}${info && info.msg ? ' — ' + info.msg : ''}`);
     });
@@ -393,12 +377,6 @@ function Webtioune({ d }) {
         else onFailed(e);
       });
     } else onStarted();
-    if (!audioOffRef.current) {
-      watchdogRef.current = setTimeout(() => {
-        watchdogRef.current = null;
-        if (playerRef.current === player && v.readyState < 2) videoOnly(player);   // no picture yet: try without the audio track
-      }, 8000);
-    }
   };
 
   // Release the player when navigating away from this page.
@@ -414,7 +392,6 @@ function Webtioune({ d }) {
   const wasUnlocked = useWtR(false);
   const lockedNow = useWtR(locked); lockedNow.current = locked;
   const firstKey = useWtR(true);
-  useWtE(() => { audioOffRef.current = false; setAudioOff(false); }, [tuneKey]);
   useWtE(() => { if (firstKey.current) { firstKey.current = false; return; } wasUnlocked.current = !lockedNow.current; setNameArmed(wasUnlocked.current); }, [tuneKey]);
   useWtE(() => { if (!locked) wasUnlocked.current = true; else if (wasUnlocked.current) setNameArmed(true); }, [locked]);
   const serviceName = locked && nameArmed && lm.service_name ? lm.service_name : '';
@@ -522,10 +499,7 @@ function Webtioune({ d }) {
 
         <div className="span-7 tile-stack">
         <Card title="Webtioune" sub="Live TS preview · mpegts.js"
-          right={<>
-            {audioOff && <span title="the browser could not play this audio codec: video only"><Pill tone="warn" dot>No audio</Pill></span>}
-            {hevcUnsupported && <Pill tone="warn" dot>H265</Pill>}
-          </>}>
+          right={hevcUnsupported && <Pill tone="warn" dot>H265</Pill>}>
           {errorMsg && !hevcUnsupported && (
             <div className="info-note" style={{ marginTop: 10 }}>
               <Icon name="bolt" size={16} />
