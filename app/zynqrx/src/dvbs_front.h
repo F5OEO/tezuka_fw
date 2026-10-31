@@ -14,6 +14,7 @@ public:
         double centerHz = 0;       // the carrier relative to the centre of the input
         double rollOff = 0.35;
         bool prefiltered = false;  // the input is already matched filtered (root raised cosine) at about 2 samples per symbol, e.g. by the radio's FPGA
+        bool symbols = false;      // the input is already one timing-recovered symbol per sample, unit mean power at a quarter of full scale (the FPGA symbol front end): only rescaled
     };
     void configure(const Config& c);
     void reset();                                           // keeps the configuration, forgets the signal

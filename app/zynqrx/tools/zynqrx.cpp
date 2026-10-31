@@ -13,6 +13,12 @@
 //       receiver skips its resampler and matched filter (--rate must be twice the symbol rate; give --roll, the spectrum cannot measure it then).
 //       --center Hz (with --rs): the carrier's offset from the centre of the recording is known, so the receiver starts at once and never runs
 //       the spectrum search or its FFTs.
+//   zynqrx rx recording --symbols --rs Msym [--format cs16|cf32] ...
+//       The recording holds timing-recovered symbols at one per sample, unit mean power at a quarter of full scale (cs16: 512 of 2048), as the FPGA symbol front end
+//       makes them (mixer, interpolator, Gardner loop, AGC): the receiver skips its own front end.
+//   zynqrx rx --iio --fpga-front --freq MHz --rs Msym [--roll 0.35] [--center Hz] ...
+//       Live input through the FPGA symbol front end (bitstream with maia-hdl's symfront core): the radio's RRC FIR at 2 samples per symbol, then
+//       the fabric's mixer, Gardner loop and AGC; the receiver gets one symbol per sample and skips its own front end. Needs root (/dev/mem).
 //   zynqrx rx --iio [uri] --freq MHz --rate Msps [--bw MHz] [--gain dB] [--rs ..] [--std ..] [--ts out.ts] [--secs 0]
 //       Live input from the radio's AD936x through libiio instead of a recording. `uri` is optional (default: the local context on the board; or ip:..., usb:...).
 //       --freq is the RF centre frequency in MHz, --gain a fixed RX gain in dB (default: the radio's slow attack AGC), --bw the analog bandwidth (default = rate).
@@ -78,6 +84,7 @@
 #include "dvbs_s1.h"
 #include "dvbs_carrier.h"
 #include "iio_source.h"
+#include "fpga_symfront.h"
 #include "udp_out.h"
 #include "ws_out.h"
 #include "datv_mqtt.h"
@@ -331,6 +338,8 @@ struct RxOpts {
     int modsMask = 0;
     bool presence = false;
     bool prefilt = false, ldpc8 = false, noBch = false, cs8 = true, ccm = false, haveCenter = false, useIio = false, rateGiven = false;
+    bool symbols = false;                     // --symbols: the recording holds timing-recovered symbols at one per sample (the FPGA symbol front end)
+    bool fpgaFront = false;                   // --fpga-front: live input through the FPGA symbol front end (the radio's RRC FIR, then the fabric)
     int fastTiming = 2;                       // --fast-timing: 0 off, 1 on, 2 auto (on above 0.5 Msym/s)
     bool start = false;                       // --start: with --mqtt, begin receiving at once instead of waiting for cmd/zynqrx/process start
 };
@@ -439,7 +448,20 @@ int runSession(RxOpts& o, RxCtl& ctl) {
     const bool useIio = o.useIio, prefilt = o.prefilt;
     std::ifstream f;
     IioSource iio;
-    if (useIio) { if (!iio.open(o.iioUri, rate * 1e6, o.freqMHz * 1e6, o.bwMHz * 1e6, o.gainDb, prefilt ? roll : 0, o.cs8)) return 1; }
+#ifdef ZYNQRX_IIO
+    FpgaSymFront fpga;                         // declared after the radio: disabled (bypass) before the radio is closed
+#endif
+    if (useIio && o.fpgaFront) {
+#ifdef ZYNQRX_IIO
+        // the radio's RRC FIR at 2 samples per symbol, then the fabric makes one symbol per sample: the receiver runs at the symbol rate
+        if (!iio.open(o.iioUri, 2 * rs * 1e6, o.freqMHz * 1e6, o.bwMHz * 1e6, o.gainDb, roll, o.cs8)) return 1;
+        if (!fpga.open()) return 1;
+        fpga.configure(o.haveCenter ? o.center : 0.0, 2 * rs * 1e6, roll);
+        fpga.enable(true);
+        rate = rs;
+#endif
+    }
+    else if (useIio) { if (!iio.open(o.iioUri, rate * 1e6, o.freqMHz * 1e6, o.bwMHz * 1e6, o.gainDb, prefilt ? roll : 0, o.cs8)) return 1; }
     else { f.open(path, std::ios::binary); if (!f) { fprintf(stderr, "cannot open %s\n", path.c_str()); return 1; } }
     // what the receiver's callbacks use is declared before the receiver, so that it is destroyed after it (the receiver's threads may still call them
     // until its destructor has joined them, which is the case when a session is ended without flushing)
@@ -458,6 +480,7 @@ int runSession(RxOpts& o, RxCtl& ctl) {
     if (o.stdHint) rx.setStandardHint(o.stdHint);
     if (roll > 0) rx.setRollOff(roll);
     rx.setPrefiltered(prefilt);
+    rx.setSymbolInput(o.symbols || o.fpgaFront);
     rx.setLdpc8(o.ldpc8);
     if (o.noBch || getenv("DECT2_NO_BCH")) rx.setNoBch(o.noBch || atoi(getenv("DECT2_NO_BCH")) != 0);
     rx.setFastTiming(o.fastTiming == 1 || (o.fastTiming == 2 && o.rs > 0.5));   // auto: only when the symbol rate is given
@@ -490,7 +513,7 @@ int runSession(RxOpts& o, RxCtl& ctl) {
         if (!tsOut.empty()) ts.insert(ts.end(), p - n * 188, p);
     });
     rx.setLogCallback([&](const std::string& s) { printf("[%7.2f s] %s\n", signalSecs, s.c_str()); });
-    const size_t bps = format == "cf32" ? 8 : 2, block = 1 << 16;
+    const size_t bps = format == "cf32" ? 8 : format == "cs16" ? 4 : 2, block = 1 << 16;
     std::vector<unsigned char> raw(block * bps);
     std::vector<cf32> x(block);
     uint64_t total = 0, seq = 0, nextReport = (uint64_t)(rate * 1e6);
@@ -571,11 +594,16 @@ int runSession(RxOpts& o, RxCtl& ctl) {
         if (!got) break;
         for (size_t i = 0; i < got && !useIio; i++) {
             if (format == "cf32") { float re, im; memcpy(&re, &raw[i * 8], 4); memcpy(&im, &raw[i * 8 + 4], 4); x[i] = cf32(re, im); }
+            else if (format == "cs16") { int16_t re, im; memcpy(&re, &raw[i * 4], 2); memcpy(&im, &raw[i * 4 + 2], 2); x[i] = cf32(re / 2048.f, im / 2048.f); }
             else if (format == "cu8") x[i] = cf32(((int)raw[2 * i] - 127.5f) / 127.5f, ((int)raw[2 * i + 1] - 127.5f) / 127.5f);
             else x[i] = cf32((int8_t)raw[2 * i] / 128.f, (int8_t)raw[2 * i + 1] / 128.f);
         }
         rx.feed(x.data(), got);
         total += got;
+#ifdef ZYNQRX_IIO
+        // the timing loop of the fabric narrows after 40000 symbols, as the CPU one does (DvbsRx::runFront)
+        if (o.fpgaFront && total >= 40000 && total - got < 40000) fpga.setLoop(0.004);
+#endif
         DvbsTelemetry t;
         if (rx.telemetry(t, seq)) { seq = t.seq; tel = t; if (tel.tsLock) ctl.locked = true; }
         if (total >= nextReport) { nextReport += (uint64_t)(rate * 1e6); printf("[%7.2f s] %s\n", (double)total / (rate * 1e6), dvbsSummary(tel).c_str()); }
@@ -785,6 +813,8 @@ int cmdRx(int argc, char** argv) {
         else if (a == "--isi") o.isi = atoi(next().c_str());
         else if (a == "--pls") o.pls = atoi(next().c_str());
         else if (a == "--prefiltered") o.prefilt = true;
+        else if (a == "--symbols") o.symbols = true;
+        else if (a == "--fpga-front") o.fpgaFront = true;
         else if (a == "--ldpc8") o.ldpc8 = true;
         else if (a == "--no-bch") o.noBch = true;
         else if (a == "--iq-format") o.cs8 = next() == "cs8";
@@ -809,6 +839,7 @@ int cmdRx(int argc, char** argv) {
         const int nv = o.niceValue != 99 ? o.niceValue : (o.useIio || !o.mqttHost.empty()) ? -10 : 0;
         if (nv != 0 && setpriority(PRIO_PROCESS, 0, nv) != 0 && o.niceValue != 99) fprintf(stderr, "--nice %d: not allowed (run as root)\n", nv);
     }
+    if (!o.mqttHost.empty() && o.fpgaFront) { fprintf(stderr, "--fpga-front works with --iio from the command line (not --mqtt yet)\n"); return 1; }
     if (!o.mqttHost.empty()) {
         // longmynd's way: --freq and --rs are optional here (the receiver waits for MQTT commands without them), the radio's RRC filter is chosen by the symbol rate
         if (!o.path.empty()) { fprintf(stderr, "--mqtt works with the radio (--iio), not a recording\n"); return 1; }
@@ -825,11 +856,26 @@ int cmdRx(int argc, char** argv) {
         if (o.roll <= 0) o.roll = 0.35;
         o.haveCenter = true;   // below 2 Msps the receiver runs without its spectrum search: the carrier is taken to be on the LO unless --center says otherwise
     }
+    if (o.fpgaFront) {   // live: the radio's RRC FIR (2 samples per symbol), then the FPGA front end (1 symbol per sample)
+        if (!o.useIio || !o.mqttHost.empty()) { fprintf(stderr, "--fpga-front works with --iio from the command line (not --mqtt yet)\n"); return 1; }
+        if (o.rs <= 0) { fprintf(stderr, "--fpga-front needs --rs\n"); return 1; }
+        if (o.roll <= 0) o.roll = 0.35;
+        o.prefilt = false;
+        if (!o.haveCenter) o.center = 0;
+        o.haveCenter = true;
+    }
+    if (o.symbols) {   // symbols at one per sample: the input rate is the symbol rate, the carrier is where the FPGA's mixer put it
+        if (o.useIio) { fprintf(stderr, "--symbols takes a recording (live FPGA symbols are not wired yet)\n"); return 1; }
+        if (o.rs <= 0) { fprintf(stderr, "--symbols needs --rs\n"); return 1; }
+        o.rate = o.rs; o.rateGiven = true; o.prefilt = false;
+        if (!o.haveCenter) { o.center = 0; o.haveCenter = true; }
+        if (o.roll <= 0) o.roll = 0.35;
+    }
     if (o.path.empty() && !o.useIio) { fprintf(stderr, "usage: zynqrx rx recording [--rate 10] [--format cs8|cu8|cf32] ... (see the top of tools/zynqrx.cpp)\n"); return 1; }
     if (o.format.empty() && !o.useIio) {
         const size_t d = o.path.rfind('.');
         const std::string ext = d == std::string::npos ? "" : o.path.substr(d + 1);
-        o.format = ext == "cf32" ? "cf32" : ext == "cu8" ? "cu8" : "cs8";
+        o.format = ext == "cf32" ? "cf32" : ext == "cu8" ? "cu8" : ext == "cs16" ? "cs16" : "cs8";
     }
     if (o.useIio) { signal(SIGINT, onSigint); signal(SIGTERM, onSigint); }
     RxCtl ctl;

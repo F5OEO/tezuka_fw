@@ -8,6 +8,14 @@ namespace dvbs {
 
 void DvbsFront::configure(const Config& c) {
     c_ = c;
+    if (c.symbols) {   // the FPGA did mixer, timing and AGC: nothing left to do here, the symbol rate is the input rate
+        c_.symbolRate = c.fs;
+        fs1_ = c.fs;
+        bypass_ = true;
+        hb_.clear(); stage_.clear();
+        reset();
+        return;
+    }
     mix_.configure(c.fs, c.centerHz);
     // decimate by two while at least three samples per symbol remain
     int k = 0;
@@ -39,7 +47,7 @@ void DvbsFront::reset() {
 }
 
 void DvbsFront::recentre() {
-    if (bypass_) return;      // no resampler to fold the offset into: the loop keeps it
+    if (bypass_ || c_.symbols) return;      // no resampler to fold the offset into: the loop keeps it
     const double off = timer_.rateOffset();
     // the loop found that the symbols come (1 + off) times faster than nominal: the resampler should produce 2 samples per real symbol
     c_.symbolRate *= (1.0 + off);
@@ -48,6 +56,12 @@ void DvbsFront::recentre() {
 }
 
 void DvbsFront::process(const cf32* x, size_t n, std::vector<cf32>& out) {
+    if (c_.symbols) {   // unit power at a quarter of full scale (512 of 2048 in 12 bits): room for the outer ring of 32APSK
+        const size_t b = out.size();
+        out.resize(b + n);
+        for (size_t i = 0; i < n; i++) out[b + i] = x[i] * 4.f;
+        return;
+    }
     size_t done = 0;
     while (done < n) {
         const size_t m = std::min<size_t>(4096, n - done);

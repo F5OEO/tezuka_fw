@@ -109,7 +109,7 @@ struct DvbsReceiver::Impl {
     std::atomic<int> stdHint{0}, isiSel{-1}, plCode{-1}, computeMode{2};
     ComputeChoice s1Compute{&ComputeChoice::viterbiUsable, false};                  // DVB-S: where the Viterbi decoder runs
     std::atomic<bool> s1OnGpu{false};
-    std::atomic<bool> blocking{false}, prefiltered{false}, centerKnown{false};
+    std::atomic<bool> blocking{false}, prefiltered{false}, centerKnown{false}, symbolInput{false};
     std::atomic<double> manualCenter{0};
     bool spectrumOff() const { return centerKnown.load() && manualRs.load() > 0; }   // carrier given: nothing to measure
     std::atomic<double> specInterval{0.25};   // seconds between spectrum analyses (display, carrier telemetry) once locked
@@ -252,7 +252,7 @@ struct DvbsReceiver::Impl {
         if (rollHint.load() > 0) { roll = rollHint.load(); rollSource = 1; }
         else if (!prefiltered.load() && r.rollOff > 0 && r.snrDb > 15.0f) { roll = snapRollOff(r.rollOff); rollSource = 1; }
         DvbsFront::Config c;
-        c.fs = fs; c.symbolRate = rs; c.centerHz = r.centerHz; c.rollOff = roll; c.prefiltered = prefiltered.load();
+        c.fs = fs; c.symbolRate = rs; c.centerHz = r.centerHz; c.rollOff = roll; c.prefiltered = prefiltered.load(); c.symbols = symbolInput.load();
         front.configure(c);
         front.timer().setLoop(0.02, 0.707);
         rsUsed = rs; rollUsed = roll;
@@ -585,13 +585,14 @@ void DvbsReceiver::configure(double inputRateHz) {
     p_->resetState();
 }
 // The 2 Msps floor is for the spectrum search; with the carrier given (or the radio's own filtering) a low rate works too
-bool DvbsReceiver::ready() const { return p_->fs >= (p_->prefiltered.load() && p_->spectrumOff() ? 1e5 : dvbsTuning().minSampleRate) - 1; }
+bool DvbsReceiver::ready() const { return p_->fs >= (p_->symbolInput.load() && p_->spectrumOff() ? 1e4 : p_->prefiltered.load() && p_->spectrumOff() ? 1e5 : dvbsTuning().minSampleRate) - 1; }
 void DvbsReceiver::reset() { p_->resetReq = true; }
 void DvbsReceiver::setLogCallback(std::function<void(const std::string&)> cb) { std::lock_guard<std::mutex> lk(p_->cbMu); p_->logCb = std::move(cb); }
 void DvbsReceiver::setPacketCallback(std::function<void(const uint8_t*, size_t, double)> cb) { std::lock_guard<std::mutex> lk(p_->cbMu); p_->pktCb = std::move(cb); }
 void DvbsReceiver::setSymbolRate(double hz) { if (hz != p_->manualRs.load()) { p_->manualRs = hz; p_->restartReq = true; } }
 void DvbsReceiver::setStandardHint(int s) { if (s != p_->stdHint.load()) { p_->stdHint = s; p_->restartReq = true; } }
 void DvbsReceiver::setRollOff(double r) { if (r != p_->rollHint.load()) { p_->rollHint = r; p_->restartReq = true; } }
+void DvbsReceiver::setSymbolInput(bool on) { if (on != p_->symbolInput.load()) { p_->symbolInput = on; p_->restartReq = true; } }
 void DvbsReceiver::setPrefiltered(bool on) { if (on != p_->prefiltered.load()) { p_->prefiltered = on; p_->restartReq = true; } }
 void DvbsReceiver::setSpectrumInterval(double secs) { p_->specInterval = secs; }
 void DvbsReceiver::setCenter(bool known, double hz) { if (known != p_->centerKnown.load() || hz != p_->manualCenter.load()) { p_->manualCenter = hz; p_->centerKnown = known; p_->restartReq = true; } }
@@ -685,7 +686,8 @@ void DvbsReceiver::feed(const cf32* x, size_t n) {
         I.doSearch();
         if (I.mode != Impl::kSearch) std::vector<cf32>().swap(I.raw);
     }
-    else if (I.gate.load() && I.prefiltered.load()) {
+    else if (I.gate.load() && I.prefiltered.load() && !I.symbolInput.load()) {   // the presence test needs two samples per symbol
+
         I.presence.update(x, n);
         bool run = true;
         if (I.mode == Impl::kHunt) {
