@@ -394,8 +394,9 @@ DECT2_SIMD_MEMBER_BODY bool LdpcCode::decodeQ8Body(const std::vector<float>& llr
         for (int r = 0; r < q; r++) {
             const auto& cn = layers_[(size_t)r];
             const int nc = (int)cn.size() + 2;
-            L.assign((size_t)nc * ZS, 0);
-            inc.assign((size_t)nc * ZS, 0);
+            // not cleared per layer: every lane a layer reads (m < Z of its nc rows) is written first, and the padding lanes (Z <= m < ZS) are
+            // independent of the others and never added back into inf or par (a Cortex-A9 spent a good part of an iteration on the clearing)
+            if (L.size() < (size_t)nc * ZS) { L.resize((size_t)nc * ZS, 0); inc.resize((size_t)nc * ZS, 0); }
             int8_t* mr = msg.data() + base[(size_t)r];
             for (int j = 0; j < nc; j++) {
                 int8_t* Lj = L.data() + (size_t)j * ZS;
