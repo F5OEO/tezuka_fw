@@ -679,7 +679,7 @@ dump_data () {
   # iio_ws_proxy and gpsd: one pass over /proc/*/comm instead of pgrep/pidof
   local _have_proxy=0 _have_gpsd=0 _comm
   for _f in /proc/[0-9]*/comm; do
-    read -r _comm < "$_f" 2>/dev/null || continue
+    { read -r _comm < "$_f"; } 2>/dev/null || continue
     case $_comm in
       *iio_ws_proxy*) _have_proxy=1 ;;
     esac
