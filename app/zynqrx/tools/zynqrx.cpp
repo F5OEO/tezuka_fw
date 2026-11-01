@@ -355,7 +355,7 @@ struct RxTune {
     int stdHint = 0, isi = -1, pls = -1, modsMask = 0, fastTiming = 2;
     bool ccm = false, presence = false, ldpc8 = false, wsKeyframe = false, noBch = false, cs8 = true;
     bool fpgaFront = false;                   // fpgafront: the FPGA symbol front end (from 261 kS, where the radio's RRC filter is used)
-    int txClock = 2;                          // txclock: 0 off, 1 on, 2 auto = on once pluto_stream has set a transmit symbol rate (dt/pluto/+/tx/dvbs2/sr)
+    int txClock = 2;                          // txclock: 0 off, 1 on, 2 auto = on while pluto_stream transmits (dt/pluto/+/tx/dvbs2/sr set, dt/pluto/+/tx/mute 0)
 };
 
 // "qpsk,8psk" -> mask; false when a name is not one of the four
@@ -441,6 +441,9 @@ struct RxCtl {
     std::string tsip;
     long txSr = 0;                          // the transmit symbol rate pluto_stream announces (dt/pluto/<call>/tx/dvbs2/sr, retained, S/s), 0 = none yet
     std::string txCall;                       // the <call> of that topic
+    bool txOn = false;                        // PTT pressed (dt/pluto/<call>/tx/mute 0, retained)
+    // txclock auto: the transmission's clock while it transmits; otherwise the receiver's own rate and FIR (and the symbol front end)
+    bool wantTxClock() const { return tune.txClock == 1 || (tune.txClock == 2 && txSr > 0 && txOn); }
     RxTune tune;                              // the settings above (cmd/zynqrx/gain ... pls)
     std::mutex udpMu;                         // the transport stream output moves to a new address while packets are being sent
     UdpOut udp;
@@ -775,17 +778,25 @@ int runDaemon(RxOpts& o) {
     if (o.wsPort > 0) { ctl.ws.waitForKeyframe(o.wsKeyframe); if (!ctl.ws.open(o.wsPort)) return 1; }
     auto onCommand = [&ctl](const std::string& key, const std::string& val) {
         char* end = nullptr;
-        if (key.compare(0, 6, "@txsr:") == 0) {   // pluto_stream's transmit symbol rate (kS): with txclock auto, the receiver moves to the transmission's clock
+        const bool isSr = key.compare(0, 6, "@txsr:") == 0, isMute = key.compare(0, 8, "@txmute:") == 0;
+        if (isSr || isMute) {   // pluto_stream's transmit symbol rate (S/s) and PTT: with txclock auto, the receiver takes the transmission's clock while it transmits
             const double v = strtod(val.c_str(), &end);
+            const bool num = !val.empty() && !*end;
             std::lock_guard<std::mutex> lk(ctl.mu);
-            const long n = val.empty() || *end || !(v > 0) ? 0 : std::lround(v);
-            ctl.txCall = key.substr(6);
-            if (n == ctl.txSr) return;
-            const bool modeChange = (n > 0) != (ctl.txSr > 0);
-            ctl.txSr = n;
-            fprintf(stderr, "mqtt: transmit symbol rate %ld (pluto_stream)\n", n);
-            // a new rate also moves the clock, which the running session notices by itself; only a switch between the two ways needs a restart here
-            if (!modeChange || ctl.tune.txClock != 2 || !ctl.enabled) return;
+            const bool before = ctl.wantTxClock();
+            if (isSr) {
+                ctl.txCall = key.substr(6);
+                const long n = num && v > 0 ? std::lround(v) : 0;
+                if (n != ctl.txSr) fprintf(stderr, "mqtt: transmit symbol rate %ld (pluto_stream)\n", n);
+                ctl.txSr = n;
+            } else {
+                ctl.txCall = key.substr(8);
+                const bool on = num && v == 0;   // mute 0 = transmitting
+                if (on != ctl.txOn) fprintf(stderr, "mqtt: transmission %s\n", on ? "on" : "off");
+                ctl.txOn = on;
+            }
+            // a new rate also moves the clock, which a txclock session notices by itself; only a switch between the two ways needs a restart here
+            if (before == ctl.wantTxClock() || !ctl.enabled) return;
             ctl.restart = true;
             ctl.stop = true;
             if (ctl.cancelRead) ctl.cancelRead();
@@ -868,7 +879,7 @@ int runDaemon(RxOpts& o) {
         RxOpts so = o;
         { std::lock_guard<std::mutex> lk(ctl.mu); tuneApply(ctl.tune, so); }
         datvSessionOpts(so, fk, sk);
-        { std::lock_guard<std::mutex> lk(ctl.mu); so.txClock = ctl.tune.txClock == 1 || (ctl.tune.txClock == 2 && ctl.txSr > 0); }
+        { std::lock_guard<std::mutex> lk(ctl.mu); so.txClock = ctl.wantTxClock(); }
         if (so.txClock) {
             // the transmission owns the AD9361 clock: the FPGA DDC and the software matched filter (runSession)
             so.prefilt = false;
