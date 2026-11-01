@@ -449,7 +449,10 @@ void s2BbScramble(uint8_t* bits, int n) {
         }
         return v;
     }();
-    for (int i = 0; i < n && i < 64800; i++) bits[i] ^= prbs[i];
+    // one bound computed beforehand: the loop vectorises (NEON, 16 bits per step); with the two-part condition it ran a byte at a time
+    const int m = std::min(n, 64800);
+    const uint8_t* q = prbs.data();
+    for (int i = 0; i < m; i++) bits[i] ^= q[i];
 }
 
 // ============================================================================ PL signalling
