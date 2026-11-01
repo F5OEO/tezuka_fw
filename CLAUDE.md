@@ -111,9 +111,13 @@ Before the first build in a fresh checkout (and after any `git submodule update`
 Always pass the `all` target explicitly (`make all`, not bare `make`) — the Makefile's implicit default target only builds the Vivado project (`build_project`), it does not build `ip_cores` first or run `install` to copy the `.xsa` out. `make all` runs `ip_cores build_project install` in that order and copies `<board>.sdk/system_top.xsa` straight into `board/tezuka/<board>/bitstream/maia-iio/system_top.xsa` in this repo (`DEST` in the Makefile), so no manual copy step is needed afterward. Then test it:
 
 ```bash
-make -C buildroot O=output/<board> board-fpga-reconfigure   # re-extract system_top.bit into BINARIES_DIR
-make -C buildroot O=output/<board>                          # rebuild final images via post-image.sh
+make -C output/<board> board-fpga-reconfigure   # re-extract system_top.bit into BINARIES_DIR
+make -C output/<board>                          # rebuild final images via post-image.sh
 ```
+
+Use the `output/<board>` wrapper Makefile: with `make -C buildroot O=output/<board>`, the relative `O=` is resolved from `buildroot/`, so Buildroot finds no configuration and the BR2_EXTERNAL targets such as `board-fpga-reconfigure` do not exist.
+
+**Patch dvb_fpga before any Vivado build.** maia-hdl keeps its changes to the `dvb_fpga` submodule (the DVB-S2 TX encoder) as patches, not as commits: run `make -C maia-hdl patch-dvb_fpga` after every `git submodule update` and check `git -C maia-hdl/dvb_fpga status` shows modified `rtl/` files. Without them the bitstream builds, meets timing and receives, but DVB-S2 TX sends a carrier with no decodable frames: the encoder cannot parse the SYNC + MODCOD header pluto_stream puts in front of each BBFRAME.
 
 #### Adding a new board's FPGA project
 
