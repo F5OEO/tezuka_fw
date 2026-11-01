@@ -53,16 +53,20 @@ public:
         mosquitto_connect_callback_set(mosq_, [](mosquitto* m, void*, int rc) {
             if (rc == 0 && mosquitto_subscribe(m, nullptr, "cmd/zynqrx/#", 1) != MOSQ_ERR_SUCCESS) fprintf(stderr, "mqtt: subscribe failed\n");
             else if (rc == 0) fprintf(stderr, "mqtt: connected, listening on cmd/zynqrx/#\n");
+            // pluto_stream's transmit symbol rate (retained): RX and TX share the AD9361 clock, so the receiver follows the transmission's (txclock)
+            if (rc == 0) mosquitto_subscribe(m, nullptr, "dt/pluto/+/tx/dvbs2/sr", 1);
         });
         mosquitto_message_callback_set(mosq_, [](mosquitto*, void* self, const mosquitto_message* msg) {
             static const std::string pre = "cmd/zynqrx/";
             if (!msg->topic || !msg->payload) return;
             const std::string topic = msg->topic;
-            if (topic.compare(0, pre.size(), pre) != 0) return;
+            static const std::string txsr = "/tx/dvbs2/sr";
+            const bool isTx = topic.compare(0, 9, "dt/pluto/") == 0 && topic.size() > txsr.size() && topic.compare(topic.size() - txsr.size(), txsr.size(), txsr) == 0;
+            if (!isTx && topic.compare(0, pre.size(), pre) != 0) return;
             std::string v((const char*)msg->payload, (size_t)msg->payloadlen);   // not NUL-terminated on the wire
             while (!v.empty() && (v.back() == '\n' || v.back() == '\r' || v.back() == ' ' || v.back() == '\t')) v.pop_back();
             auto* l = (MqttLink*)self;
-            if (l->handler_) l->handler_(topic.substr(pre.size()), v);
+            if (l->handler_) l->handler_(isTx ? std::string("@txsr") : topic.substr(pre.size()), v);
         });
         const int rc = mosquitto_connect_async(mosq_, host.c_str(), port, 60);
         if (rc != MOSQ_ERR_SUCCESS) fprintf(stderr, "mqtt: cannot connect to %s:%d yet (%s), retrying\n", host.c_str(), port, mosquitto_strerror(rc));

@@ -72,12 +72,13 @@ Commands (`cmd/zynqrx/...`):
 | `mods` | Modulations to search for, e.g. `qpsk,8psk`. Same as `--mods`. |
 | `ccm`, `presence`, `ldpc8` | `0` or `1`. Same as `--ccm`, `--presence`/`--no-presence`, `--ldpc8`. |
 | `fpgafront` | `0` or `1`. Same as `--fpga-front`: the FPGA symbol front end (bitstream with the symfront core, 261 kS and up; otherwise the CPU front end runs). |
+| `txclock` | `on`, `off` or `auto` (default). RX and TX share the AD9361 clock, so a receiver that sets its own rate and FIR breaks pluto_stream's transmission. `on` (`--tx-clock`): the converter rate and FIR stay as pluto_stream set them, the Maia DDC in the FPGA decimates to 2 - 4 samples per symbol (maia-httpd `/api/ddc`, route enabled for the session) and the receiver filters in software; `fpgafront` does not apply. `auto`: `on` once pluto_stream has announced a transmit symbol rate (`dt/pluto/<call>/tx/dvbs2/sr`, retained). The session restarts by itself when the transmission moves the clock. The clock must be at least 2 x the receive symbol rate. |
 | `fasttiming` | `on`, `off` or `auto`. Same as `--fast-timing`. |
 | `maxlag` | Seconds, 0 = off. Same as `--max-lag`. |
 | `isi`, `pls` | Input stream identifier (-1 - 255) and scrambling code (-1 - 262142), -1 = any. Same as `--isi`, `--pls`. |
 | `wskeyframe` | `0` or `1`, takes effect at once. Same as `--ws-keyframe`. |
 
-Every command except `wskeyframe` restarts the receiver when it is running, which takes a few seconds (while stopped the value is kept for the next start). Each setting is echoed on `dt/zynqrx/set/<name>` (same names: `gain`, `bw`, `std`, `roll`, `mods`, `ccm`, `presence`, `fasttiming`, `ldpc8`, `fpgafront`, `maxlag`, `isi`, `pls`, `wskeyframe`). A refused value is logged and ignored. The initial values come from the command line options.
+Every command except `wskeyframe` restarts the receiver when it is running, which takes a few seconds (while stopped the value is kept for the next start). Each setting is echoed on `dt/zynqrx/set/<name>` (same names: `gain`, `bw`, `std`, `roll`, `mods`, `ccm`, `presence`, `fasttiming`, `ldpc8`, `fpgafront`, `txclock`, `maxlag`, `isi`, `pls`, `wskeyframe`). A refused value is logged and ignored. The initial values come from the command line options.
 
 Not available over MQTT: `--prefiltered` (chosen from the symbol rate), `--rate`, `--center`, `--ts`, `--secs`, `--nice`, `--ttl`, `--udp-if`, `--udp` port.
 

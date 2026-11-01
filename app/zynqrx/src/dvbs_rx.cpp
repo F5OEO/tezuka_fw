@@ -585,7 +585,14 @@ void DvbsReceiver::configure(double inputRateHz) {
     p_->resetState();
 }
 // The 2 Msps floor is for the spectrum search; with the carrier given (or the radio's own filtering) a low rate works too
-bool DvbsReceiver::ready() const { return p_->fs >= (p_->symbolInput.load() && p_->spectrumOff() ? 1e4 : p_->prefiltered.load() && p_->spectrumOff() ? 1e5 : dvbsTuning().minSampleRate) - 1; }
+// With the carrier and the symbol rate given there is no spectrum to measure, and the software front end only needs room for the
+// carrier (the FPGA DDC that zynqrx uses beside a transmission gives 2 - 4 samples per symbol, down to 100 kS/s).
+bool DvbsReceiver::ready() const {
+    if (!p_->spectrumOff()) return p_->fs >= dvbsTuning().minSampleRate - 1;
+    if (p_->symbolInput.load()) return p_->fs >= 1e4 - 1;
+    if (p_->prefiltered.load()) return p_->fs >= 1e5 - 1;
+    return p_->fs >= std::max(1e5, 2.0 * p_->manualRs.load()) - 1;
+}
 void DvbsReceiver::reset() { p_->resetReq = true; }
 void DvbsReceiver::setLogCallback(std::function<void(const std::string&)> cb) { std::lock_guard<std::mutex> lk(p_->cbMu); p_->logCb = std::move(cb); }
 void DvbsReceiver::setPacketCallback(std::function<void(const uint8_t*, size_t, double)> cb) { std::lock_guard<std::mutex> lk(p_->cbMu); p_->pktCb = std::move(cb); }

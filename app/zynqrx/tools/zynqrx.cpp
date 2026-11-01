@@ -16,6 +16,8 @@
 //   zynqrx rx recording --symbols --rs Msym [--format cs16|cf32] ...
 //       The recording holds timing-recovered symbols at one per sample, unit mean power at a quarter of full scale (cs16: 512 of 2048), as the FPGA symbol front end
 //       makes them (mixer, interpolator, Gardner loop, AGC): the receiver skips its own front end.
+//   zynqrx rx --iio --tx-clock --freq MHz --rs Msym ...   (also --mqtt, and cmd/zynqrx/txclock on|off|auto)
+//       Beside a transmission: the AD9361 stays at the clock pluto_stream set (RX and TX share it), the Maia DDC decimates to 2 - 4 samples per symbol.
 //   zynqrx rx --iio --fpga-front --freq MHz --rs Msym [--roll 0.35] [--center Hz] ...   (also --mqtt, and cmd/zynqrx/fpgafront 0|1)
 //       Live input through the FPGA symbol front end (bitstream with maia-hdl's symfront core): the radio's RRC FIR at 2 samples per symbol, then
 //       the fabric's mixer, Gardner loop and AGC; the receiver gets one symbol per sample and skips its own front end. Needs root (/dev/mem).
@@ -85,6 +87,7 @@
 #include "dvbs_carrier.h"
 #include "iio_source.h"
 #include "fpga_symfront.h"
+#include "maia_ddc.h"
 #include "udp_out.h"
 #include "ws_out.h"
 #include "datv_mqtt.h"
@@ -342,6 +345,7 @@ struct RxOpts {
     bool fpgaFront = false;                   // --fpga-front: live input through the FPGA symbol front end (the radio's RRC FIR, then the fabric)
     int fastTiming = 2;                       // --fast-timing: 0 off, 1 on, 2 auto (on above 0.5 Msym/s)
     bool start = false;                       // --start: with --mqtt, begin receiving at once instead of waiting for cmd/zynqrx/process start
+    bool txClock = false;                     // --tx-clock: leave the AD9361 at the clock of the transmission (RX and TX share it) and decimate in the FPGA DDC
 };
 
 // Receiver settings that cmd/zynqrx/<name> changes at run time (the same as the command line options of the same name); a change restarts the
@@ -351,6 +355,7 @@ struct RxTune {
     int stdHint = 0, isi = -1, pls = -1, modsMask = 0, fastTiming = 2;
     bool ccm = false, presence = false, ldpc8 = false, wsKeyframe = false, noBch = false, cs8 = true;
     bool fpgaFront = false;                   // fpgafront: the FPGA symbol front end (from 261 kS, where the radio's RRC filter is used)
+    int txClock = 2;                          // txclock: 0 off, 1 on, 2 auto = on once pluto_stream has set a transmit symbol rate (dt/pluto/+/tx/dvbs2/sr)
 };
 
 // "qpsk,8psk" -> mask; false when a name is not one of the four
@@ -388,7 +393,7 @@ std::vector<std::pair<std::string, std::string>> tuneSettings(const RxTune& t) {
             {"roll", d(t.roll, "%.2f")}, {"mods", modsName(t.modsMask)}, {"ccm", t.ccm ? "1" : "0"}, {"presence", t.presence ? "1" : "0"},
             {"fasttiming", t.fastTiming == 1 ? "on" : t.fastTiming == 0 ? "off" : "auto"}, {"ldpc8", t.ldpc8 ? "1" : "0"}, {"maxlag", d(t.maxLag, "%.1f")},
             {"isi", std::to_string(t.isi)}, {"pls", std::to_string(t.pls)}, {"wskeyframe", t.wsKeyframe ? "1" : "0"}, {"nobch", t.noBch ? "1" : "0"}, {"iqformat", t.cs8 ? "cs8" : "cs16"},
-            {"fpgafront", t.fpgaFront ? "1" : "0"}};
+            {"fpgafront", t.fpgaFront ? "1" : "0"}, {"txclock", t.txClock == 1 ? "on" : t.txClock == 0 ? "off" : "auto"}};
 }
 
 // Applies cmd/zynqrx/<key>. 0 = not one of these settings, 1 = set (changed tells whether the value differs), -1 = value refused (why says what is accepted)
@@ -414,6 +419,7 @@ int tuneSet(RxTune& t, const std::string& key, const std::string& val, bool& cha
     if (key == "nobch") return isBool ? setB(t.noBch) : bad("0 or 1");
     if (key == "ldpc8") return isBool ? setB(t.ldpc8) : bad("0 or 1");
     if (key == "fpgafront") return isBool ? setB(t.fpgaFront) : bad("0 or 1");
+    if (key == "txclock") return val == "on" || val == "off" || val == "auto" ? setI(t.txClock, val == "on" ? 1 : val == "off" ? 0 : 2) : bad("on, off or auto");
     if (key == "fasttiming") return val == "on" || val == "off" || val == "auto" ? setI(t.fastTiming, val == "on" ? 1 : val == "off" ? 0 : 2) : bad("on, off or auto");
     if (key == "maxlag") return num && dv >= 0 ? setD(t.maxLag, dv) : bad("seconds, 0 = off");
     if (key == "isi") return num && dv >= -1 && dv <= 255 ? setI(t.isi, (int)dv) : bad("-1 (any) - 255");
@@ -433,6 +439,7 @@ struct RxCtl {
     long freqKHz = 0, srKS = 0, swport = 0;
     int lnbSupply = 0, lnbHorizontal = 0;
     std::string tsip;
+    long txSrKS = 0;                          // the transmit symbol rate pluto_stream announces (dt/pluto/<call>/tx/dvbs2/sr, retained), 0 = none yet
     RxTune tune;                              // the settings above (cmd/zynqrx/gain ... pls)
     std::mutex udpMu;                         // the transport stream output moves to a new address while packets are being sent
     UdpOut udp;
@@ -454,8 +461,41 @@ int runSession(RxOpts& o, RxCtl& ctl) {
     IioSource iio;
 #ifdef ZYNQRX_IIO
     FpgaSymFront fpga;                         // declared after the radio: disabled (bypass) before the radio is closed
+    MaiaDdc ddc;                               // likewise: the DDC route goes back to the full rate stream before the radio is closed
 #endif
-    if (useIio && o.fpgaFront) {
+    long long txClockHz = 0;                   // with o.txClock: the converter rate the transmission set, watched for changes
+    if (useIio && o.txClock) {
+#ifdef ZYNQRX_IIO
+        // RX and TX share the AD9361 clock: keep the one pluto_stream chose for the transmission and decimate in the FPGA DDC to 2 - 4 samples
+        // per symbol; the receiver then filters in software (no RRC FIR in the radio, no symbol front end: the DDC filter is a plain low-pass)
+        if (rs <= 0) { fprintf(stderr, "--tx-clock needs --rs\n"); return 1; }
+        txClockHz = IioSource::readRxRate(o.iioUri);
+        if (txClockHz <= 0) { fprintf(stderr, "tx clock: cannot read the radio's sampling frequency\n"); return 1; }
+        if (txClockHz < 2.0 * rs * 1e6) {
+            fprintf(stderr, "tx clock: the radio runs at %.3f Msps, too slow for %.0f kS (2 samples per symbol at least); waiting for another transmit rate\n", txClockHz / 1e6, rs * 1e3);
+            return 1;
+        }
+        int d = MaiaDdc::decimation((double)txClockHz, rs * 1e6);
+        rate = (double)txClockHz / 1e6;
+        if (d >= 2) {
+            // the DDC's three filter stages may not make every decimation: a smaller one only adds samples per symbol
+            bool designed = false;
+            for (int tries = 0; d >= 2 && tries < 8 && !(designed = ddc.design(d)); tries++) d--;
+            if (!designed || !ddc.enable(true)) { fprintf(stderr, "tx clock: the FPGA DDC is not available\n"); return 1; }
+            rate = (ddc.outputHz() > 0 ? ddc.outputHz() : (double)txClockHz / d) / 1e6;
+        }
+        o.fpgaFront = false;
+        prefilt = o.prefilt = false;
+        const bool cs8 = o.cs8 && rate >= 1.0;   // below 1 Msps, 16-bit samples keep the dynamic range the decimation gained
+        fprintf(stderr, "tx clock: radio at %.3f Msps (set by the transmission), DDC %s, receiver at %.3f Msps (%.1f samples per symbol, %s)\n",
+                txClockHz / 1e6, d >= 2 ? ("D=" + std::to_string(d)).c_str() : "off", rate, rate / rs, cs8 ? "cs8" : "cs16");
+        if (!iio.open(o.iioUri, rate * 1e6, o.freqMHz * 1e6, o.bwMHz * 1e6, o.gainDb, 0, cs8, true)) return 1;
+#else
+        fprintf(stderr, "--tx-clock needs a build with IIO=1\n");
+        return 1;
+#endif
+    }
+    else if (useIio && o.fpgaFront) {
 #ifdef ZYNQRX_IIO
         // the radio's RRC FIR at 2 samples per symbol, then the fabric makes one symbol per sample: the receiver runs at the symbol rate
         if (fpga.open()) {
@@ -586,6 +626,19 @@ int runSession(RxOpts& o, RxCtl& ctl) {
         psi.get(st.serviceName, st.providerName, st.es);
         datvPublish(*ctl.mq, st);
     };
+    // with the transmission's clock: once a second, whether pluto_stream moved it (a new transmit symbol rate); the session then restarts on the new one
+    auto nextClockCheck = std::chrono::steady_clock::now() + std::chrono::seconds(1);
+    auto clockMoved = [&] {
+        if (txClockHz <= 0 || std::chrono::steady_clock::now() < nextClockCheck) return false;
+        nextClockCheck += std::chrono::seconds(1);
+        const long long now = iio.currentRate();
+        if (now <= 0 || std::llabs(now - txClockHz) <= txClockHz / 1000) return false;
+        fprintf(stderr, "tx clock: the radio moved from %.3f to %.3f Msps, restarting the receiver\n", txClockHz / 1e6, now / 1e6);
+        std::lock_guard<std::mutex> lk(ctl.mu);
+        ctl.restart = true;
+        ctl.stop = true;
+        return true;
+    };
     const auto t0 = std::chrono::steady_clock::now();
     while (useIio || f) {
         size_t got;
@@ -596,6 +649,7 @@ int runSession(RxOpts& o, RxCtl& ctl) {
                 lk.unlock();
                 if (readerDone || ending()) break;
                 if (ctl.mq && std::chrono::steady_clock::now() >= nextStatus) { nextStatus += std::chrono::seconds(1); publishStatus(); }
+                if (clockMoved()) break;
                 continue;
             }
             if (ending()) break;
@@ -623,6 +677,7 @@ int runSession(RxOpts& o, RxCtl& ctl) {
         if (rx.telemetry(t, seq)) { seq = t.seq; tel = t; if (tel.tsLock) ctl.locked = true; }
         if (total >= nextReport) { nextReport += (uint64_t)(rate * 1e6); printf("[%7.2f s] %s\n", (double)total / (rate * 1e6), dvbsSummary(tel).c_str()); }
         if (ctl.mq && std::chrono::steady_clock::now() >= nextStatus) { nextStatus += std::chrono::seconds(1); publishStatus(); }
+        if (clockMoved()) break;
         if (o.secsMax > 0 && (double)total / (rate * 1e6) >= o.secsMax) break;
     }
     sessionEnd = true;
@@ -691,6 +746,7 @@ int runDaemon(RxOpts& o) {
     ctl.udpIf = o.udpIf;
     ctl.enabled = o.start;
     ctl.tune = RxTune{o.gainDb, o.bwMHz, o.roll, o.maxLag, o.stdHint, o.isi, o.pls, o.modsMask, o.fastTiming, o.ccm, o.presence, o.ldpc8, o.wsKeyframe, o.noBch, o.cs8, o.fpgaFront};
+    if (o.txClock) ctl.tune.txClock = 1;
     if (!o.udpDest.empty()) {
         const size_t c = o.udpDest.rfind(':');
         ctl.tsip = o.udpDest.substr(0, c);
@@ -700,6 +756,21 @@ int runDaemon(RxOpts& o) {
     if (o.wsPort > 0) { ctl.ws.waitForKeyframe(o.wsKeyframe); if (!ctl.ws.open(o.wsPort)) return 1; }
     auto onCommand = [&ctl](const std::string& key, const std::string& val) {
         char* end = nullptr;
+        if (key == "@txsr") {   // pluto_stream's transmit symbol rate (kS): with txclock auto, the receiver moves to the transmission's clock
+            const double v = strtod(val.c_str(), &end);
+            std::lock_guard<std::mutex> lk(ctl.mu);
+            const long n = val.empty() || *end || !(v > 0) ? 0 : std::lround(v);
+            if (n == ctl.txSrKS) return;
+            const bool modeChange = (n > 0) != (ctl.txSrKS > 0);
+            ctl.txSrKS = n;
+            fprintf(stderr, "mqtt: transmit symbol rate %ld (pluto_stream)\n", n);
+            // a new rate also moves the clock, which the running session notices by itself; only a switch between the two ways needs a restart here
+            if (!modeChange || ctl.tune.txClock != 2 || !ctl.enabled) return;
+            ctl.restart = true;
+            ctl.stop = true;
+            if (ctl.cancelRead) ctl.cancelRead();
+            return;
+        }
         if (key == "frequency" || key == "sr") {
             const long v = strtol(val.c_str(), &end, 10);
             const bool freq = key == "frequency";
@@ -777,13 +848,18 @@ int runDaemon(RxOpts& o) {
         RxOpts so = o;
         { std::lock_guard<std::mutex> lk(ctl.mu); tuneApply(ctl.tune, so); }
         datvSessionOpts(so, fk, sk);
-        if (so.fpgaFront) {
+        { std::lock_guard<std::mutex> lk(ctl.mu); so.txClock = ctl.tune.txClock == 1 || (ctl.tune.txClock == 2 && ctl.txSrKS > 0); }
+        if (so.txClock) {
+            // the transmission owns the AD9361 clock: the FPGA DDC and the software matched filter (runSession)
+            so.prefilt = false;
+            so.fpgaFront = false;
+        } else if (so.fpgaFront) {
             // the FPGA front end takes the radio's RRC filter output (2 samples per symbol); below 261 kS there is none and the CPU front end runs
             if (so.prefilt) so.prefilt = false;
             else { so.fpgaFront = false; fprintf(stderr, "receiver: fpgafront needs 261 kS or more, using the CPU front end\n"); }
         }
         fprintf(stderr, "receiver: %.3f MHz, %ld kS (%s)\n", (double)fk / 1000.0, sk,
-                so.fpgaFront ? "radio RRC filter, FPGA symbol front end" : so.prefilt ? "radio RRC filter" : "software matched filter");
+                so.txClock ? "transmission's clock, FPGA DDC" : so.fpgaFront ? "radio RRC filter, FPGA symbol front end" : so.prefilt ? "radio RRC filter" : "software matched filter");
         const int rc = runSession(so, ctl);
         if (gStop) break;
         bool again, stopped;
@@ -836,6 +912,7 @@ int cmdRx(int argc, char** argv) {
         else if (a == "--prefiltered") o.prefilt = true;
         else if (a == "--symbols") o.symbols = true;
         else if (a == "--fpga-front") o.fpgaFront = true;
+        else if (a == "--tx-clock") o.txClock = true;
         else if (a == "--ldpc8") o.ldpc8 = true;
         else if (a == "--no-bch") o.noBch = true;
         else if (a == "--iq-format") o.cs8 = next() == "cs8";
