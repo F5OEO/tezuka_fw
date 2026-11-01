@@ -44,6 +44,7 @@
 //       The sampling instants are a little less accurate: about 0.1 dB near the decoding threshold on a signal with phase noise, nothing at 7.5 dB and
 //       above in the tests (QPSK 2/3 at 1.5 Msym/s). auto: on above 0.5 Msym/s, when the symbol rate is given.
 //   zynqrx rx ... --carrier-bw Hz   (also cmd/zynqrx/carrierbw)
+//   zynqrx rx ... --watchdog secs   (default 12 live, off for files): a session that lost its lock and has not found it again after that much signal restarts
 //       DVB-S2: the carrier loop is widened up to about this bandwidth to follow the phase noise of an LNB, which is set in hertz and so weighs
 //       more at a low symbol rate (default 12000; 0: the narrow loop only, about 0.2 dB better at the very edge on a clean carrier).
 //   zynqrx rx ... --ldpc8   (also bench)
@@ -344,6 +345,7 @@ struct RxOpts {
     std::string path, tsOut, format, iioUri, udpDest, udpIf, mqttHost;
     double rate = 10, rs = 0, roll = 0, secsMax = 0, specSecs = 0.25, center = 0, freqMHz = 0, bwMHz = 0, gainDb = -1, maxLag = 4;
     double carrierHz = 12000;                 // --carrier-bw: DVB-S2 carrier loop floor (LNB phase noise), 0 = the narrow loop only
+    double watchdogSecs = -1;                 // --watchdog S: a session that had a TS lock and then has none for S s of signal restarts; -1 = 12 live, off for files
     int stdHint = 0, isi = -1, pls = -1, udpTtl = 16, mqttPort = 1883, niceValue = 99, wsPort = 0; bool wsKeyframe = false;   // niceValue 99: not given
     int modsMask = 0;
     bool presence = false;
@@ -454,6 +456,7 @@ struct RxCtl {
     long txSr = 0;                          // the transmit symbol rate pluto_stream announces (dt/pluto/<call>/tx/dvbs2/sr, retained, S/s), 0 = none yet
     std::string txCall;                       // the <call> of that topic
     bool txOn = false;                        // PTT pressed (dt/pluto/<call>/tx/mute 0, retained)
+    std::chrono::steady_clock::time_point lastWatchdog{};   // the last restart by the session watchdog (at most one per 30 s)
     // txclock auto: the transmission's clock while it transmits; otherwise the receiver's own rate and FIR (and the symbol front end)
     bool wantTxClock() const { return tune.txClock == 1 || (tune.txClock == 2 && txSr > 0 && txOn); }
     RxTune tune;                              // the settings above (cmd/zynqrx/gain ... pls)
@@ -669,12 +672,14 @@ int runSession(RxOpts& o, RxCtl& ctl) {
     bool readerDone = false;
     uint64_t lost = 0;
     std::atomic<bool> sessionEnd{false};
+    std::atomic<uint64_t> arrived{0};          // samples the reader got from the radio (the watchdog's report)
     auto ending = [&] { return gStop != 0 || ctl.stop.load() || sessionEnd.load(); };
     std::thread reader;
     if (useIio) reader = std::thread([&] {
         std::vector<cf32> b(IioSource::kBlock);
         while (!ending()) {
             const size_t n = iio.read(b.data(), b.size());
+            arrived += n;
             std::lock_guard<std::mutex> lk(qMu);
             if (!n) break;
             if ((queued + n) * sizeof(cf32) > (size_t)128 << 20) { lost += n; continue; }
@@ -726,6 +731,51 @@ int runSession(RxOpts& o, RxCtl& ctl) {
         ctl.stop = true;
         return true;
     };
+    // Session watchdog. Live, a session that lost its lock (typically after the lag limit dropped signal) has been seen to hunt for minutes without
+    // finding the signal again, while a new session locks at once (what toggling the PTT did by hand). After wdSecs of signal without a TS lock
+    // following one, the state is logged for a later look and the session restarts; at most once per 30 s. A signal that is not there does not
+    // loop: a new session has no lock to lose.
+    const double wdSecs = o.watchdogSecs >= 0 ? o.watchdogSecs : (useIio ? 12.0 : 0.0);
+    double lastLockSig = -1;                   // signal time of the last telemetry with a TS lock, -1 = none in this session
+    struct WdSnap { std::chrono::steady_clock::time_point at; uint64_t arrived = 0, fpgaSyms = 0; } wdPrev, wdNow;
+    auto wdSample = [&] {
+        WdSnap n;
+        n.at = std::chrono::steady_clock::now();
+        n.arrived = arrived.load();
+#ifdef ZYNQRX_IIO
+        if (o.fpgaFront) n.fpgaSyms = fpga.symbols();
+#endif
+        return n;
+    };
+    wdPrev = wdNow = wdSample();
+    auto watchdog = [&] {
+        if (wdSecs <= 0) return false;
+        const double sig = (double)total / (rate * 1e6);
+        if (tel.tsLock) { lastLockSig = sig; return false; }
+        if (std::chrono::steady_clock::now() - wdNow.at >= std::chrono::seconds(2)) { wdPrev = wdNow; wdNow = wdSample(); }
+        if (lastLockSig < 0 || sig - lastLockSig < wdSecs) return false;
+        const auto now = std::chrono::steady_clock::now();
+        {
+            std::lock_guard<std::mutex> lk(ctl.mu);
+            if (ctl.lastWatchdog.time_since_epoch().count() != 0 && now - ctl.lastWatchdog < std::chrono::seconds(30)) { lastLockSig = sig; return false; }
+            ctl.lastWatchdog = now;
+        }
+        const double dt = std::max(1e-3, std::chrono::duration<double>(wdNow.at - wdPrev.at).count());
+        size_t qn = 0;
+        { std::lock_guard<std::mutex> lk(qMu); qn = queued; }
+        fprintf(stderr, "watchdog: hunt state %d, standard %d, frame lock %d, FEC lock %d; input %.3f Msps arriving (%.3f expected), queue %.1f s, lost %.1f s",
+                tel.state, tel.standard, tel.lockFrame ? 1 : 0, tel.lockFec ? 1 : 0, (double)(wdNow.arrived - wdPrev.arrived) / dt / 1e6, rate,
+                (double)qn / (rate * 1e6), (double)lost / (rate * 1e6));
+#ifdef ZYNQRX_IIO
+        if (o.fpgaFront) fprintf(stderr, "; fpga front end %.3f Msym/s out, power %.0f, overflow in %d out %d", (double)(wdNow.fpgaSyms - wdPrev.fpgaSyms) / dt / 1e6,
+                                 fpga.power(), fpga.inOverflow() ? 1 : 0, fpga.outOverflow() ? 1 : 0);
+#endif
+        fprintf(stderr, "\nwatchdog: no lock for %.0f s after losing it, restarting the receiver\n", sig - lastLockSig);
+        std::lock_guard<std::mutex> lk(ctl.mu);
+        ctl.restart = true;
+        ctl.stop = true;
+        return true;
+    };
     const auto t0 = std::chrono::steady_clock::now();
     while (useIio || f) {
         size_t got;
@@ -765,6 +815,7 @@ int runSession(RxOpts& o, RxCtl& ctl) {
         if (total >= nextReport) { nextReport += (uint64_t)(rate * 1e6); printf("[%7.2f s] %s\n", (double)total / (rate * 1e6), dvbsSummary(tel).c_str()); }
         if (ctl.mq && std::chrono::steady_clock::now() >= nextStatus) { nextStatus += std::chrono::seconds(1); publishStatus(); }
         if (clockMoved()) break;
+        if (watchdog()) break;
         if (o.secsMax > 0 && (double)total / (rate * 1e6) >= o.secsMax) break;
     }
     sessionEnd = true;
@@ -995,6 +1046,7 @@ int cmdRx(int argc, char** argv) {
             if (c != std::string::npos) o.mqttPort = atoi(v.c_str() + c + 1);
         }
         else if (a == "--max-lag") o.maxLag = atof(next().c_str());
+        else if (a == "--watchdog") o.watchdogSecs = atof(next().c_str());
         else if (a == "--nice") o.niceValue = atoi(next().c_str());
         else if (a == "--freq") o.freqMHz = atof(next().c_str());
         else if (a == "--bw") o.bwMHz = atof(next().c_str());

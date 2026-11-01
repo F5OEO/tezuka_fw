@@ -32,6 +32,7 @@ Input is either a recording file or the radio (`--iio`).
 | `--ts` | file | Write the transport stream to a file. |
 | `--secs` | seconds | Run time (0 = until Ctrl-C). |
 | `--max-lag` | seconds | Default 4, 0 = off. When the receiver falls this far behind, the oldest samples are dropped. |
+| `--watchdog` | seconds | A session that had a transport stream lock and then has none for this long (signal time) logs its state (hunt state, input rate arriving, FPGA front end output rate, power and overflows, queue) and restarts, as toggling the PTT did by hand. Default 12 with live input, off for files; at most one restart per 30 s; `0` = off. |
 | `--nice` | N | Scheduling priority. Default -10 for live input and `--mqtt`, otherwise 0. Needs root. |
 | `--fast-timing` | `on`, `off` or `auto` | Cheaper symbol timing. `auto` means on above 0.5 Msym/s when the symbol rate is given. |
 | `--carrier-bw` | Hz | DVB-S2: the carrier loop is widened up to about this bandwidth to follow the phase noise of an LNB (set in hertz, so it weighs more at a low symbol rate). Default 12000; `0`: the narrow loop only, about 0.2 dB better at the very edge of the waterfall on a clean carrier but lost with a noisy LNB (in simulation with the EN 302 307-1 H.8 typical mask, QPSK 4/5 at 1.5 Msym/s and 5 dB: 0 frames out of 134 without, 134 with). |
