@@ -4,6 +4,7 @@
 #include "dvbs_s2x.h"
 #include "dvbs_s2x_tables.h"
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstdlib>
 #include <cstring>
@@ -395,11 +396,18 @@ void s2Demap(const cf32* sym, int n, int mod, int rate, float sigma2, float* llr
 
 // ============================================================================ BBHEADER
 uint8_t s2Crc8(const uint8_t* bytes, int n) {
+    // byte-wise table of the bit-serial register (MSB first, polynomial 0xD5): the CRC of every transport packet goes through here
+    static const auto table = [] {
+        std::array<uint8_t, 256> t{};
+        for (unsigned v = 0; v < 256; v++) {
+            unsigned crc = v;
+            for (int b = 0; b < 8; b++) crc = (crc & 0x80) ? ((crc << 1) ^ 0xD5) & 0xFF : (crc << 1) & 0xFF;
+            t[v] = (uint8_t)crc;
+        }
+        return t;
+    }();
     unsigned crc = 0;
-    for (int i = 0; i < n; i++) {
-        crc ^= bytes[i];
-        for (int b = 0; b < 8; b++) crc = (crc & 0x80) ? ((crc << 1) ^ 0xD5) & 0xFF : (crc << 1) & 0xFF;
-    }
+    for (int i = 0; i < n; i++) crc = table[(crc ^ bytes[i]) & 0xFF];
     return (uint8_t)crc;
 }
 
