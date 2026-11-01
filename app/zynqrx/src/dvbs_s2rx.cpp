@@ -192,7 +192,17 @@ struct S2Rx::Impl {
     }
     void setLoops() {
         // overdamped: the frequency is found from the headers (see decodeHeader), the loop only has to follow the phase
-        gains(dataBn(), 2.0, kpD, kiD);
+        const double bn = dataBn();
+        gains(bn, 2.0, kpD, kiD);
+        // The phase noise of an LNB is set in hertz, not per symbol: at a low symbol rate it turns the phase much more from one symbol to the next.
+        // Both gains are raised together until the loop follows it (setCarrierFloor), which the narrow loop above cannot do: with the typical mask
+        // of EN 302 307-1 H.8 at 1.5 Msym/s and QPSK 4/5, 0 to 14 frames out of 134 decoded at 5 - 6 dB, all of them with the floor. The cost is
+        // about 0.2 dB at the very edge of the waterfall on a clean carrier. Capped at 16 times: wider, the loop slips cycles on the noisy symbols.
+        const double floorHz = o.carrierFloorHz_.load(), rs = o.symbolRate_;
+        if (floorHz > 0 && rs > 0) {
+            const float k = (float)std::min(16.0, std::max(1.0, floorHz / (rs * bn)));
+            kpD *= k; kiD *= k;
+        }
         kpiD = kpD + kiD;
     }
 

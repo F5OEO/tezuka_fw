@@ -48,6 +48,7 @@ public:
     S2Rx();
     ~S2Rx();
     void setSymbolRate(double hz) { symbolRate_ = hz; }
+    void setCarrierFloor(double hz) { carrierFloorHz_ = hz; }   // widens the carrier loop to about this bandwidth (LNB phase noise); 0: the narrow loop only. Taken at the next frame header
     void setPlCode(int n) { plCode_ = n; }
     void setIsi(int isi) { isiSel_ = isi; }
     void setBlocking(bool b) { blocking_ = b; }
@@ -75,6 +76,7 @@ private:
     struct Impl;
     std::unique_ptr<Impl> p_;
     double symbolRate_ = 1e6;
+    std::atomic<double> carrierFloorHz_{12000.0};
     std::atomic<int> plCode_{-1}, isiSel_{-1};
     std::atomic<bool> blocking_{false};
     std::atomic<bool> tracking_{false}, lost_{false}, inverted_{false};

@@ -43,6 +43,9 @@
 //       four of them, so about a quarter less CPU in the timer (and so on the thread that also does the mixer and the hand-over of the symbols).
 //       The sampling instants are a little less accurate: about 0.1 dB near the decoding threshold on a signal with phase noise, nothing at 7.5 dB and
 //       above in the tests (QPSK 2/3 at 1.5 Msym/s). auto: on above 0.5 Msym/s, when the symbol rate is given.
+//   zynqrx rx ... --carrier-bw Hz   (also cmd/zynqrx/carrierbw)
+//       DVB-S2: the carrier loop is widened up to about this bandwidth to follow the phase noise of an LNB, which is set in hertz and so weighs
+//       more at a low symbol rate (default 12000; 0: the narrow loop only, about 0.2 dB better at the very edge on a clean carrier).
 //   zynqrx rx ... --ldpc8   (also bench)
 //       The 8-bit CPU LDPC decoder at every code rate, not only from 2/3 up. Much cheaper on the board; a frame it cannot finish still goes to the float
 //       decoder, but low code rates lose sensitivity (about 2 dB at QPSK 2/5 on the test signals), and it is not faster on the board for a weak signal. DVB-S2 only.
@@ -154,6 +157,7 @@ struct GenOptions {
     DvbsSignalConfig c;
     std::string fecName = "2/3";
     bool prefiltered = false, blocking = false, hint = false, realtime = false, ldpc8 = false;
+    double carrierHz = 12000;
     int fastTiming = 2;   // 0 off, 1 on, 2 auto (on above 0.5 Msym/s)
     double specSecs = 0.25, center = 0;
     bool haveCenter = false;
@@ -178,6 +182,7 @@ int parseGen(int argc, char** argv, int first, GenOptions& g, bool needOut) {
         else if (a == "--blocking") g.blocking = true;
         else if (a == "--hint") g.hint = true;
         else if (a == "--ldpc8") g.ldpc8 = true;
+        else if (a == "--carrier-bw") g.carrierHz = atof(next().c_str());
         else if (a == "--fast-timing") { const std::string v = next(); g.fastTiming = v == "on" ? 1 : v == "off" ? 0 : 2; }
         else if (a == "--realtime") g.realtime = true;
         else if (a == "--spec-secs") g.specSecs = atof(next().c_str());
@@ -258,6 +263,7 @@ int cmdBench(int argc, char** argv) {
     rx.setBlocking(g.blocking);   // default: frames are dropped when the decoder threads are behind, as in the engine
     rx.setPrefiltered(g.prefiltered);
     rx.setLdpc8(g.ldpc8);
+    rx.setCarrierFloor(g.carrierHz);
     rx.setFastTiming(g.fastTiming == 1 || (g.fastTiming == 2 && g.c.tx.symbolRate > 0.5e6));
     if (g.hint) rx.setStandardHint(g.c.tx.standard);   // search only for the standard that was generated (skips the DVB-S Viterbi attempts)
     rx.setSpectrumInterval(g.specSecs);
@@ -337,6 +343,7 @@ void onSigint(int) { gStop = 1; }
 struct RxOpts {
     std::string path, tsOut, format, iioUri, udpDest, udpIf, mqttHost;
     double rate = 10, rs = 0, roll = 0, secsMax = 0, specSecs = 0.25, center = 0, freqMHz = 0, bwMHz = 0, gainDb = -1, maxLag = 4;
+    double carrierHz = 12000;                 // --carrier-bw: DVB-S2 carrier loop floor (LNB phase noise), 0 = the narrow loop only
     int stdHint = 0, isi = -1, pls = -1, udpTtl = 16, mqttPort = 1883, niceValue = 99, wsPort = 0; bool wsKeyframe = false;   // niceValue 99: not given
     int modsMask = 0;
     bool presence = false;
@@ -356,6 +363,7 @@ struct RxTune {
     bool ccm = false, presence = false, ldpc8 = false, wsKeyframe = false, noBch = false, cs8 = true;
     bool fpgaFront = false;                   // fpgafront: the FPGA symbol front end (from 261 kS, where the radio's RRC filter is used)
     int txClock = 2;                          // txclock: 0 off, 1 on, 2 auto = on while pluto_stream transmits (dt/pluto/+/tx/dvbs2/sr set, dt/pluto/+/tx/mute 0)
+    double carrierHz = 12000;                 // carrierbw: DVB-S2 carrier loop floor in Hz (LNB phase noise), 0 = the narrow loop only
 };
 
 // "qpsk,8psk" -> mask; false when a name is not one of the four
@@ -385,6 +393,7 @@ void tuneApply(const RxTune& t, RxOpts& o) {
     o.gainDb = t.gainDb; o.bwMHz = t.bwMHz; o.roll = t.roll; o.maxLag = t.maxLag;
     o.stdHint = t.stdHint; o.isi = t.isi; o.pls = t.pls; o.modsMask = t.modsMask; o.fastTiming = t.fastTiming;
     o.ccm = t.ccm; o.presence = t.presence; o.ldpc8 = t.ldpc8; o.noBch = t.noBch; o.cs8 = t.cs8; o.fpgaFront = t.fpgaFront;
+    o.carrierHz = t.carrierHz;
 }
 
 std::vector<std::pair<std::string, std::string>> tuneSettings(const RxTune& t) {
@@ -393,7 +402,8 @@ std::vector<std::pair<std::string, std::string>> tuneSettings(const RxTune& t) {
             {"roll", d(t.roll, "%.2f")}, {"mods", modsName(t.modsMask)}, {"ccm", t.ccm ? "1" : "0"}, {"presence", t.presence ? "1" : "0"},
             {"fasttiming", t.fastTiming == 1 ? "on" : t.fastTiming == 0 ? "off" : "auto"}, {"ldpc8", t.ldpc8 ? "1" : "0"}, {"maxlag", d(t.maxLag, "%.1f")},
             {"isi", std::to_string(t.isi)}, {"pls", std::to_string(t.pls)}, {"wskeyframe", t.wsKeyframe ? "1" : "0"}, {"nobch", t.noBch ? "1" : "0"}, {"iqformat", t.cs8 ? "cs8" : "cs16"},
-            {"fpgafront", t.fpgaFront ? "1" : "0"}, {"txclock", t.txClock == 1 ? "on" : t.txClock == 0 ? "off" : "auto"}};
+            {"fpgafront", t.fpgaFront ? "1" : "0"}, {"txclock", t.txClock == 1 ? "on" : t.txClock == 0 ? "off" : "auto"},
+            {"carrierbw", std::to_string(std::lround(t.carrierHz))}};
 }
 
 // Applies cmd/zynqrx/<key>. 0 = not one of these settings, 1 = set (changed tells whether the value differs), -1 = value refused (why says what is accepted)
@@ -420,6 +430,7 @@ int tuneSet(RxTune& t, const std::string& key, const std::string& val, bool& cha
     if (key == "ldpc8") return isBool ? setB(t.ldpc8) : bad("0 or 1");
     if (key == "fpgafront") return isBool ? setB(t.fpgaFront) : bad("0 or 1");
     if (key == "txclock") return val == "on" || val == "off" || val == "auto" ? setI(t.txClock, val == "on" ? 1 : val == "off" ? 0 : 2) : bad("on, off or auto");
+    if (key == "carrierbw") return num && dv >= 0 && dv <= 100000 ? setD(t.carrierHz, dv) : bad("Hz, 0 (narrow loop only) - 100000");
     if (key == "fasttiming") return val == "on" || val == "off" || val == "auto" ? setI(t.fastTiming, val == "on" ? 1 : val == "off" ? 0 : 2) : bad("on, off or auto");
     if (key == "maxlag") return num && dv >= 0 ? setD(t.maxLag, dv) : bad("seconds, 0 = off");
     if (key == "isi") return num && dv >= -1 && dv <= 255 ? setI(t.isi, (int)dv) : bad("-1 (any) - 255");
@@ -581,6 +592,7 @@ int runSession(RxOpts& o, RxCtl& ctl) {
     rx.setPrefiltered(prefilt);
     rx.setSymbolInput(o.symbols || o.fpgaFront);
     rx.setLdpc8(o.ldpc8);
+    rx.setCarrierFloor(o.carrierHz);
     if (o.noBch || getenv("DECT2_NO_BCH")) rx.setNoBch(o.noBch || atoi(getenv("DECT2_NO_BCH")) != 0);
     rx.setFastTiming(o.fastTiming == 1 || (o.fastTiming == 2 && o.rs > 0.5));   // auto: only when the symbol rate is given
     rx.setConstantModcod(o.ccm);
@@ -791,6 +803,7 @@ int runDaemon(RxOpts& o) {
     ctl.enabled = o.start;
     ctl.tune = RxTune{o.gainDb, o.bwMHz, o.roll, o.maxLag, o.stdHint, o.isi, o.pls, o.modsMask, o.fastTiming, o.ccm, o.presence, o.ldpc8, o.wsKeyframe, o.noBch, o.cs8, o.fpgaFront};
     if (o.txClock) ctl.tune.txClock = 1;
+    ctl.tune.carrierHz = o.carrierHz;
     if (!o.udpDest.empty()) {
         const size_t c = o.udpDest.rfind(':');
         ctl.tsip = o.udpDest.substr(0, c);
@@ -966,6 +979,7 @@ int cmdRx(int argc, char** argv) {
         else if (a == "--fpga-front") o.fpgaFront = true;
         else if (a == "--tx-clock") o.txClock = true;
         else if (a == "--ldpc8") o.ldpc8 = true;
+        else if (a == "--carrier-bw") o.carrierHz = atof(next().c_str());
         else if (a == "--no-bch") o.noBch = true;
         else if (a == "--iq-format") o.cs8 = next() == "cs8";
         else if (a == "--fast-timing") { const std::string v = next(); o.fastTiming = v == "on" ? 1 : v == "off" ? 0 : 2; }

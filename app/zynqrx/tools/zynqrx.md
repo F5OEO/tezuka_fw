@@ -34,6 +34,7 @@ Input is either a recording file or the radio (`--iio`).
 | `--max-lag` | seconds | Default 4, 0 = off. When the receiver falls this far behind, the oldest samples are dropped. |
 | `--nice` | N | Scheduling priority. Default -10 for live input and `--mqtt`, otherwise 0. Needs root. |
 | `--fast-timing` | `on`, `off` or `auto` | Cheaper symbol timing. `auto` means on above 0.5 Msym/s when the symbol rate is given. |
+| `--carrier-bw` | Hz | DVB-S2: the carrier loop is widened up to about this bandwidth to follow the phase noise of an LNB (set in hertz, so it weighs more at a low symbol rate). Default 12000; `0`: the narrow loop only, about 0.2 dB better at the very edge of the waterfall on a clean carrier but lost with a noisy LNB (in simulation with the EN 302 307-1 H.8 typical mask, QPSK 4/5 at 1.5 Msym/s and 5 dB: 0 frames out of 134 without, 134 with). |
 | `--ldpc8` | | The 8-bit CPU LDPC decoder at every code rate. Cheaper, but about 2 dB less sensitive at QPSK 2/5. DVB-S2 only. |
 | `--ccm` | | Constant coding and modulation. After the first lock it searches only for that MODCOD, which is far cheaper. |
 | `--mods` | list | Modulations to search for: `qpsk`, `8psk`, `16apsk`, `32apsk` (default all). Fewer means a cheaper search. |
@@ -72,13 +73,14 @@ Commands (`cmd/zynqrx/...`):
 | `mods` | Modulations to search for, e.g. `qpsk,8psk`. Same as `--mods`. |
 | `ccm`, `presence`, `ldpc8` | `0` or `1`. Same as `--ccm`, `--presence`/`--no-presence`, `--ldpc8`. |
 | `fpgafront` | `0` or `1`. Same as `--fpga-front`: the FPGA symbol front end (bitstream with the symfront core, 261 kS and up; otherwise the CPU front end runs). |
+| `carrierbw` | Hz, `0` - `100000`. Same as `--carrier-bw`. |
 | `txclock` | `on`, `off` or `auto` (default). RX and TX share the AD9361 clock, so a receiver that sets its own rate and FIR breaks pluto_stream's transmission. `on` (`--tx-clock`): the converter rate and FIR stay as pluto_stream set them, the Maia DDC in the FPGA decimates to 2 - 4 samples per symbol (maia-httpd `/api/ddc`, route enabled for the session) and the receiver filters in software; with `fpgafront` and a symfront core that has the sps register (0x1c), the DDC gets an RRC instead (2 - 4 samples per symbol) and the FPGA symbol front end runs behind it at that rate; otherwise the receiver filters in software. `auto`: `on` while pluto_stream transmits (a transmit symbol rate announced on `dt/pluto/<call>/tx/dvbs2/sr` and PTT on, `dt/pluto/<call>/tx/mute` 0, both retained); PTT off, the receiver goes back to its own rate, RRC FIR and `fpgafront` (a restart of a few seconds at each switch). The session restarts by itself when the transmission moves the clock. The clock must be at least 2 x the receive symbol rate. |
 | `fasttiming` | `on`, `off` or `auto`. Same as `--fast-timing`. |
 | `maxlag` | Seconds, 0 = off. Same as `--max-lag`. |
 | `isi`, `pls` | Input stream identifier (-1 - 255) and scrambling code (-1 - 262142), -1 = any. Same as `--isi`, `--pls`. |
 | `wskeyframe` | `0` or `1`, takes effect at once. Same as `--ws-keyframe`. |
 
-Every command except `wskeyframe` restarts the receiver when it is running, which takes a few seconds (while stopped the value is kept for the next start). Each setting is echoed on `dt/zynqrx/set/<name>` (same names: `gain`, `bw`, `std`, `roll`, `mods`, `ccm`, `presence`, `fasttiming`, `ldpc8`, `fpgafront`, `txclock`, `maxlag`, `isi`, `pls`, `wskeyframe`). A refused value is logged and ignored. The initial values come from the command line options.
+Every command except `wskeyframe` restarts the receiver when it is running, which takes a few seconds (while stopped the value is kept for the next start). Each setting is echoed on `dt/zynqrx/set/<name>` (same names: `gain`, `bw`, `std`, `roll`, `mods`, `ccm`, `presence`, `fasttiming`, `ldpc8`, `fpgafront`, `txclock`, `carrierbw`, `maxlag`, `isi`, `pls`, `wskeyframe`). A refused value is logged and ignored. The initial values come from the command line options.
 
 Not available over MQTT: `--prefiltered` (chosen from the symbol rate), `--rate`, `--center`, `--ts`, `--secs`, `--nice`, `--ttl`, `--udp-if`, `--udp` port.
 
