@@ -439,7 +439,8 @@ struct RxCtl {
     long freqKHz = 0, srKS = 0, swport = 0;
     int lnbSupply = 0, lnbHorizontal = 0;
     std::string tsip;
-    long txSrKS = 0;                          // the transmit symbol rate pluto_stream announces (dt/pluto/<call>/tx/dvbs2/sr, retained), 0 = none yet
+    long txSr = 0;                          // the transmit symbol rate pluto_stream announces (dt/pluto/<call>/tx/dvbs2/sr, retained, S/s), 0 = none yet
+    std::string txCall;                       // the <call> of that topic
     RxTune tune;                              // the settings above (cmd/zynqrx/gain ... pls)
     std::mutex udpMu;                         // the transport stream output moves to a new address while packets are being sent
     UdpOut udp;
@@ -471,6 +472,24 @@ int runSession(RxOpts& o, RxCtl& ctl) {
         if (rs <= 0) { fprintf(stderr, "--tx-clock needs --rs\n"); return 1; }
         txClockHz = IioSource::readRxRate(o.iioUri);
         if (txClockHz <= 0) { fprintf(stderr, "tx clock: cannot read the radio's sampling frequency\n"); return 1; }
+        // pluto_stream sets the clock only when it gets a symbol rate command (pluto_mqtt_ctrl ComputeTxSRDVBS2: 4 x SR from 521 kS, else 32 x SR
+        // with the FPGA interpolating by 8). After a boot, or after a receiver that set its own rate, the radio is elsewhere: ask pluto_stream
+        // to apply its rate again (the same value it announced) and wait for the clock to follow.
+        long txSr; std::string call;
+        { std::lock_guard<std::mutex> lk(ctl.mu); txSr = ctl.txSr; call = ctl.txCall; }
+        if (txSr > 0 && !call.empty() && ctl.mq) {
+            const long long want = txSr >= 521000 ? 4LL * txSr : 32LL * txSr;
+            if (std::llabs(txClockHz - want) > want / 1000) {
+                fprintf(stderr, "tx clock: the radio runs at %.3f Msps, not the %.3f Msps of the %ld S/s transmission: asking pluto_stream to set it again\n", txClockHz / 1e6, want / 1e6, txSr);
+                ctl.mq->publish("cmd/pluto/" + call + "/tx/dvbs2/sr", std::to_string(txSr));
+                for (int i = 0; i < 30 && !gStop && !ctl.stop.load(); i++) {
+                    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+                    txClockHz = IioSource::readRxRate(o.iioUri);
+                    if (std::llabs(txClockHz - want) <= want / 1000) break;
+                }
+                if (std::llabs(txClockHz - want) > want / 1000) fprintf(stderr, "tx clock: still %.3f Msps, going on with it\n", txClockHz / 1e6);
+            }
+        }
         if (txClockHz < 2.0 * rs * 1e6) {
             fprintf(stderr, "tx clock: the radio runs at %.3f Msps, too slow for %.0f kS (2 samples per symbol at least); waiting for another transmit rate\n", txClockHz / 1e6, rs * 1e3);
             return 1;
@@ -756,13 +775,14 @@ int runDaemon(RxOpts& o) {
     if (o.wsPort > 0) { ctl.ws.waitForKeyframe(o.wsKeyframe); if (!ctl.ws.open(o.wsPort)) return 1; }
     auto onCommand = [&ctl](const std::string& key, const std::string& val) {
         char* end = nullptr;
-        if (key == "@txsr") {   // pluto_stream's transmit symbol rate (kS): with txclock auto, the receiver moves to the transmission's clock
+        if (key.compare(0, 6, "@txsr:") == 0) {   // pluto_stream's transmit symbol rate (kS): with txclock auto, the receiver moves to the transmission's clock
             const double v = strtod(val.c_str(), &end);
             std::lock_guard<std::mutex> lk(ctl.mu);
             const long n = val.empty() || *end || !(v > 0) ? 0 : std::lround(v);
-            if (n == ctl.txSrKS) return;
-            const bool modeChange = (n > 0) != (ctl.txSrKS > 0);
-            ctl.txSrKS = n;
+            ctl.txCall = key.substr(6);
+            if (n == ctl.txSr) return;
+            const bool modeChange = (n > 0) != (ctl.txSr > 0);
+            ctl.txSr = n;
             fprintf(stderr, "mqtt: transmit symbol rate %ld (pluto_stream)\n", n);
             // a new rate also moves the clock, which the running session notices by itself; only a switch between the two ways needs a restart here
             if (!modeChange || ctl.tune.txClock != 2 || !ctl.enabled) return;
@@ -848,7 +868,7 @@ int runDaemon(RxOpts& o) {
         RxOpts so = o;
         { std::lock_guard<std::mutex> lk(ctl.mu); tuneApply(ctl.tune, so); }
         datvSessionOpts(so, fk, sk);
-        { std::lock_guard<std::mutex> lk(ctl.mu); so.txClock = ctl.tune.txClock == 1 || (ctl.tune.txClock == 2 && ctl.txSrKS > 0); }
+        { std::lock_guard<std::mutex> lk(ctl.mu); so.txClock = ctl.tune.txClock == 1 || (ctl.tune.txClock == 2 && ctl.txSr > 0); }
         if (so.txClock) {
             // the transmission owns the AD9361 clock: the FPGA DDC and the software matched filter (runSession)
             so.prefilt = false;

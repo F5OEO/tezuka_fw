@@ -66,7 +66,8 @@ public:
             std::string v((const char*)msg->payload, (size_t)msg->payloadlen);   // not NUL-terminated on the wire
             while (!v.empty() && (v.back() == '\n' || v.back() == '\r' || v.back() == ' ' || v.back() == '\t')) v.pop_back();
             auto* l = (MqttLink*)self;
-            if (l->handler_) l->handler_(isTx ? std::string("@txsr") : topic.substr(pre.size()), v);
+            // dt/pluto/<call>/tx/dvbs2/sr -> "@txsr:<call>"
+            if (l->handler_) l->handler_(isTx ? "@txsr:" + topic.substr(9, topic.size() - txsr.size() - 9) : topic.substr(pre.size()), v);
         });
         const int rc = mosquitto_connect_async(mosq_, host.c_str(), port, 60);
         if (rc != MOSQ_ERR_SUCCESS) fprintf(stderr, "mqtt: cannot connect to %s:%d yet (%s), retrying\n", host.c_str(), port, mosquitto_strerror(rc));
