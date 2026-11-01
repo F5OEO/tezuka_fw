@@ -352,6 +352,7 @@ struct RxOpts {
     bool fpgaFront = false;                   // --fpga-front: live input through the FPGA symbol front end (the radio's RRC FIR, then the fabric)
     int fastTiming = 2;                       // --fast-timing: 0 off, 1 on, 2 auto (on above 0.5 Msym/s)
     bool start = false;                       // --start: with --mqtt, begin receiving at once instead of waiting for cmd/zynqrx/process start
+    bool lowRateFront = false;                // fpgafront below 261 kS: the radio at 2.1 Msps and an RRC in the FPGA DDC (set by the daemon)
     bool txClock = false;                     // --tx-clock: leave the AD9361 at the clock of the transmission (RX and TX share it) and decimate in the FPGA DDC
 };
 
@@ -361,7 +362,7 @@ struct RxTune {
     double gainDb = -1, bwMHz = 0, roll = 0, maxLag = 4;   // gain -1 = the radio's AGC, bw 0 = 3 x the symbol rate, roll 0 = 0.35 on the radio's filter
     int stdHint = 0, isi = -1, pls = -1, modsMask = 0, fastTiming = 2;
     bool ccm = false, presence = false, ldpc8 = false, wsKeyframe = false, noBch = false, cs8 = true;
-    bool fpgaFront = false;                   // fpgafront: the FPGA symbol front end (from 261 kS, where the radio's RRC filter is used)
+    bool fpgaFront = false;                   // fpgafront: the FPGA symbol front end (radio RRC filter from 261 kS, an RRC in the FPGA DDC below)
     int txClock = 2;                          // txclock: 0 off, 1 on, 2 auto = on while pluto_stream transmits (dt/pluto/+/tx/dvbs2/sr set, dt/pluto/+/tx/mute 0)
     double carrierHz = 12000;                 // carrierbw: DVB-S2 carrier loop floor in Hz (LNB phase noise), 0 = the narrow loop only
 };
@@ -547,6 +548,35 @@ int runSession(RxOpts& o, RxCtl& ctl) {
         }
 #else
         fprintf(stderr, "--tx-clock needs a build with IIO=1\n");
+        return 1;
+#endif
+    }
+    else if (useIio && o.fpgaFront && (o.lowRateFront || (rs > 0 && 2 * rs < 2.083 / 4 - 1e-4))) {
+#ifdef ZYNQRX_IIO
+        // Below 261 kS the radio's RRC FIR cannot give 2 samples per symbol (the converter does not go below 2.083 Msps): the radio runs at the
+        // plain 2.1 Msps, the FPGA DDC filters with an RRC and decimates to 2 - 4 samples per symbol, and the symbol front end works at that rate
+        // (the same path as txclock, with the receiver's own clock). Without the core, the sps register or a DDC filter that fits: the CPU front end
+        const double a = roll > 0 ? roll : 0.35;
+        const double fin = std::max(rate, 2.1);
+        if (rs <= 0) { fprintf(stderr, "--fpga-front needs --rs\n"); return 1; }
+        if (!iio.open(o.iioUri, fin * 1e6, o.freqMHz * 1e6, o.bwMHz * 1e6, o.gainDb, 0, o.cs8)) return 1;
+        const double conv = (double)iio.currentRate() > 0 ? (double)iio.currentRate() : fin * 1e6;
+        double out = 0;
+        bool front = false;
+        if (!fpga.open()) fprintf(stderr, "fpga front end unavailable, using the CPU front end\n");
+        else if (!fpga.hasSps()) fprintf(stderr, "this symfront core runs at 2 samples per symbol only: below 261 kS the CPU front end runs\n");
+        else if (!ddc.designRrc(conv, rs * 1e6, a, out) || !ddc.enable(true)) fprintf(stderr, "no RRC filter in the DDC for %.0f kS, using the CPU front end\n", rs * 1e3);
+        else {
+            fpga.configure(o.haveCenter ? o.center : 0.0, out, a, out / (rs * 1e6));
+            fpga.enable(true);
+            roll = a;
+            rate = rs;
+            front = true;
+            fprintf(stderr, "radio at %.3f Msps, DDC RRC to %.3f Msps, FPGA symbol front end at %.2f samples per symbol\n", conv / 1e6, out / 1e6, out / (rs * 1e6));
+        }
+        if (!front) { o.fpgaFront = false; rate = conv / 1e6; }
+#else
+        fprintf(stderr, "--fpga-front needs a build with IIO=1\n");
         return 1;
 #endif
     }
@@ -920,12 +950,13 @@ int runDaemon(RxOpts& o) {
             // the transmission owns the AD9361 clock: the FPGA DDC, then the FPGA symbol front end (fpgafront) or the software matched filter (runSession)
             so.prefilt = false;
         } else if (so.fpgaFront) {
-            // the FPGA front end takes the radio's RRC filter output (2 samples per symbol); below 261 kS there is none and the CPU front end runs
-            if (so.prefilt) so.prefilt = false;
-            else { so.fpgaFront = false; fprintf(stderr, "receiver: fpgafront needs 261 kS or more, using the CPU front end\n"); }
+            // the FPGA front end takes the radio's RRC filter output (2 samples per symbol) from 261 kS; below, runSession puts an RRC in the
+            // FPGA DDC in front of it (the radio at 2.1 Msps). prefilt tells runSession which of the two
+            so.lowRateFront = !so.prefilt;
+            so.prefilt = false;
         }
         fprintf(stderr, "receiver: %.3f MHz, %ld kS (%s)\n", (double)fk / 1000.0, sk,
-                so.txClock ? (so.fpgaFront ? "transmission's clock, FPGA DDC + symbol front end" : "transmission's clock, FPGA DDC") : so.fpgaFront ? "radio RRC filter, FPGA symbol front end" : so.prefilt ? "radio RRC filter" : "software matched filter");
+                so.txClock ? (so.fpgaFront ? "transmission's clock, FPGA DDC + symbol front end" : "transmission's clock, FPGA DDC") : so.fpgaFront ? (so.lowRateFront ? "FPGA DDC RRC + symbol front end" : "radio RRC filter, FPGA symbol front end") : so.prefilt ? "radio RRC filter" : "software matched filter");
         const int rc = runSession(so, ctl);
         if (gStop) break;
         bool again, stopped;

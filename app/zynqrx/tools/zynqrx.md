@@ -72,7 +72,7 @@ Commands (`cmd/zynqrx/...`):
 | `roll` | Roll-off 0.05 - 0.35, 0 = default (0.35 on the radio filter). Same as `--roll`. |
 | `mods` | Modulations to search for, e.g. `qpsk,8psk`. Same as `--mods`. |
 | `ccm`, `presence`, `ldpc8` | `0` or `1`. Same as `--ccm`, `--presence`/`--no-presence`, `--ldpc8`. |
-| `fpgafront` | `0` or `1`. Same as `--fpga-front`: the FPGA symbol front end (bitstream with the symfront core, 261 kS and up; otherwise the CPU front end runs). |
+| `fpgafront` | `0` or `1`. Same as `--fpga-front`: the FPGA symbol front end (bitstream with the symfront core). From 261 kS it takes the radio's RRC filter output; below, the radio runs at 2.1 Msps and the Maia DDC filters with an RRC and decimates to 2 - 4 samples per symbol in front of it (a core with the sps register). Otherwise the CPU front end runs. |
 | `carrierbw` | Hz, `0` - `100000`. Same as `--carrier-bw`. |
 | `txclock` | `on`, `off` or `auto` (default). RX and TX share the AD9361 clock, so a receiver that sets its own rate and FIR breaks pluto_stream's transmission. `on` (`--tx-clock`): the converter rate and FIR stay as pluto_stream set them, the Maia DDC in the FPGA decimates to 2 - 4 samples per symbol (maia-httpd `/api/ddc`, route enabled for the session) and the receiver filters in software; with `fpgafront` and a symfront core that has the sps register (0x1c), the DDC gets an RRC instead (2 - 4 samples per symbol) and the FPGA symbol front end runs behind it at that rate; otherwise the receiver filters in software. `auto`: `on` while pluto_stream transmits (a transmit symbol rate announced on `dt/pluto/<call>/tx/dvbs2/sr` and PTT on, `dt/pluto/<call>/tx/mute` 0, both retained); PTT off, the receiver goes back to its own rate, RRC FIR and `fpgafront` (a restart of a few seconds at each switch). The session restarts by itself when the transmission moves the clock. The clock must be at least 2 x the receive symbol rate. |
 | `fasttiming` | `on`, `off` or `auto`. Same as `--fast-timing`. |
@@ -103,7 +103,7 @@ Notes:
 - `ber` and `ldpc_errors` are estimates from the pre-FEC bit error rate. `bch_errors` is 0.
 - `mer` is sent from "found header" on.
 - `ber`, `ldpc_errors` and `margin_db` are sent only once the transport stream is locked.
-- From 261 kS the radio's RRC filter is used (2 samples per symbol). Below that, the radio runs at 2.1 Msps and the receiver filters in software.
+- From 261 kS the radio's RRC filter is used (2 samples per symbol). Below that, the radio runs at 2.1 Msps and, with `fpgafront`, the FPGA DDC filters (RRC) in front of the FPGA symbol front end; without it the receiver filters in software.
 
 ## `zynqrx gen out.cs8 [options]`
 
