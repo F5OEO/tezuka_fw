@@ -117,8 +117,6 @@ make -C output/<board>                          # rebuild final images via post-
 
 Use the `output/<board>` wrapper Makefile: with `make -C buildroot O=output/<board>`, the relative `O=` is resolved from `buildroot/`, so Buildroot finds no configuration and the BR2_EXTERNAL targets such as `board-fpga-reconfigure` do not exist.
 
-**Patch dvb_fpga before any Vivado build.** maia-hdl keeps its changes to the `dvb_fpga` submodule (the DVB-S2 TX encoder) as patches, not as commits: run `make -C maia-hdl patch-dvb_fpga` after every `git submodule update` and check `git -C maia-hdl/dvb_fpga status` shows modified `rtl/` files. Without them the bitstream builds, meets timing and receives, but DVB-S2 TX sends a carrier with no decodable frames: the encoder cannot parse the SYNC + MODCOD header pluto_stream puts in front of each BBFRAME.
-
 #### Adding a new board's FPGA project
 
 A new board needs, in the maia-sdr checkout:
