@@ -143,7 +143,10 @@ DECT2_SIMD_MEMBER_BODY bool LdpcCode::decodeFastBody(const std::vector<float>& l
     std::vector<size_t> base(q + 1, 0);
     for (int r = 0; r < q; r++) base[r + 1] = base[r] + (layers_[r].size() + 2) * Z;
     std::vector<float> msg(base[q], 0.f);
-    std::vector<float> L, min1(Z), min2(Z);
+    // sized once for the largest layer: the gather below writes every entry of the nc rows it uses, so the buffer is not cleared per layer
+    size_t maxNc = 0;
+    for (int r = 0; r < q; r++) maxNc = std::max(maxNc, layers_[r].size() + 2);
+    std::vector<float> L(maxNc * Z, 0.f), min1(Z), min2(Z);
     std::vector<int> idx1(Z);
     std::vector<uint32_t> sg(Z);
     int it = 0;
@@ -152,7 +155,6 @@ DECT2_SIMD_MEMBER_BODY bool LdpcCode::decodeFastBody(const std::vector<float>& l
         for (int r = 0; r < q; r++) {
             const auto& cn = layers_[r];
             const int nc = (int)cn.size() + 2;
-            L.assign((size_t)nc * Z, 0.f);
             float* mr = msg.data() + base[r];
             // gather variable-to-check messages
             for (int j = 0; j < nc; j++) {
@@ -365,7 +367,11 @@ DECT2_SIMD_MEMBER_BODY bool LdpcCode::decodeQ8Body(const std::vector<float>& llr
     std::vector<size_t> base((size_t)q + 1, 0);
     for (int r = 0; r < q; r++) base[(size_t)r + 1] = base[(size_t)r] + (layers_[(size_t)r].size() + 2) * ZS;
     std::vector<int8_t> msg(base[(size_t)q], 0);
-    std::vector<int8_t> L, inc, min1(Z), min2(Z), idx1(Z), sg(Z);
+    // the layer buffers, sized once for the largest layer: every iteration rewrites lanes 0 .. Z-1 of each row (and the NEON layer all of inc), so they are
+    // not cleared again per layer; the padding lanes of L (ZS > Z) stay at the zero they start with, as before
+    size_t maxNc = 0;
+    for (int r = 0; r < q; r++) maxNc = std::max(maxNc, layers_[(size_t)r].size() + 2);
+    std::vector<int8_t> L(maxNc * ZS, 0), inc(maxNc * ZS, 0), min1(Z), min2(Z), idx1(Z), sg(Z);
     int it = 0, bad = 0;
     bool ok = false;
     // checks that fail, layer by layer (the 360 checks of a layer together: the sign bits of its variables, rotated, xor-ed); `all` false stops at the first
@@ -394,8 +400,6 @@ DECT2_SIMD_MEMBER_BODY bool LdpcCode::decodeQ8Body(const std::vector<float>& llr
         for (int r = 0; r < q; r++) {
             const auto& cn = layers_[(size_t)r];
             const int nc = (int)cn.size() + 2;
-            L.assign((size_t)nc * ZS, 0);
-            inc.assign((size_t)nc * ZS, 0);
             int8_t* mr = msg.data() + base[(size_t)r];
             for (int j = 0; j < nc; j++) {
                 int8_t* Lj = L.data() + (size_t)j * ZS;
