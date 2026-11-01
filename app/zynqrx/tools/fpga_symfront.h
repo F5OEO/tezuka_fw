@@ -12,7 +12,7 @@
 class FpgaSymFront {
 public:
     static constexpr uint32_t kBase = 0x43C20000;
-    enum Reg { kControl = 0x00, kNcoStep = 0x04, kKp = 0x08, kKi = 0x0c, kPower = 0x10, kSymbols = 0x14, kStatus = 0x18 };
+    enum Reg { kControl = 0x00, kNcoStep = 0x04, kKp = 0x08, kKi = 0x0c, kPower = 0x10, kSymbols = 0x14, kStatus = 0x18, kSps = 0x1c };
 
     FpgaSymFront() = default;
     FpgaSymFront(const FpgaSymFront&) = delete;
@@ -30,9 +30,12 @@ public:
         if (read(kKp) != 0x123456) { fprintf(stderr, "fpga front end: no symfront core at 0x%08x (bitstream without it?)\n", kBase); munmap(p, 0x1000); regs_ = nullptr; return false; }
         return true;
     }
-    // carrierHz: where the carrier is relative to the LO (the mixer moves it to 0); fs: sample rate into the core (2 per symbol)
-    void configure(double carrierHz, double fs, double rollOff) {
+    // carrierHz: where the carrier is relative to the LO (the mixer moves it to 0); fs: sample rate into the core; sps: samples per symbol
+    // there (2 behind the radio's RRC FIR; 2 - 4 behind an RRC in the Maia DDC). Cores before the sps register always run at 2: hasSps() says
+    // whether this one takes another value.
+    void configure(double carrierHz, double fs, double rollOff, double sps = 2.0) {
         enable(false);
+        write(kSps, (uint32_t)std::llround(sps * 16777216.0));
         roll_ = rollOff;
         const int64_t step = std::llround(-carrierHz / fs * 4294967296.0);
         write(kNcoStep, (uint32_t)(step & 0xffffffff));
@@ -46,6 +49,15 @@ public:
         write(kKi, (uint32_t)std::llround(4.0 * th * th / d / kd * 16777216.0));
     }
     void enable(bool on) { if (regs_) write(kControl, on ? 1 : 0); }
+    // the sps register reads back what was written on a core that has it (its reset value is 2.0), 0 on an older one
+    bool hasSps() {
+        if (!regs_) return false;
+        const uint32_t old = read(kSps);
+        write(kSps, 0x02aaaaab);
+        const bool ok = read(kSps) == 0x02aaaaab;
+        write(kSps, old ? old : 0x02000000);
+        return ok;
+    }
     uint32_t symbols() const { return read(kSymbols); }
     double power() const { return (double)read(kPower) * 4.0; }
     bool inOverflow() const { return read(kStatus) & 1; }

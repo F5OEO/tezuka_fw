@@ -10,6 +10,8 @@
 #include <cstring>
 #include <netinet/in.h>
 #include <string>
+#include <vector>
+#include <algorithm>
 #include <sys/socket.h>
 #include <sys/time.h>
 #include <unistd.h>
@@ -46,6 +48,41 @@ public:
         outHz_ = number(resp, "output_sampling_frequency");
         return true;
     }
+    // An RRC matched filter in the DDC for the FPGA symbol front end: output at 2 - 4 samples per symbol, root raised cosine filtered (what the
+    // radio's own FIR does in the normal way). fir1 alone when the filter fits; otherwise a low-pass in fir1 brings the rate down to at most
+    // 32 samples per symbol and the RRC runs in fir3. False when no layout fits maia-httpd's limits (the caller then filters on the CPU).
+    // outHz: the DDC output rate; sps = outHz / rsHz.
+    bool designRrc(double finHz, double rsHz, double roll, double& outHz) {
+        std::vector<long> h1, h3;
+        int d1 = 0, d3 = 0;
+        const double ratio = finHz / rsHz;
+        if (ratio < 4.0) return false;
+        if (ratio <= 32.0) {
+            d1 = (int)std::floor(ratio / 2.0);
+            if (!rrcStage(finHz, rsHz, roll, d1, true, h1)) return false;
+        } else {
+            d1 = (int)std::ceil(ratio / 32.0);
+            const double fs1 = finHz / d1;
+            d3 = (int)std::floor(fs1 / rsHz / 2.0);
+            if (d1 < 2 || d3 < 2 || d1 > 127 || !lowpassStage(finHz, d1, h1) || !rrcStage(fs1, rsHz, roll, d3, false, h3)) return false;
+        }
+        std::string body = "{\"frequency\":0.0,\"fir1\":" + stageJson(h1, d1);
+        if (d3) body += ",\"fir3\":" + stageJson(h3, d3);
+        body += "}";
+        std::string resp;
+        const int st = request("PUT", "/api/ddc/config", body.c_str(), resp);
+        if (st / 100 != 2) { fprintf(stderr, "ddc: RRC filter refused (%d) %s\n", st, resp.substr(0, 160).c_str()); return false; }
+        outHz = finHz / d1 / (d3 ? d3 : 1);
+        if (request("GET", "/api/ddc/config", nullptr, resp) / 100 == 2) {
+            const double o = number(resp, "output_sampling_frequency");
+            if (o > 0 && std::isfinite(o)) outHz = o;
+        }
+        outHz_ = outHz;
+        fprintf(stderr, "ddc: RRC %.2f, %s%d taps / %d%s, %.3f Msps out (%.2f samples per symbol)\n", roll, d3 ? "low-pass " : "",
+                (int)h1.size(), d1, d3 ? (", RRC " + std::to_string(h3.size()) + " taps / " + std::to_string(d3)).c_str() : "", outHz / 1e6, outHz / rsHz);
+        return true;
+    }
+
     bool enable(bool on) {
         std::string resp;
         const int st = request("PATCH", "/api/ddc/config", on ? "{\"enabled\":true}" : "{\"enabled\":false}", resp);
@@ -61,6 +98,63 @@ public:
 private:
     bool enabled_ = false;
     double outHz_ = 0;
+
+    // maia-httpd's limits (maia-httpd src/ddc/constants.rs, ddc.rs): 18-bit coefficients, stage decimation 2 - 127, operations = ceil(len / d)
+    // (halved for the folded fir1 and fir3) at most 128, operations x input rate at most 187.5 MHz, operations x d within the coefficient RAM
+    // (256 for fir1 and fir3). Gain: sum |h| about 2^21 for fir1, 2^18 for fir3 (MACC_TRUNC + WIDTH_GROWTH), as its own designer scales.
+    static bool fits(size_t len, int d, double fsIn) {
+        const long ops = ((long)((len + d - 1) / d) + 1) / 2;
+        return d >= 2 && d <= 127 && ops <= 128 && ops * fsIn <= 187.5e6 && ops * d <= 256;
+    }
+    static void scale(const std::vector<double>& h, bool first, std::vector<long>& out) {
+        double sumAbs = 0, maxAbs = 0;
+        for (double v : h) { sumAbs += std::fabs(v); maxAbs = std::max(maxAbs, std::fabs(v)); }
+        const double g = std::min(131071.0 / maxAbs, (first ? 2097152.0 : 262144.0) / sumAbs);
+        out.clear();
+        for (double v : h) out.push_back(std::lround(v * g));
+    }
+    // root raised cosine at fs (rs symbols/s), span 8 symbols (down to 4 when it does not fit), for a stage decimating by d
+    static bool rrcStage(double fs, double rs, double a, int d, bool first, std::vector<long>& out) {
+        const double pi = 3.14159265358979323846, sps = fs / rs;
+        for (int span = 8; span >= 4; span--) {
+            const int half = (int)std::floor(span * sps / 2);
+            const size_t len = (size_t)(2 * half + 1);
+            if (!fits(len, d, fs)) continue;
+            std::vector<double> h(len);
+            for (int k = -half; k <= half; k++) {
+                const double x = k / sps;
+                double v;
+                if (std::fabs(x) < 1e-9) v = 1 - a + 4 * a / pi;
+                else if (std::fabs(std::fabs(x) - 1 / (4 * a)) < 1e-9) v = a / std::sqrt(2.0) * ((1 + 2 / pi) * std::sin(pi / (4 * a)) + (1 - 2 / pi) * std::cos(pi / (4 * a)));
+                else v = (std::sin(pi * x * (1 - a)) + 4 * a * x * std::cos(pi * x * (1 + a))) / (pi * x * (1 - 16 * a * a * x * x));
+                h[(size_t)(k + half)] = v;
+            }
+            scale(h, first, out);
+            return true;
+        }
+        return false;
+    }
+    // Blackman windowed sinc, cut-off at a quarter of the output rate: the signal (at most 0.17 of it, 4 or more samples per symbol) passes flat
+    // and what folds back onto it is 60 dB down
+    static bool lowpassStage(double fs, int d, std::vector<long>& out) {
+        const double pi = 3.14159265358979323846, fc = 0.25 / d;   // of the input rate
+        const int half = 5 * d;
+        const size_t len = (size_t)(2 * half + 1);
+        if (!fits(len, d, fs)) return false;
+        std::vector<double> h(len);
+        for (int k = -half; k <= half; k++) {
+            const double s = k == 0 ? 2 * fc : std::sin(2 * pi * fc * k) / (pi * k);
+            const double w = 0.42 + 0.5 * std::cos(pi * k / half) + 0.08 * std::cos(2 * pi * k / half);
+            h[(size_t)(k + half)] = s * w;
+        }
+        scale(h, true, out);
+        return true;
+    }
+    static std::string stageJson(const std::vector<long>& h, int d) {
+        std::string s = "{\"decimation\":" + std::to_string(d) + ",\"coefficients\":[";
+        for (size_t i = 0; i < h.size(); i++) s += (i ? "," : "") + std::to_string(h[i]);
+        return s + "]}";
+    }
 
     static double number(const std::string& json, const char* key) {
         const std::string k = std::string("\"") + key + "\"";

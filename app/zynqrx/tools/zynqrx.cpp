@@ -497,21 +497,43 @@ int runSession(RxOpts& o, RxCtl& ctl) {
             fprintf(stderr, "tx clock: the radio runs at %.3f Msps, too slow for %.0f kS (2 samples per symbol at least); waiting for another transmit rate\n", txClockHz / 1e6, rs * 1e3);
             return 1;
         }
-        int d = MaiaDdc::decimation((double)txClockHz, rs * 1e6);
-        rate = (double)txClockHz / 1e6;
-        if (d >= 2) {
+        // the FPGA symbol front end behind the DDC: an RRC in the DDC (2 - 4 samples per symbol), then the fabric's mixer, Gardner loop and AGC
+        // at that rate (a core with the sps register), one symbol per sample to the receiver
+        bool front = false;
+        if (o.fpgaFront && fpga.open()) {
+            const double a = roll > 0 ? roll : 0.35;
+            double out = 0;
+            if (!fpga.hasSps()) fprintf(stderr, "tx clock: this symfront core runs at 2 samples per symbol only, using the CPU front end\n");
+            else if (!ddc.designRrc((double)txClockHz, rs * 1e6, a, out) || !ddc.enable(true)) fprintf(stderr, "tx clock: no RRC filter in the DDC, using the CPU front end\n");
+            else {
+                if (!iio.open(o.iioUri, out, o.freqMHz * 1e6, o.bwMHz * 1e6, o.gainDb, 0, o.cs8, true)) return 1;
+                fpga.configure(o.haveCenter ? o.center : 0.0, out, a, out / (rs * 1e6));
+                fpga.enable(true);
+                roll = a;
+                rate = rs;
+                prefilt = o.prefilt = false;
+                front = true;
+                fprintf(stderr, "tx clock: radio at %.3f Msps (set by the transmission), DDC RRC to %.3f Msps, FPGA symbol front end at %.2f samples per symbol\n",
+                        txClockHz / 1e6, out / 1e6, out / (rs * 1e6));
+            }
+        }
+        int d = front ? 0 : MaiaDdc::decimation((double)txClockHz, rs * 1e6);
+        if (!front) rate = (double)txClockHz / 1e6;
+        if (!front && d >= 2) {
             // the DDC's three filter stages may not make every decimation: a smaller one only adds samples per symbol
             bool designed = false;
             for (int tries = 0; d >= 2 && tries < 8 && !(designed = ddc.design(d)); tries++) d--;
             if (!designed || !ddc.enable(true)) { fprintf(stderr, "tx clock: the FPGA DDC is not available\n"); return 1; }
             rate = (ddc.outputHz() > 0 ? ddc.outputHz() : (double)txClockHz / d) / 1e6;
         }
-        o.fpgaFront = false;
-        prefilt = o.prefilt = false;
-        const bool cs8 = o.cs8 && rate >= 1.0;   // below 1 Msps, 16-bit samples keep the dynamic range the decimation gained
-        fprintf(stderr, "tx clock: radio at %.3f Msps (set by the transmission), DDC %s, receiver at %.3f Msps (%.1f samples per symbol, %s)\n",
-                txClockHz / 1e6, d >= 2 ? ("D=" + std::to_string(d)).c_str() : "off", rate, rate / rs, cs8 ? "cs8" : "cs16");
-        if (!iio.open(o.iioUri, rate * 1e6, o.freqMHz * 1e6, o.bwMHz * 1e6, o.gainDb, 0, cs8, true)) return 1;
+        if (!front) {
+            o.fpgaFront = false;
+            prefilt = o.prefilt = false;
+            const bool cs8 = o.cs8 && rate >= 1.0;   // below 1 Msps, 16-bit samples keep the dynamic range the decimation gained
+            fprintf(stderr, "tx clock: radio at %.3f Msps (set by the transmission), DDC %s, receiver at %.3f Msps (%.1f samples per symbol, %s)\n",
+                    txClockHz / 1e6, d >= 2 ? ("D=" + std::to_string(d)).c_str() : "off", rate, rate / rs, cs8 ? "cs8" : "cs16");
+            if (!iio.open(o.iioUri, rate * 1e6, o.freqMHz * 1e6, o.bwMHz * 1e6, o.gainDb, 0, cs8, true)) return 1;
+        }
 #else
         fprintf(stderr, "--tx-clock needs a build with IIO=1\n");
         return 1;
@@ -881,16 +903,15 @@ int runDaemon(RxOpts& o) {
         datvSessionOpts(so, fk, sk);
         { std::lock_guard<std::mutex> lk(ctl.mu); so.txClock = ctl.wantTxClock(); }
         if (so.txClock) {
-            // the transmission owns the AD9361 clock: the FPGA DDC and the software matched filter (runSession)
+            // the transmission owns the AD9361 clock: the FPGA DDC, then the FPGA symbol front end (fpgafront) or the software matched filter (runSession)
             so.prefilt = false;
-            so.fpgaFront = false;
         } else if (so.fpgaFront) {
             // the FPGA front end takes the radio's RRC filter output (2 samples per symbol); below 261 kS there is none and the CPU front end runs
             if (so.prefilt) so.prefilt = false;
             else { so.fpgaFront = false; fprintf(stderr, "receiver: fpgafront needs 261 kS or more, using the CPU front end\n"); }
         }
         fprintf(stderr, "receiver: %.3f MHz, %ld kS (%s)\n", (double)fk / 1000.0, sk,
-                so.txClock ? "transmission's clock, FPGA DDC" : so.fpgaFront ? "radio RRC filter, FPGA symbol front end" : so.prefilt ? "radio RRC filter" : "software matched filter");
+                so.txClock ? (so.fpgaFront ? "transmission's clock, FPGA DDC + symbol front end" : "transmission's clock, FPGA DDC") : so.fpgaFront ? "radio RRC filter, FPGA symbol front end" : so.prefilt ? "radio RRC filter" : "software matched filter");
         const int rc = runSession(so, ctl);
         if (gStop) break;
         bool again, stopped;
