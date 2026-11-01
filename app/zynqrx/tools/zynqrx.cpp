@@ -591,6 +591,7 @@ int runSession(RxOpts& o, RxCtl& ctl) {
     if (roll > 0) rx.setRollOff(roll);
     rx.setPrefiltered(prefilt);
     rx.setSymbolInput(o.symbols || o.fpgaFront);
+    rx.setFiniteInput(useIio || format != "cf32");   // integer samples cannot be NaN or infinite
     rx.setLdpc8(o.ldpc8);
     rx.setCarrierFloor(o.carrierHz);
     if (o.noBch || getenv("DECT2_NO_BCH")) rx.setNoBch(o.noBch || atoi(getenv("DECT2_NO_BCH")) != 0);

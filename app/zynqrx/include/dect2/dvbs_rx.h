@@ -32,6 +32,7 @@ public:
     void setStandardHint(int standard);                  // 0 automatic, 1 DVB-S only, 2 DVB-S2 only (S2X signalling is reported either way)
     void setRollOff(double rollOff);                     // 0 = automatic: the spectrum, then the stream's own signalling
     void setPrefiltered(bool on);                        // the radio already did the root raised cosine filter and decimation (about 2 samples per symbol): skip them
+    void setFiniteInput(bool on);                        // the samples come from integers (radio, cs8/cs16/cu8 file): skips the NaN / infinity check of each block
     void setSymbolInput(bool on);                        // the input is one timing-recovered symbol per sample, unit mean power at a quarter of full scale (the FPGA symbol front end): needs the symbol rate = the input rate
     void setSpectrumInterval(double secs);               // seconds between spectrum analyses once locked (default 0.25; larger saves CPU on small machines, the display refreshes that slowly)
     void setCenter(bool known, double hz);               // the carrier's offset from the centre of the input; with a symbol rate set too, the spectrum is skipped altogether (no search, no FFT)

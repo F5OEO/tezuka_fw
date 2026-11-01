@@ -20,6 +20,8 @@ public:
     void reset();                                           // keeps the configuration, forgets the signal
     void process(const cf32* x, size_t n, std::vector<cf32>& out);   // appends symbols
     const Config& config() const { return c_; }
+    // symbol input (Config::symbols): unit power at a quarter of full scale (512 of 2048 in 12 bits) is scaled to unit power
+    static constexpr float kSymbolScale = 4.f;
     SymbolTimer& timer() { return timer_; }
     const SymbolTimer& timer() const { return timer_; }
     int halfbands() const { return (int)hb_.size(); }

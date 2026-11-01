@@ -110,6 +110,7 @@ struct DvbsReceiver::Impl {
     ComputeChoice s1Compute{&ComputeChoice::viterbiUsable, false};                  // DVB-S: where the Viterbi decoder runs
     std::atomic<bool> s1OnGpu{false};
     std::atomic<bool> blocking{false}, prefiltered{false}, centerKnown{false}, symbolInput{false};
+    std::atomic<bool> finiteInput{false};         // the samples come from integers: no NaN / infinity check
     std::atomic<double> manualCenter{0};
     bool spectrumOff() const { return centerKnown.load() && manualRs.load() > 0; }   // carrier given: nothing to measure
     std::atomic<double> specInterval{0.25};   // seconds between spectrum analyses (display, carrier telemetry) once locked
@@ -265,6 +266,18 @@ struct DvbsReceiver::Impl {
 
     // ------------------------------------------------------------------------ the symbol path
     void runFront(const cf32* x, size_t n) {
+        if (mode == kS2 && front.config().symbols) {
+            // locked on symbol input (the FPGA symbol front end): the front end would only scale the block into `sym` for s2Push to copy it into the
+            // frame thread's queue; the scaling is done in that copy instead (same products, one pass less)
+            symTotal += n;
+            rateNow = front.symbolRateNow();
+            if (!timingNarrow && symTotal > 40000) { front.timer().setLoop(0.004, 0.707); timingNarrow = true; }
+            if (!recentred && symTotal > 200000) { front.recentre(); recentred = true; }
+            s2Symbols += n;
+            s2.push(x, n, DvbsFront::kSymbolScale);
+            s2Lost();
+            return;
+        }
         sym.clear();
         front.process(x, n, sym);
         if (sym.empty()) return;
@@ -371,6 +384,9 @@ struct DvbsReceiver::Impl {
     void s2Push() {
         s2Symbols += sym.size();
         s2.push(sym.data(), sym.size());
+        s2Lost();
+    }
+    void s2Lost() {
         if (s2.lost()) {
             s2.stop();
             tsLockFlag = false;
@@ -599,6 +615,7 @@ void DvbsReceiver::setPacketCallback(std::function<void(const uint8_t*, size_t, 
 void DvbsReceiver::setSymbolRate(double hz) { if (hz != p_->manualRs.load()) { p_->manualRs = hz; p_->restartReq = true; } }
 void DvbsReceiver::setStandardHint(int s) { if (s != p_->stdHint.load()) { p_->stdHint = s; p_->restartReq = true; } }
 void DvbsReceiver::setRollOff(double r) { if (r != p_->rollHint.load()) { p_->rollHint = r; p_->restartReq = true; } }
+void DvbsReceiver::setFiniteInput(bool on) { p_->finiteInput = on; }
 void DvbsReceiver::setSymbolInput(bool on) { if (on != p_->symbolInput.load()) { p_->symbolInput = on; p_->restartReq = true; } }
 void DvbsReceiver::setPrefiltered(bool on) { if (on != p_->prefiltered.load()) { p_->prefiltered = on; p_->restartReq = true; } }
 void DvbsReceiver::setSpectrumInterval(double secs) { p_->specInterval = secs; }
@@ -672,7 +689,7 @@ void DvbsReceiver::feed(const cf32* x, size_t n) {
     }
     // a NaN or infinite sample (a broken file) would stay in the AGC power of the symbol timer, whose loop then runs away and reads outside its
     // buffer: such samples count as silence
-    if (!allFinite(x, n)) {
+    if (!I.finiteInput.load(std::memory_order_relaxed) && !allFinite(x, n)) {
         I.clean.assign(x, x + n);
         for (cf32& v : I.clean) if (!std::isfinite(v.real() + v.imag())) v = cf32(0, 0);
         x = I.clean.data();

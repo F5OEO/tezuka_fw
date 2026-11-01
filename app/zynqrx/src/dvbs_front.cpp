@@ -59,7 +59,7 @@ void DvbsFront::process(const cf32* x, size_t n, std::vector<cf32>& out) {
     if (c_.symbols) {   // unit power at a quarter of full scale (512 of 2048 in 12 bits): room for the outer ring of 32APSK
         const size_t b = out.size();
         out.resize(b + n);
-        for (size_t i = 0; i < n; i++) out[b + i] = x[i] * 4.f;
+        for (size_t i = 0; i < n; i++) out[b + i] = x[i] * kSymbolScale;
         return;
     }
     size_t done = 0;

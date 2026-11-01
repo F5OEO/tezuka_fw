@@ -61,7 +61,7 @@ public:
     // (push() drops a block when the thread is far behind, unless setBlocking(true)). The first thing the thread does is the frequency search over the
     // frames of the window, then it processes the symbols from the first header on.
     void start(const S2HuntResult& h, const cf32* win, size_t n);
-    void push(const cf32* z, size_t n);
+    void push(const cf32* z, size_t n, float scale = 1.f);   // symbols (times `scale`)
     bool tracking() const { return tracking_.load(); }
     bool lost() const { return lost_.load(); }            // header synchronisation was lost: hunt again
     void drain();                                  // waits until everything pushed so far is decoded and delivered (recordings, tests)

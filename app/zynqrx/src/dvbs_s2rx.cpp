@@ -1201,9 +1201,9 @@ void S2Rx::start(const S2HuntResult& h, const cf32* win, size_t n) {
     });
 }
 
-void S2Rx::push(const cf32* z, size_t n) {
+void S2Rx::push(const cf32* z, size_t n, float scale) {
     if (!tracking_.load()) return;
-    p_->th.push(z, n);
+    p_->th.push(z, n, scale);
 }
 
 void S2Rx::drain() {
