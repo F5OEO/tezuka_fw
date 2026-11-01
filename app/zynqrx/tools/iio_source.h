@@ -97,6 +97,9 @@ public:
             }
             if (!loaded) { fprintf(stderr, "iio: the radio did not accept the RRC FIR at %.3f Msps\n", rateHz / 1e6); return false; }
         }
+        // A plain rate: a receiver killed before it could restore the radio (start_zynqrx kills a slow one) may have left the RRC FIR of an earlier
+        // session switched on, which would decimate this stream by 4 behind a stale filter. Only the RX switch: the TX FIR may be pluto_stream's
+        if (!firOn_ && !keepClock) iio_channel_attr_write_longlong(rxCfg, "filter_fir_en", 0);
         if ((!firOn_ && !keepClock && iio_channel_attr_write_longlong(rxCfg, "sampling_frequency", (long long)rateHz) < 0) ||
             iio_channel_attr_write_longlong(rxCfg, "rf_bandwidth", (long long)(bwHz > 0 ? bwHz : rateHz)) < 0 ||
             iio_channel_attr_write_longlong(lo, "frequency", (long long)freqHz) < 0) {
