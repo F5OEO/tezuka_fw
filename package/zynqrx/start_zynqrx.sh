@@ -33,8 +33,10 @@ START=
 # --std 2: DVB-S2 only, otherwise failed hunts fall into the slow DVB-S Viterbi.
 # --no-bch: skip the BCH stage (it never corrected anything in tests). --iq-format cs8: 8-bit samples from the FPGA (equal to cs16 under the
 # radio AGC, but 24 dB worse at a low fixed gain: pass --iq-format cs16 with --gain). --ldpc8: the 8-bit LDPC decoder at every code rate.
+# --fpga-front: the FPGA symbol front end (symfront bitstream; from 261 kS, otherwise or without the core the CPU front end runs). txclock
+# stays auto: while pluto_stream transmits the receiver takes its AD9361 clock and decimates in the Maia DDC (zynqrx.md).
 nohup nice -n -10 "$ZYNQRX" rx --iio --mqtt 127.0.0.1:1883 \
-	--freq "$FREQ" --rs "$RS" --std 2 --mods qpsk,8psk --ccm --no-bch --iq-format cs8 --ldpc8 \
+	--freq "$FREQ" --rs "$RS" --std 2 --mods qpsk,8psk --ccm --no-bch --iq-format cs8 --ldpc8 --fpga-front \
 	--udp "$UDP" --ws "$WS_PORT" $START "$@" \
 	> "$LOG" 2>&1 < /dev/null &
 
