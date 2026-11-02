@@ -28,6 +28,7 @@ struct DatvStatus {
     std::string serviceName, providerName;
     std::vector<std::pair<int, int>> es; // elementary stream (pid, stream type)
     int matype1 = -1, matype2 = -1;      // baseband header MATYPE bytes of the last frame, -1 not known
+    std::string info;                    // why the receiver is not receiving (rx_info), empty = nothing to report
     std::vector<std::pair<std::string, std::string>> settings;   // receiver settings echoed on dt/zynqrx/set/<name> (gain, bw, std, roll, mods, ...)
 };
 
@@ -110,6 +111,7 @@ inline void datvPublish(MqttLink& mq, const DatvStatus& s) {
     static const char* states[] = {"Init", "Hunting", "found header", "demod_s", "demod_s2"};
     pub("process", s.running ? "start" : "stop");
     pub("rx_state", states[std::min(4, std::max(0, s.state))]);
+    pub("rx_info", s.info);
     mq.publish("dt/zynqrx/set/sr", std::to_string(s.srKS));
     {   // whole kHz as longmynd sends it, with one decimal only when the frequency has one
         char fb[32];

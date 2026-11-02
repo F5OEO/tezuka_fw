@@ -59,7 +59,7 @@
 //       Process control: without --start the receiver is stopped at launch (only MQTT and the --ws/--udp outputs are up, the radio is not opened);
 //       --start begins receiving at once. cmd/zynqrx/process start|stop starts and stops it at run time (frequency and sr sent while stopped are kept
 //       for the next start); dt/zynqrx/process is start or stop, also sent at once on a command.
-//       Status (dt/zynqrx/...), every second, not retained, QoS 2: process (start, stop), rx_state (Init, Hunting, found header, demod_s, demod_s2), set/sr|frequency|swport|
+//       Status (dt/zynqrx/...), every second, not retained, QoS 2: process (start, stop), rx_state (Init, Hunting, found header, demod_s, demod_s2), rx_info (why it is not receiving, empty otherwise), set/sr|frequency|swport|
 //       tsip, lna_gain, agc2, puncrate, carrier_frequency (kHz), lnb_supply, polarisation, symbolrate (kS), viterbi_error, ber, mer (dB), margin_db,
 //       bch_uncorect, bch_errors, ldpc_errors, service_name, provider_name, ts_null (%), es_pid/es_type, modulation, fec, short_frame, pilots,
 //       rolloff, matype1, matype2. Not sent: poweri/powerq, constel_i/q, agc1, videobuffer/audiobuffer/transdelay (no such measurements here).
@@ -457,6 +457,7 @@ struct RxCtl {
     long txSr = 0;                          // the transmit symbol rate pluto_stream announces (dt/pluto/<call>/tx/dvbs2/sr, retained, S/s), 0 = none yet
     std::string txCall;                       // the <call> of that topic
     bool txOn = false;                        // PTT pressed (dt/pluto/<call>/tx/mute 0, retained)
+    std::string info;                         // why the receiver is not receiving (dt/zynqrx/rx_info), empty when nothing to say
     std::chrono::steady_clock::time_point lastWatchdog{};   // the last restart by the session watchdog (at most one per 30 s)
     // txclock auto: the transmission's clock while it transmits; otherwise the receiver's own rate and FIR (and the symbol front end)
     bool wantTxClock() const { return tune.txClock == 1 || (tune.txClock == 2 && txSr > 0 && txOn); }
@@ -510,7 +511,11 @@ int runSession(RxOpts& o, RxCtl& ctl) {
             }
         }
         if (txClockHz < 2.0 * rs * 1e6) {
-            fprintf(stderr, "tx clock: the radio runs at %.3f Msps, too slow for %.0f kS (2 samples per symbol at least); waiting for another transmit rate\n", txClockHz / 1e6, rs * 1e3);
+            char msg[256];
+            snprintf(msg, sizeof msg, "%.0f kS needs at least %.3f Msps, the %ld S/s transmission leaves the radio at %.3f Msps: waiting for the end of the transmission or a higher transmit rate",
+                     rs * 1e3, 2.0 * rs, txSr, txClockHz / 1e6);
+            fprintf(stderr, "tx clock: %s\n", msg);
+            { std::lock_guard<std::mutex> lk(ctl.mu); ctl.info = msg; }
             return 1;
         }
         // the FPGA symbol front end behind the DDC: an RRC in the DDC (2 - 4 samples per symbol), then the fabric's mixer, Gardner loop and AGC
@@ -983,6 +988,7 @@ int runDaemon(RxOpts& o) {
         std::lock_guard<std::mutex> lk(ctl.mu);
         st.freqKHz = ctl.freqKHz; st.srKS = ctl.srKS; st.swport = ctl.swport; st.tsip = ctl.tsip; st.lnbSupply = ctl.lnbSupply; st.lnbHorizontal = ctl.lnbHorizontal; st.settings = tuneSettings(ctl.tune);
         st.running = ctl.enabled;
+        st.info = ctl.info;
         datvPublish(mq, st);
     };
     while (!gStop) {
@@ -998,7 +1004,7 @@ int runDaemon(RxOpts& o) {
         RxOpts so = o;
         { std::lock_guard<std::mutex> lk(ctl.mu); tuneApply(ctl.tune, so); }
         datvSessionOpts(so, fk, sk);
-        { std::lock_guard<std::mutex> lk(ctl.mu); so.txClock = ctl.wantTxClock(); }
+        { std::lock_guard<std::mutex> lk(ctl.mu); so.txClock = ctl.wantTxClock(); ctl.info.clear(); }
         if (so.txClock) {
             // the transmission owns the AD9361 clock: the FPGA DDC, then the FPGA symbol front end (fpgafront) or the software matched filter (runSession)
             so.prefilt = false;

@@ -90,6 +90,7 @@ A new frequency or symbol rate restarts the receiver too. Without `--freq` and `
 Status (`dt/zynqrx/...`) is published every second, not retained, QoS 2:
 
 - `process`, `rx_state` (Init, Hunting, found header, demod_s, demod_s2)
+- `rx_info`: why the receiver is not receiving, empty otherwise (for example a symbol rate too high for the clock a transmission leaves the radio at)
 - `set/sr|frequency|swport|tsip`
 - `lna_gain`, `agc2`, `puncrate`, `carrier_frequency` (kHz), `lnb_supply`, `polarisation`
 - `symbolrate` (kS), `viterbi_error`, `ber`, `mer` (dB), `margin_db`
