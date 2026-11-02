@@ -46,6 +46,10 @@ const WS_TS_PORT = 8080;
 const wsTsUrl = () => `ws://${window._tezukaDevHost || window.location.hostname}:${WS_TS_PORT}/stream.ts`;
 
 // zynqrx's limits (cmd/zynqrx/frequency in kHz, sr in kS)
+// the frequency goes out in kHz rounded to 0.1 kHz (a decimal only when there is one, e.g. 1089999.2)
+// the spectrometer frame rate asked for at every symbol rate change (spectro/fps, as the Spectrum page does), so the receiver spectrum redraws at 20 fps
+const RX_SPEC_FPS = 20;
+const rxKHz = (hz) => Math.round(hz / 100) / 10;
 const RX_FREQ_MIN_HZ = 70e6, RX_FREQ_MAX_HZ = 6e9;
 const RX_SR_MIN_KS = 33, RX_SR_MAX_KS = 7680;
 const RX_SR_PRESETS = [125, 250, 333, 500, 1000];
@@ -126,6 +130,102 @@ function Qo100Spectrum({ frameRef, signals, rxDlMHz, rxSrKs, namesRef, onPick })
     const mhz = SPEC_F0 + ((e.clientX - r.left) / r.width) * SPEC_SPAN;
     const hit = live.current.signals.find((s) => mhz >= s.start - 0.03 && mhz <= s.end + 0.03);
     if (hit) onPick(hit.freq, hit.sr); else onPick(Math.round(mhz * 1000) / 1000, 0);
+  };
+  return <canvas ref={cvRef} onClick={pick} style={{ display: 'block', width: '100%', height: H, cursor: 'crosshair', borderRadius: 6 }} />;
+}
+
+// The receiver's own spectrum: the board's binary /waterfall WebSocket (the Spectrum page's feed: a Float32 step index then linear
+// amplitude per FFT bin, plus JSON {center, span} messages), drawn on a canvas at 20 Hz in the QO-100 spectrum's style. The band
+// zynqrx is tuned to (frequency, symbol rate) is drawn as a band when it falls inside the span.
+function useWaterfallFeed() {
+  const frame = useWtR(null);                        // latest frame in dB
+  const [info, setInfo] = useWtS({ state: 'connecting', center: 0, span: 0 });
+  useWtE(() => {
+    let destroyed = false, ws = null, timer = null;
+    const host = window._tezukaDevHost || window.location.hostname;
+    const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const connect = () => {
+      if (destroyed) return;
+      ws = new WebSocket(`${proto}//${host}/waterfall`);
+      ws.binaryType = 'arraybuffer';
+      ws.onopen = () => setInfo((i) => ({ ...i, state: 'live' }));
+      ws.onclose = () => { frame.current = null; setInfo((i) => ({ ...i, state: 'offline' })); if (!destroyed) timer = setTimeout(connect, 2000); };
+      ws.onerror = () => {};
+      ws.onmessage = (evt) => {
+        if (!(evt.data instanceof ArrayBuffer)) {
+          try {
+            const m = JSON.parse(evt.data);
+            setInfo((i) => ({ ...i, center: m.center != null ? m.center : i.center, span: m.span != null ? m.span : i.span }));
+          } catch (_) {}
+          return;
+        }
+        const f = new Float32Array(evt.data);
+        if (f.length < 3) return;                    // f[0] is the step index, f[1..] the bins
+        const db = new Float32Array(f.length - 1);
+        for (let i = 0; i < db.length; i++) db[i] = 20 * Math.log10(f[i + 1] > 0 ? f[i + 1] : 1e-10);
+        frame.current = db;
+      };
+    };
+    connect();
+    return () => { destroyed = true; clearTimeout(timer); try { ws && ws.close(); } catch (_) {} };
+  }, []);
+  return [frame, info];
+}
+
+function RxSpectrum({ frameRef, centerHz, spanHz, rxHz, rxSrKs, onPick }) {
+  const cvRef = useWtR(null);
+  const live = useWtR({});
+  live.current = { centerHz, spanHz, rxHz, rxSrKs };
+  const range = useWtR({ lo: -100, hi: -20 });
+  const H = 150;
+  useWtE(() => {
+    const draw = () => {
+      const cv = cvRef.current; if (!cv) return;
+      const w = cv.clientWidth, dpr = window.devicePixelRatio || 1;
+      if (cv.width !== Math.round(w * dpr) || cv.height !== Math.round(H * dpr)) { cv.width = Math.round(w * dpr); cv.height = Math.round(H * dpr); }
+      const g = cv.getContext('2d'); g.setTransform(dpr, 0, 0, dpr, 0, 0); g.clearRect(0, 0, w, H);
+      const css = getComputedStyle(cv);
+      const accent = css.getPropertyValue('--accent').trim() || '#f5a623';
+      const ink = css.getPropertyValue('--text-dim').trim() || css.getPropertyValue('--muted').trim() || '#8a8f98';
+      const grid = 'rgba(128,128,128,.22)';
+      const { centerHz: c, spanHz: sp, rxHz: rx, rxSrKs: rs } = live.current;
+      const padB = 16, padT = 4, ph = H - padB;
+      g.font = '10px sans-serif'; g.textBaseline = 'alphabetic';
+      const fr = frameRef.current;
+      if (!fr || !(sp > 0)) { g.fillStyle = ink; g.textAlign = 'center'; g.fillText('waiting for the spectrum feed…', w / 2, ph / 2); return; }
+      const f0 = c - sp / 2, X = (hz) => ((hz - f0) / sp) * w;
+      // frequency grid on a 1-2-5 step giving about 8 lines
+      const raw = sp / 8, mag = Math.pow(10, Math.floor(Math.log10(raw)));
+      const step = mag * ([1, 2, 5, 10].find((m) => m * mag >= raw) || 10);
+      for (let f = Math.ceil(f0 / step) * step; f <= f0 + sp; f += step) {
+        const x = Math.round(X(f)) + .5; g.strokeStyle = grid; g.beginPath(); g.moveTo(x, 0); g.lineTo(x, ph); g.stroke();
+        g.fillStyle = ink; g.textAlign = 'center'; g.fillText((f / 1e6).toFixed(step >= 1e6 ? 0 : step >= 1e5 ? 1 : step >= 1e4 ? 2 : 3), Math.min(w - 14, Math.max(14, x)), H - 3);
+      }
+      if (rx > 0 && rs > 0 && rx > f0 && rx < f0 + sp) { g.fillStyle = 'rgba(255,255,255,.10)'; const x0 = X(rx - rs * 500); g.fillRect(x0, 0, Math.max(2, X(rx + rs * 500) - x0), ph); g.fillStyle = accent; g.fillRect(Math.round(X(rx)), 0, 1, ph); }
+      let lo = Infinity, hi = -Infinity;
+      for (let i = 0; i < fr.length; i++) { const v = fr[i]; if (v < lo) lo = v; if (v > hi) hi = v; }
+      if (!isFinite(lo)) return;
+      const r = range.current; r.lo += (lo - 3 - r.lo) * 0.1; r.hi += (hi + 6 - r.hi) * 0.1;
+      const Y = (v) => ph - Math.max(0, Math.min(1, (v - r.lo) / Math.max(10, r.hi - r.lo))) * (ph - padT);
+      g.beginPath(); g.moveTo(0, ph);
+      for (let px = 0; px <= w; px++) {                           // max of the bins under each pixel
+        const a = Math.floor((px / w) * fr.length), b = Math.max(a + 1, Math.floor(((px + 1) / w) * fr.length));
+        let m = -Infinity; for (let i = a; i < b && i < fr.length; i++) if (fr[i] > m) m = fr[i];
+        g.lineTo(px, Y(m));
+      }
+      g.lineTo(w, ph); g.closePath();
+      g.fillStyle = 'rgba(80,160,255,.25)'; g.fill();
+      g.strokeStyle = 'rgba(110,180,255,.9)'; g.lineWidth = 1; g.stroke();
+      g.fillStyle = ink; g.textAlign = 'left'; g.fillText(Math.round(r.hi) + ' dB', 3, 11);
+    };
+    const id = setInterval(draw, 50); draw();
+    return () => clearInterval(id);
+  }, []);
+  const pick = (e) => {                                          // click: tune the receiver to the clicked frequency
+    const { centerHz: c, spanHz: sp } = live.current;
+    if (!(sp > 0) || !frameRef.current) return;
+    const r = cvRef.current.getBoundingClientRect();
+    onPick(Math.round(c - sp / 2 + ((e.clientX - r.left) / r.width) * sp));
   };
   return <canvas ref={cvRef} onClick={pick} style={{ display: 'block', width: '100%', height: H, cursor: 'crosshair', borderRadius: 6 }} />;
 }
@@ -242,10 +342,10 @@ function Webtioune({ d }) {
   // (each change restarts the receiver for a few seconds).
   const sendLater = (key, topic, value) => {
     clearTimeout(sendTimers.current[key]);
-    sendTimers.current[key] = setTimeout(() => d.publish(topic, value), 400);
+    sendTimers.current[key] = setTimeout(() => { d.publish(topic, value); if (topic === 'zynqrx/sr') d.publish('spectro/fps', RX_SPEC_FPS); }, 400);
   };
   // What zynqrx reports it was asked for (dt/zynqrx/set/..., kHz and kS) wins over the local copy
-  useWtE(() => { if (lm['set/frequency'] != null) { const v = parseInt(lm['set/frequency']); if (v > 0) setFreqHz(v * 1000); } }, [lm['set/frequency']]);
+  useWtE(() => { if (lm['set/frequency'] != null) { const v = parseFloat(lm['set/frequency']); if (v > 0) setFreqHz(Math.round(v * 10) * 100); } }, [lm['set/frequency']]);
   useWtE(() => { if (lm['set/sr'] != null) { const v = parseInt(lm['set/sr']); if (v > 0) setSrKs(v); } }, [lm['set/sr']]);
   useWtE(() => () => Object.values(sendTimers.current).forEach(clearTimeout), []);
 
@@ -264,6 +364,12 @@ function Webtioune({ d }) {
   const [wbOn, setWbOn] = useLS2('webtioune_wb_live', '1');
   const [wb, setWb] = useWtS({ signals: [], state: 'idle' });
   const wbFrame = useWtR(null);
+  const [rxFrame, rxFeed] = useWaterfallFeed();
+  // the feed's own {center, span} messages when it sends them, else the radio's RX frequency and sampling rate over MQTT (as the Spectrum page does)
+  const specCenter = rxFeed.center || (d && d.rxFreq) || 0;
+  // the spectrum spans the rate the FPGA sees: state/rx/sampling, already the decimated output rate when the AD9361 FIR is on (zynqrx's RRC, /4);
+  // state/rx/span is the sweep span and goes stale outside a sweep
+  const specSpan = rxFeed.span || (d && (d.sweepActive ? d.span : d.rxSampling)) || 0;
   useWtE(() => {
     if (wbOn !== '1' || !window.Qo100Wb) { wbFrame.current = null; setWb({ signals: [], state: 'idle' }); return; }
     const seen = new Map();                       // key -> { sig, t }
@@ -288,8 +394,15 @@ function Webtioune({ d }) {
     if (!(ifHz >= RX_FREQ_MIN_HZ && ifHz <= RX_FREQ_MAX_HZ)) { setPlanMsg(`IF ${(ifHz / 1e6).toFixed(1)} MHz is outside 70 MHz - 6 GHz with this LNB LO`); return; }
     setPlanMsg('');
     setFreqHz(ifHz);
-    d.publish('zynqrx/frequency', Math.round(ifHz / 1000));
-    if (sr > 0) { setSrKs(sr); d.publish('zynqrx/sr', sr); }
+    d.publish('zynqrx/frequency', rxKHz(ifHz));
+    if (sr > 0) { setSrKs(sr); d.publish('zynqrx/sr', sr); d.publish('spectro/fps', RX_SPEC_FPS); }
+  };
+
+  const onRxSpecPick = (hz) => {                       // the spectrum is the radio's IF: tune zynqrx straight to the clicked frequency
+    if (!(hz >= RX_FREQ_MIN_HZ && hz <= RX_FREQ_MAX_HZ)) return;
+    hz = Math.round(hz / 100) * 100;
+    setFreqHz(hz);
+    d.publish('zynqrx/frequency', rxKHz(hz));
   };
 
   const [status, setStatus] = useWtS('idle'); // idle | loading | connected | error
@@ -446,24 +559,26 @@ function Webtioune({ d }) {
               <button className="btn primary" onClick={() => setProcess('start')} disabled={rxRunning || !d.mqtt}>Start</button>
               <button className="btn ghost" onClick={() => setProcess('stop')} disabled={!rxRunning || !d.mqtt}>Stop</button>
             </div>}>
-            <div className="form-grid" style={{ gridTemplateColumns: '1fr', gap: 14 }}>
-              <Field label="Frequency" hint="70 MHz – 6 GHz">
-                <FreqTuner value={freqHz} digits={12} min={RX_FREQ_MIN_HZ} max={RX_FREQ_MAX_HZ} unit="Hz"
-                  sub={(v) => (v / 1e6).toFixed(3) + ' MHz'}
-                  onChange={(v) => { setFreqHz(v); sendLater('freq', 'zynqrx/frequency', Math.round(v / 1000)); }} />
+            <div className="form-grid rx-tuner-compact" style={{ gridTemplateColumns: 'max-content minmax(0, 1fr)', gap: 12, alignItems: 'start' }}>
+              <Field label="Frequency">
+                <FreqTuner value={freqHz} digits={10} min={RX_FREQ_MIN_HZ} max={RX_FREQ_MAX_HZ} unit="Hz"
+                  onChange={(v) => { setFreqHz(v); sendLater('freq', 'zynqrx/frequency', rxKHz(v)); }} />
               </Field>
-              <Field label="Symbol rate" hint="33 – 7 680 kS/s">
-                <div style={{ display: 'flex', gap: 6 }}>
-                  <Select value={RX_SR_PRESETS.includes(srKs) ? srKs : 'custom'}
-                    onChange={(v) => { if (v === 'custom') return; const n = parseInt(v); setSrKs(n); sendLater('sr', 'zynqrx/sr', n); }}
-                    options={[{ v: 125, l: '125 kS' }, { v: 250, l: '250 kS' }, { v: 333, l: '333 kS' }, { v: 500, l: '500 kS' }, { v: 1000, l: '1 MS' }, { v: 'custom', l: 'Custom' }]} />
-                  <TextInput value={String(srKs)} suffix="kS"
-                    invalid={!(srKs >= RX_SR_MIN_KS && srKs <= RX_SR_MAX_KS)}
-                    onChange={(v) => { const n = Math.round(parseFloat(v)); if (!isNaN(n)) { setSrKs(n); if (n >= RX_SR_MIN_KS && n <= RX_SR_MAX_KS) sendLater('sr', 'zynqrx/sr', n); } else if (v === '') setSrKs(0); }} />
+              <Field label="Symbol rate">
+                <div style={{ display: 'flex', gap: 6, alignItems: 'stretch' }}>
+                  <div style={{ flex: '0 0 96px', minWidth: 0, display: 'flex' }}>
+                    <Select value={RX_SR_PRESETS.includes(srKs) ? srKs : 'custom'}
+                      onChange={(v) => { if (v === 'custom') return; const n = parseInt(v); setSrKs(n); sendLater('sr', 'zynqrx/sr', n); }}
+                      options={[{ v: 125, l: '125 kS' }, { v: 250, l: '250 kS' }, { v: 333, l: '333 kS' }, { v: 500, l: '500 kS' }, { v: 1000, l: '1 MS' }, { v: 'custom', l: 'Custom' }]} />
+                  </div>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <FreqTuner value={srKs} digits={4} group={false} min={RX_SR_MIN_KS} max={RX_SR_MAX_KS} unit="kS"
+                      onChange={(v) => { setSrKs(v); sendLater('sr', 'zynqrx/sr', v); }} />
+                  </div>
                 </div>
               </Field>
             </div>
-            <div className="kv-grid" style={{ marginTop: 14, gridTemplateColumns: 'repeat(4, 1fr)' }}>
+            <div className="kv-grid" style={{ marginTop: 10, gridTemplateColumns: 'repeat(4, 1fr)' }}>
               <div className="kv"><span>State</span><b className="mono" style={{ fontSize: 12.5 }}>{rxRunning ? (lm.rx_state || '—') : rxKnown ? 'stopped' : '—'}</b></div>
               <div className="kv"><span>Signal</span><b className="mono" style={{ fontSize: 12.5 }}>{rxRunning && lm.modulation ? `${lm.modulation} ${lm.fec || ''}` : '—'}</b></div>
               <div className="kv"><span>MER</span><b className="mono" style={{ fontSize: 12.5 }}>{rxRunning && lm.mer ? lm.mer + ' dB' : '—'}</b></div>
@@ -472,12 +587,24 @@ function Webtioune({ d }) {
               <div className="kv"><span>Type</span><b className="mono" style={{ fontSize: 12.5 }}>{rxRunning && lm.short_frame != null && lm.modulation ? (lm.short_frame === '1' ? 'Short' : 'Long') : '—'}</b></div>
               <div className="kv" style={{ gridColumn: 'span 2' }}><span>Pilots</span><b className="mono" style={{ fontSize: 12.5 }}>{rxRunning && lm.pilots != null && lm.modulation ? (lm.pilots === '1' ? 'On' : 'Off') : '—'}</b></div>
             </div>
+            {d.cpu != null && !isNaN(d.cpu) && (
+              <div style={{ marginTop: 10 }}>
+                <HBarGauge value={d.cpu} max={100} label="CPU"
+                  color={d.cpu >= 90 ? 'var(--bad)' : d.cpu >= 75 ? 'var(--warn)' : 'var(--ok)'}
+                  fmt={(v) => Math.round(v) + ' %'} />
+              </div>
+            )}
             {!rxKnown && (
               <div className="info-note" style={{ marginTop: 10 }}>
                 <Icon name="bolt" size={16} />
                 <p>No status from zynqrx yet — is it running on the board (start_zynqrx)?</p>
               </div>
             )}
+          </Card>
+
+          <Card title="Receiver spectrum" sub={specSpan > 0 ? `${(specCenter / 1e6).toFixed(3)} MHz · span ${(specSpan / 1e6).toFixed(3)} MHz · click to tune` : 'board /waterfall feed'}
+            right={<Pill tone={rxFeed.state === 'live' ? 'ok' : 'warn'} dot>{rxFeed.state === 'live' ? 'live' : rxFeed.state === 'offline' ? 'offline' : '…'}</Pill>}>
+            <RxSpectrum frameRef={rxFrame} centerHz={specCenter} spanHz={specSpan} rxHz={freqHz} rxSrKs={srKs} onPick={onRxSpecPick} />
           </Card>
 
           <Card title="QO-100 WB spectrum" sub="click a signal or the trace to tune"

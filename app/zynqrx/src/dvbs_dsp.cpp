@@ -259,6 +259,7 @@ void SymbolTimer::reset() {
     havePrev_ = false;
     power_ = 0; corr_ = 0; invPower_ = 1; gain_ = 1;
     errRms_ = 0; errMs_ = 0;
+    tedOff_ = 0;
     count_ = 0;
 }
 
@@ -326,6 +327,7 @@ void SymbolTimer::run(std::vector<cf32>& out) {
     float invPow = invPower_, gain = gain_;  // lets the filter outputs of consecutive symbols be computed without waiting for each other
     // With the loop settled (narrow) four symbols are made at once: one phase of the filter bank, windows exactly two samples apart.
     const bool blockOk = bnt_ <= 0.0045 && taps % 8 == 0;
+    const float tedOff = (float)tedOff_;
     while (t_ < lim) {
         // setFast(): eight symbols, one row of the filter bank, the timing detector on the last four with twice the gains (see dvbs_dsp.h)
         if (fast_ && blockOk && havePrev_ && count_ >= 64 && std::fabs(corrPrev) < 2.0e-3 && t_ + 24.0 < lim) {
@@ -349,7 +351,7 @@ void SymbolTimer::run(std::vector<cf32>& out) {
                 const float kp = (float)(kp_ * (L / 4)), ki = (float)(ki_ * (L / 4));
                 for (int k = 0; k < 4; k++) {
                     float e = (mr4[k] * (yr[4 + k] - pr) + mi4[k] * (yi[4 + k] - pi)) * invPow;    // Gardner
-                    e = std::max(-2.f, std::min(2.f, e));
+                    e = std::max(-2.f, std::min(2.f, e + tedOff));
                     integ += ki * e;
                     corr = kp * e + integ;
                     errMs += (e * e - errMs) * (0.002f * (float)(L / 4));
@@ -386,7 +388,7 @@ void SymbolTimer::run(std::vector<cf32>& out) {
                 for (int k = 0; k < 4; k++) {
                     pwSum += yr[k] * yr[k] + yi[k] * yi[k];
                     float e = (mr[k] * (yr[k] - pr) + mi[k] * (yi[k] - pi)) * invPow;    // Gardner: positive when the sampling instant is late
-                    e = std::max(-2.f, std::min(2.f, e));
+                    e = std::max(-2.f, std::min(2.f, e + tedOff));
                     tAdv += 2.f * (1.f - corr);                   // the correction from the previous symbol's error, as in the general path
                     integ += ki * e;
                     corr = kp * e + integ;
@@ -426,7 +428,7 @@ void SymbolTimer::run(std::vector<cf32>& out) {
         if (havePrev_) {
             // Gardner: positive when the sampling instant is late
             float e = (mr * (yr - prevRe_) + mi * (yi - prevIm_)) * invPow;
-            e = std::max(-2.f, std::min(2.f, e));
+            e = std::max(-2.f, std::min(2.f, e + tedOff));
             integ_ += ki_ * e;
             corrPrev = kp_ * e + integ_;
             errMs_ += (e * e - errMs_) * 0.002f;

@@ -79,6 +79,13 @@ public:
     // consumes all of `in` that can be used, appends symbols to out
     void process(SplitBuf& in, std::vector<cf32>& out);
     void shiftIntegrator(double by) { integ_ -= by; }   // the resampler took `by` of the offset over
+    // An outside timing error (the DVB-S2 frame receiver, from the header and the decided data), in symbols, positive when the sampling instants are late.
+    // It is integrated into an offset of the Gardner detector's output, so that the loop settles on the instant that the known symbols say: a slow outer
+    // loop around the fast one. Call between process()/run() calls.
+    void addTimingError(double lateSymbols, double gain) {
+        tedOff_ = std::max(-0.4, std::min(0.4, tedOff_ + gain * kd_ * lateSymbols));
+    }
+    double timingOffset() const { return tedOff_; }
     double rateOffset() const { return integ_; }     // relative symbol rate offset the loop has found (+: input symbols faster than the nominal rate)
     // The input can also be written straight into the timer's own buffer (MixDc::process appends to it), then run() makes the symbols: no copy of the block
     SplitBuf& inbuf() { return buf_; }
@@ -109,6 +116,7 @@ private:
     bool havePrev_ = false;
     float power_ = 1, invPower_ = 1, gain_ = 1;
     double corr_ = 0;
+    double tedOff_ = 0;
     float errRms_ = 0, errMs_ = 0;
     uint64_t count_ = 0;
     double kd_ = 1;

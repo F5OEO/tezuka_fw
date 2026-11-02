@@ -62,7 +62,7 @@ Commands (`cmd/zynqrx/...`):
 
 | Command | Meaning |
 |---|---|
-| `frequency` | In kHz, 70000 to 6000000. |
+| `frequency` | In kHz, 70000 to 6000000, rounded to 0.1 kHz (decimals such as `1089999.2` are accepted). `set/frequency` echoes it, with a decimal only when there is one. |
 | `sr` | In kS, 33 to 7680. |
 | `tsip` | IPv4 of the transport stream output; the port stays that of `--udp`, else 1234. Takes effect at once. |
 | `swport`, `polar` | Accepted and reported back, but there is no such hardware. |

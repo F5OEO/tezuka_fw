@@ -1,7 +1,7 @@
 // tuner.jsx — SDR++-style per-digit segmented frequency / sample-rate tuner
 const { useState: useTu, useRef: useTuRef, useEffect: useTuEffect } = React;
 
-function FreqTuner({ value, onChange, digits = 12, min = 0, max = Infinity, unit = "Hz", sub }) {
+function FreqTuner({ value, onChange, digits = 12, min = 0, max = Infinity, unit = "Hz", sub, group = true }) {
   const [hover, setHover] = useTu(null);
   const ref = useTuRef(null);
   // Refs so the non-passive wheel listener always sees current values without re-attaching
@@ -44,7 +44,7 @@ function FreqTuner({ value, onChange, digits = 12, min = 0, max = Infinity, unit
         {str.split("").map((ch, i) => {
           const dim = i < firstSig;
           const hot = hover === i;
-          const dot = i > 0 && (digits - i) % 3 === 0;
+          const dot = group && i > 0 && (digits - i) % 3 === 0;
           return (
             <React.Fragment key={i}>
               {dot && <span className={`fdot ${i <= firstSig ? "dim" : ""}`}>.</span>}
