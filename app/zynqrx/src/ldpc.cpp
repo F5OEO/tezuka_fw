@@ -9,7 +9,26 @@
 #include <vector>
 #endif
 
+#include <cstdlib>
+
 namespace dect2 {
+
+namespace {
+// Stall test of the iterative decoders (DECT2_LDPC_STALL=0 turns it off). A frame that cannot converge (a slipped or damaged frame, or one far under the
+// threshold) otherwise runs all its iterations, 50 in the 8-bit decoder and 50 more in the float one: on the Zynq that is a second or more of one core,
+// while the frames behind it wait for their turn to be output (the transport stream stops for 2 - 3 s at 1.5 MS). From the 8th iteration, every 4th:
+// a frame that still has more than 1/32 of its checks failing and has not cut them by a tenth since the last count stops. A frame on its way to
+// converging (near the threshold too) cuts them steadily, and one with few failing checks left always goes on.
+bool ldpcStallStop() {
+    static const bool on = [] { const char* e = getenv("DECT2_LDPC_STALL"); return !(e && e[0] == '0'); }();
+    return on;
+}
+bool ldpcStalled(int failing, int& prev, int checks) {
+    const bool stalled = prev >= 0 && failing * 32 > checks && failing * 10 > prev * 9;
+    prev = failing;
+    return stalled;
+}
+}
 
 #if !(defined(__ARM_NEON) && !defined(DECT2_NO_SIMD))
 namespace {
@@ -148,6 +167,7 @@ DECT2_SIMD_MEMBER_BODY bool LdpcCode::decodeFastBody(const std::vector<float>& l
     for (int r = 0; r < q; r++) maxNc = std::max(maxNc, layers_[r].size() + 2);
     std::vector<float> L(maxNc * Z, 0.f), min1(Z), min2(Z);
     std::vector<int> idx1(Z);
+    int stallPrev = -1;
     std::vector<uint32_t> sg(Z);
     int it = 0;
     bool ok = false;
@@ -222,9 +242,11 @@ DECT2_SIMD_MEMBER_BODY bool LdpcCode::decodeFastBody(const std::vector<float>& l
             }
             P(q - 1)[-1] = kBig; // the non-existent parity bit before the first one stays known
         }
-        // syndrome check on hard decisions
+        // syndrome check on hard decisions; every 4th iteration from the 8th all the failing checks are counted, for the stall test
+        const bool count = ldpcStallStop() && (it + 1) >= 8 && (it + 1) % 4 == 0;
+        int failing = 0;
         ok = true;
-        for (int r = 0; r < q && ok; r++) {
+        for (int r = 0; r < q && (ok || count); r++) {
             const auto& cn = layers_[r];
             for (int m = 0; m < Z; m++) {
                 int p = (P(r)[m] < 0) ^ (r > 0 ? (P(r - 1)[m] < 0) : (m > 0 ? (P(q - 1)[m - 1] < 0) : 0));
@@ -232,10 +254,11 @@ DECT2_SIMD_MEMBER_BODY bool LdpcCode::decodeFastBody(const std::vector<float>& l
                     int n = m - c.shift; if (n < 0) n += Z;
                     p ^= inf[(size_t)c.group * Z + n] < 0;
                 }
-                if (p) { ok = false; break; }
+                if (p) { ok = false; failing++; if (!count) break; }
             }
         }
         if (ok) { it++; break; }
+        if (count && ldpcStalled(failing, stallPrev, m_)) { it++; break; }
     }
     hard.assign(n_, 0);
     for (int i = 0; i < G * Z; i++) hard[i] = inf[i] < 0;
@@ -372,7 +395,7 @@ DECT2_SIMD_MEMBER_BODY bool LdpcCode::decodeQ8Body(const std::vector<float>& llr
     size_t maxNc = 0;
     for (int r = 0; r < q; r++) maxNc = std::max(maxNc, layers_[(size_t)r].size() + 2);
     std::vector<int8_t> L(maxNc * ZS, 0), inc(maxNc * ZS, 0), min1(Z), min2(Z), idx1(Z), sg(Z);
-    int it = 0, bad = 0;
+    int it = 0, bad = 0, stallPrev = -1;
     bool ok = false;
     // checks that fail, layer by layer (the 360 checks of a layer together: the sign bits of its variables, rotated, xor-ed); `all` false stops at the first
     std::vector<int8_t> acc(Z);
@@ -450,6 +473,7 @@ DECT2_SIMD_MEMBER_BODY bool LdpcCode::decodeQ8Body(const std::vector<float>& llr
         bad = syndrome(false);
         ok = bad == 0;
         if (ok) { it++; break; }
+        if (ldpcStallStop() && (it + 1) >= 8 && (it + 1) % 4 == 0 && ldpcStalled(syndrome(true), stallPrev, m_)) { it++; break; }
     }
     hard.assign((size_t)n_, 0);
     for (int i = 0; i < G * Z; i++) hard[(size_t)i] = inf[(size_t)i] < 0;
