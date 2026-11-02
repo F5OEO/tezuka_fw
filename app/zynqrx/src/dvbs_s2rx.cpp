@@ -1088,6 +1088,7 @@ struct S2Rx::Impl {
                 const uint8_t* hp = nullptr;
                 if (gpuDone && okAll[i]) { ok = true; onGpu = true; iters = itAll[i]; hp = hardAll.data() + i * (size_t)d.nldpc; }
                 else {
+                    LdpcCode::setDeadline(frameDeadlineNs(jobs[i].frameSyms));
                     if (!refined[i]) {
                         dlv.assign(dl, dl + d.nldpc);
                         const bool q8 = force8.load() || s2RateValue(j0.rate) >= q8MinRate();
@@ -1115,10 +1116,27 @@ struct S2Rx::Impl {
                     if (!gpuDone) compute.report(false, std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count());
                     hp = hard.data();
                 }
+                LdpcCode::setDeadline(0);
                 finishFrame(jobs[i], d, dl, hp, ok, iters, onGpu, bb, res[i]);
                 deposit(std::move(res[i]));
             }
         }
+    }
+
+    // The time a frame may take in the CPU decoder (steady clock, ns), from now: eight frame durations, 150 ms - 2 s (DECT2_LDPC_BUDGET_MS sets it,
+    // 0 = no limit). Frames are output in order, so one the decoder keeps working on holds the transport stream: at 1.5 MS a frame that slowly
+    // improves without ever converging (a dip in the signal) took 2 - 3 s with all its iterations and the float retry, and the picture froze that long.
+    // Past the budget it is reported bad (22 ms of programme lost at 1.5 MS) and the output goes on. A frame that decodes normally takes a few ms.
+    int64_t frameDeadlineNs(uint32_t frameSyms) const {
+        static const double fixedMs = [] { const char* e = getenv("DECT2_LDPC_BUDGET_MS"); return e && *e ? atof(e) : -1.0; }();
+        double secs;
+        if (fixedMs == 0) return 0;
+        if (fixedMs > 0) secs = fixedMs / 1e3;
+        else {
+            const double rs = o.symbolRate_;
+            secs = rs > 0 && frameSyms ? std::min(2.0, std::max(0.15, 8.0 * frameSyms / rs)) : 2.0;
+        }
+        return std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now().time_since_epoch()).count() + (int64_t)(secs * 1e9);
     }
 
     // ------------------------------------------------------------------ results in order, packets

@@ -9,9 +9,18 @@
 #include <vector>
 #endif
 
+#include <chrono>
 #include <cstdlib>
 
 namespace dect2 {
+
+namespace {
+thread_local int64_t tlDeadline = 0;   // steady clock, ns; 0 = none
+}
+void LdpcCode::setDeadline(int64_t steadyNs) { tlDeadline = steadyNs; }
+bool LdpcCode::deadlinePassed() {
+    return tlDeadline != 0 && std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now().time_since_epoch()).count() > tlDeadline;
+}
 
 namespace {
 // Stall test of the iterative decoders (DECT2_LDPC_STALL=0 turns it off). A frame that cannot converge (a slipped or damaged frame, or one far under the
@@ -259,6 +268,7 @@ DECT2_SIMD_MEMBER_BODY bool LdpcCode::decodeFastBody(const std::vector<float>& l
         }
         if (ok) { it++; break; }
         if (count && ldpcStalled(failing, stallPrev, m_)) { it++; break; }
+        if (deadlinePassed()) { it++; break; }
     }
     hard.assign(n_, 0);
     for (int i = 0; i < G * Z; i++) hard[i] = inf[i] < 0;
@@ -474,6 +484,7 @@ DECT2_SIMD_MEMBER_BODY bool LdpcCode::decodeQ8Body(const std::vector<float>& llr
         ok = bad == 0;
         if (ok) { it++; break; }
         if (ldpcStallStop() && (it + 1) >= 8 && (it + 1) % 4 == 0 && ldpcStalled(syndrome(true), stallPrev, m_)) { it++; break; }
+        if (deadlinePassed()) { it++; break; }
     }
     hard.assign((size_t)n_, 0);
     for (int i = 0; i < G * Z; i++) hard[(size_t)i] = inf[(size_t)i] < 0;
@@ -499,7 +510,7 @@ bool LdpcCode::decodeFast8(const std::vector<float>& llr, int maxIter, std::vect
 #endif
     if (iters) *iters = it8;
     // the float decoder only for a frame that is close: a damaged one has a large part of its checks unsatisfied
-    if (!ok && unsat * 8 <= m_) {
+    if (!ok && unsat * 8 <= m_ && !deadlinePassed()) {
         int it = 0;
         ok = decodeFast(llr, maxIter, hard, &it, alpha);
         if (iters) *iters = it8 + it;
