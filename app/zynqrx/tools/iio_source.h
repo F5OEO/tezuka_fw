@@ -1,5 +1,6 @@
 // Live IQ from the radio's AD936x through libiio (zynqrx rx --iio). Built only with -DZYNQRX_IIO (Makefile: IIO=1, the default for the board).
 #pragma once
+#include <cstring>
 #include <algorithm>
 #include <cstddef>
 #include <cstdint>
@@ -66,6 +67,8 @@ public:
         iio_channel* lo = iio_device_find_channel(phy, "altvoltage0", true);    // RX LO
         if (!rxCfg || !lo) { fprintf(stderr, "iio: RX channels of ad9361-phy not found\n"); return false; }
         rxCfg_ = rxCfg;
+        ensureFdd(phy);
+        }
         txCfg_ = iio_device_find_channel(phy, "voltage0", true);   // the TX path has its own sampling_frequency; the FIR config covers both paths
         rate_ = rateHz;
         if (keepClock) {
@@ -98,8 +101,10 @@ public:
             if (!loaded) { fprintf(stderr, "iio: the radio did not accept the RRC FIR at %.3f Msps\n", rateHz / 1e6); return false; }
         }
         // A plain rate: a receiver killed before it could restore the radio (start_zynqrx kills a slow one) may have left the RRC FIR of an earlier
-        // session switched on, which would decimate this stream by 4 behind a stale filter. Only the RX switch: the TX FIR may be pluto_stream's
-        if (!firOn_ && !keepClock) iio_channel_attr_write_longlong(rxCfg, "filter_fir_en", 0);
+        // session switched on, which would decimate this stream by 4 behind a stale filter. Both paths together: with the FIR on one side only the
+        // driver finds no clock chain for the next rate ("ADC clock below limit") and leaves the radio in the alert state (no samples at all).
+        // This session owns the clock (not txclock); pluto_stream sets its own FIR again with its next symbol rate.
+        if (!firOn_ && !keepClock) setFirEn(rxCfg, 0);
         if ((!firOn_ && !keepClock && iio_channel_attr_write_longlong(rxCfg, "sampling_frequency", (long long)rateHz) < 0) ||
             iio_channel_attr_write_longlong(rxCfg, "rf_bandwidth", (long long)(bwHz > 0 ? bwHz : rateHz)) < 0 ||
             iio_channel_attr_write_longlong(lo, "frequency", (long long)freqHz) < 0) {
@@ -124,6 +129,7 @@ public:
         }
         iio_channel_enable(i_);
         if (cs8_) iio_channel_disable(q_); else iio_channel_enable(q_);
+        ensureFdd(phy);   // after the rate and FIR changes above, which the driver makes in the alert state
         iio_device_set_kernel_buffers_count(dev_, 8);   // a few extra buffers ride out the receiver being busy
         buf_ = iio_device_create_buffer(dev_, kBlock, false);
         if (!buf_) { fprintf(stderr, "iio: cannot create the RX buffer\n"); return false; }
@@ -211,6 +217,15 @@ private:
     iio_channel* txCfg_ = nullptr;
     // the sampling frequency of the RX path and of the TX path (what iio_attr -c voltage0 does: both)
     // filter_fir_en is a separate switch for the RX and the TX path on this kernel (in_voltage_ / out_voltage_ filter_fir_en); the FIR config covers both
+    // A clock change the driver could not make ("Failed to find suitable dividers") leaves its state machine in alert, where the radio delivers
+    // nothing (buffer refill -110 for every session after): put it back in FDD
+    static void ensureFdd(iio_device* phy) {
+        char ensm[32] = {0};
+        if (iio_device_attr_read(phy, "ensm_mode", ensm, sizeof ensm) > 0 && strncmp(ensm, "fdd", 3) != 0) {
+            fprintf(stderr, "iio: the radio was in the %s state, setting fdd\n", ensm);
+            iio_device_attr_write(phy, "ensm_mode", "fdd");
+        }
+    }
     long long setFirEn(iio_channel* rx, long long on) {
         const long long r = iio_channel_attr_write_longlong(rx, "filter_fir_en", on);
         if (txCfg_) iio_channel_attr_write_longlong(txCfg_, "filter_fir_en", on);
