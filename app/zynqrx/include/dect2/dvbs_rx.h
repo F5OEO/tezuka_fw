@@ -32,6 +32,8 @@ public:
     void setStandardHint(int standard);                  // 0 automatic, 1 DVB-S only, 2 DVB-S2 only (S2X signalling is reported either way)
     void setRollOff(double rollOff);                     // 0 = automatic: the spectrum, then the stream's own signalling
     void setPrefiltered(bool on);                        // the radio already did the root raised cosine filter and decimation (about 2 samples per symbol): skip them
+    void setFiniteInput(bool on);                        // the samples come from integers (radio, cs8/cs16/cu8 file): skips the NaN / infinity check of each block
+    void setSymbolInput(bool on);                        // the input is one timing-recovered symbol per sample, unit mean power at a quarter of full scale (the FPGA symbol front end): needs the symbol rate = the input rate
     void setSpectrumInterval(double secs);               // seconds between spectrum analyses once locked (default 0.25; larger saves CPU on small machines, the display refreshes that slowly)
     void setCenter(bool known, double hz);               // the carrier's offset from the centre of the input; with a symbol rate set too, the spectrum is skipped altogether (no search, no FFT)
     void setIsi(int isi);                                // DVB-S2 multiple input streams: the stream to decode, -1 the first one seen
@@ -41,6 +43,7 @@ public:
     void setPresenceGate(bool on);                       // prefiltered input only: a cheap test for a signal (its symbol rate line) decides whether the timing recovery and the search run while hunting; a short look every 4 s catches signals too weak for the test
     void setConstantModcod(bool on);                     // DVB-S2: the stream keeps the MODCOD it was first found with (CCM): later hunts after a loss of the signal test that code word only (cheap), with a full hunt after every 1.5 s of signal
     void setNoBch(bool on);                              // DVB-S2: skip the BCH stage (the LDPC output is taken as is, the BBHEADER CRC still checks); saves a pass over each frame
+    void setCarrierFloor(double hz);                     // DVB-S2: the carrier loop is widened up to about this bandwidth to follow the phase noise of an LNB (default 12 kHz; 0: the narrow loop only, about 0.2 dB better at the very edge on a clean carrier, lost with a noisy LNB)
     void setLdpc8(bool on);                              // DVB-S2: the 8-bit CPU LDPC decoder at every code rate. Much cheaper on a small ARM core; a frame it cannot finish still goes to the float decoder, but low code rates lose sensitivity (about 2 dB at QPSK 2/5)
     void setTimingAid(bool on);                          // DVB-S2: the symbol timing loop also follows a data aided detector (known header symbols, decided QPSK/8PSK data); default off, DVBS_TED=1 in the environment
     void setFastTiming(bool on);                         // cheaper symbol timing once the loop has settled (8 symbols per filter row, timing detector on every second block): about a quarter less time in the timer for a little less accuracy of the sampling instants (about 0.1 dB near the threshold on a signal with phase noise)

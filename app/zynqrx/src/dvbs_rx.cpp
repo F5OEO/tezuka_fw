@@ -109,7 +109,8 @@ struct DvbsReceiver::Impl {
     std::atomic<int> stdHint{0}, isiSel{-1}, plCode{-1}, computeMode{2};
     ComputeChoice s1Compute{&ComputeChoice::viterbiUsable, false};                  // DVB-S: where the Viterbi decoder runs
     std::atomic<bool> s1OnGpu{false};
-    std::atomic<bool> blocking{false}, prefiltered{false}, centerKnown{false};
+    std::atomic<bool> blocking{false}, prefiltered{false}, centerKnown{false}, symbolInput{false};
+    std::atomic<bool> finiteInput{false};         // the samples come from integers: no NaN / infinity check
     std::atomic<double> manualCenter{0};
     bool spectrumOff() const { return centerKnown.load() && manualRs.load() > 0; }   // carrier given: nothing to measure
     std::atomic<double> specInterval{0.25};   // seconds between spectrum analyses (display, carrier telemetry) once locked
@@ -253,7 +254,7 @@ struct DvbsReceiver::Impl {
         if (rollHint.load() > 0) { roll = rollHint.load(); rollSource = 1; }
         else if (!prefiltered.load() && r.rollOff > 0 && r.snrDb > 15.0f) { roll = snapRollOff(r.rollOff); rollSource = 1; }
         DvbsFront::Config c;
-        c.fs = fs; c.symbolRate = rs; c.centerHz = r.centerHz; c.rollOff = roll; c.prefiltered = prefiltered.load();
+        c.fs = fs; c.symbolRate = rs; c.centerHz = r.centerHz; c.rollOff = roll; c.prefiltered = prefiltered.load(); c.symbols = symbolInput.load();
         front.configure(c);
         front.timer().setLoop(0.02, 0.707);
         rsUsed = rs; rollUsed = roll;
@@ -266,6 +267,18 @@ struct DvbsReceiver::Impl {
 
     // ------------------------------------------------------------------------ the symbol path
     void runFront(const cf32* x, size_t n) {
+        if (mode == kS2 && front.config().symbols) {
+            // locked on symbol input (the FPGA symbol front end): the front end would only scale the block into `sym` for s2Push to copy it into the
+            // frame thread's queue; the scaling is done in that copy instead (same products, one pass less)
+            symTotal += n;
+            rateNow = front.symbolRateNow();
+            if (!timingNarrow && symTotal > 40000) { front.timer().setLoop(0.004, 0.707); timingNarrow = true; }
+            if (!recentred && symTotal > 200000) { front.recentre(); recentred = true; }
+            s2Symbols += n;
+            s2.push(x, n, DvbsFront::kSymbolScale);
+            s2Lost();
+            return;
+        }
         sym.clear();
         front.process(x, n, sym);
         if (sym.empty()) return;
@@ -387,6 +400,9 @@ struct DvbsReceiver::Impl {
         s2Symbols += sym.size();
         s2.push(sym.data(), sym.size());
         if (tedAid.load() && s2Symbols > 300000) applyTimingAid();    // (not while the frame thread works through the window the hunt handed it)
+        s2Lost();
+    }
+    void s2Lost() {
         if (s2.lost()) {
             s2.stop();
             tsLockFlag = false;
@@ -601,13 +617,22 @@ void DvbsReceiver::configure(double inputRateHz) {
     p_->resetState();
 }
 // The 2 Msps floor is for the spectrum search; with the carrier given (or the radio's own filtering) a low rate works too
-bool DvbsReceiver::ready() const { return p_->fs >= (p_->prefiltered.load() && p_->spectrumOff() ? 1e5 : dvbsTuning().minSampleRate) - 1; }
+// With the carrier and the symbol rate given there is no spectrum to measure, and the software front end only needs room for the
+// carrier (the FPGA DDC that zynqrx uses beside a transmission gives 2 - 4 samples per symbol, down to 100 kS/s).
+bool DvbsReceiver::ready() const {
+    if (!p_->spectrumOff()) return p_->fs >= dvbsTuning().minSampleRate - 1;
+    if (p_->symbolInput.load()) return p_->fs >= 1e4 - 1;
+    if (p_->prefiltered.load()) return p_->fs >= 1e5 - 1;
+    return p_->fs >= std::max(1e5, 2.0 * p_->manualRs.load()) - 1;
+}
 void DvbsReceiver::reset() { p_->resetReq = true; }
 void DvbsReceiver::setLogCallback(std::function<void(const std::string&)> cb) { std::lock_guard<std::mutex> lk(p_->cbMu); p_->logCb = std::move(cb); }
 void DvbsReceiver::setPacketCallback(std::function<void(const uint8_t*, size_t, double)> cb) { std::lock_guard<std::mutex> lk(p_->cbMu); p_->pktCb = std::move(cb); }
 void DvbsReceiver::setSymbolRate(double hz) { if (hz != p_->manualRs.load()) { p_->manualRs = hz; p_->restartReq = true; } }
 void DvbsReceiver::setStandardHint(int s) { if (s != p_->stdHint.load()) { p_->stdHint = s; p_->restartReq = true; } }
 void DvbsReceiver::setRollOff(double r) { if (r != p_->rollHint.load()) { p_->rollHint = r; p_->restartReq = true; } }
+void DvbsReceiver::setFiniteInput(bool on) { p_->finiteInput = on; }
+void DvbsReceiver::setSymbolInput(bool on) { if (on != p_->symbolInput.load()) { p_->symbolInput = on; p_->restartReq = true; } }
 void DvbsReceiver::setPrefiltered(bool on) { if (on != p_->prefiltered.load()) { p_->prefiltered = on; p_->restartReq = true; } }
 void DvbsReceiver::setSpectrumInterval(double secs) { p_->specInterval = secs; }
 void DvbsReceiver::setCenter(bool known, double hz) { if (known != p_->centerKnown.load() || hz != p_->manualCenter.load()) { p_->manualCenter = hz; p_->centerKnown = known; p_->restartReq = true; } }
@@ -628,6 +653,7 @@ void DvbsReceiver::setHuntModulations(int mask) {
     p_->huntRestrict = true;
 }
 void DvbsReceiver::setLdpc8(bool on) { p_->s2.setLdpc8(on); }
+void DvbsReceiver::setCarrierFloor(double hz) { p_->s2.setCarrierFloor(hz); }
 void DvbsReceiver::setNoBch(bool on) { p_->s2.setNoBch(on); }
 void DvbsReceiver::setFastTiming(bool on) { p_->front.timer().setFast(on); }
 void DvbsReceiver::setTimingAid(bool on) { p_->tedAid = on; }
@@ -680,7 +706,7 @@ void DvbsReceiver::feed(const cf32* x, size_t n) {
     }
     // a NaN or infinite sample (a broken file) would stay in the AGC power of the symbol timer, whose loop then runs away and reads outside its
     // buffer: such samples count as silence
-    if (!allFinite(x, n)) {
+    if (!I.finiteInput.load(std::memory_order_relaxed) && !allFinite(x, n)) {
         I.clean.assign(x, x + n);
         for (cf32& v : I.clean) if (!std::isfinite(v.real() + v.imag())) v = cf32(0, 0);
         x = I.clean.data();
@@ -702,7 +728,8 @@ void DvbsReceiver::feed(const cf32* x, size_t n) {
         I.doSearch();
         if (I.mode != Impl::kSearch) std::vector<cf32>().swap(I.raw);
     }
-    else if (I.gate.load() && I.prefiltered.load()) {
+    else if (I.gate.load() && I.prefiltered.load() && !I.symbolInput.load()) {   // the presence test needs two samples per symbol
+
         I.presence.update(x, n);
         bool run = true;
         if (I.mode == Impl::kHunt) {

@@ -12,6 +12,11 @@ public:
     int k() const { return k_; }
     int n() const { return n_; }
 
+    // A time limit for the iterative decoders on the calling thread (decodeFast, decodeFast8): past it they stop after the current iteration and report
+    // the frame as not decoded. 0 = none. Live, one frame that takes seconds holds every frame behind it (they are output in order).
+    static void setDeadline(int64_t steadyNs);
+    static bool deadlinePassed();
+
     // Systematic encode: bits[0..k) in, bits[k..n) out.
     void encode(std::vector<uint8_t>& bits) const;
 

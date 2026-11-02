@@ -106,12 +106,16 @@ make -C /home/hp-z2-dev/prog/maia-sdr/maia-hdl/projects
 cd /home/hp-z2-dev/prog/maia-sdr/maia-hdl/projects/tezuka && PROJECT_NAME=<board> make all
 ```
 
+Before the first build in a fresh checkout (and after any `git submodule update`), run `make -C /home/hp-z2-dev/prog/maia-sdr/maia-hdl patch-dvb_fpga`: it applies `padding_ok.patch` and `remove_inline_config_adapter.patch` to the `dvb_fpga` submodule. Without them the DVB-S2 encoder does not understand the 0xB8 + MODCOD header pluto_stream puts before each BBFRAME: the bitstream builds and RX works, but TX sends a carrier nobody can decode (Minitioune stays red).
+
 Always pass the `all` target explicitly (`make all`, not bare `make`) — the Makefile's implicit default target only builds the Vivado project (`build_project`), it does not build `ip_cores` first or run `install` to copy the `.xsa` out. `make all` runs `ip_cores build_project install` in that order and copies `<board>.sdk/system_top.xsa` straight into `board/tezuka/<board>/bitstream/maia-iio/system_top.xsa` in this repo (`DEST` in the Makefile), so no manual copy step is needed afterward. Then test it:
 
 ```bash
-make -C buildroot O=output/<board> board-fpga-reconfigure   # re-extract system_top.bit into BINARIES_DIR
-make -C buildroot O=output/<board>                          # rebuild final images via post-image.sh
+make -C output/<board> board-fpga-reconfigure   # re-extract system_top.bit into BINARIES_DIR
+make -C output/<board>                          # rebuild final images via post-image.sh
 ```
+
+Use the `output/<board>` wrapper Makefile: with `make -C buildroot O=output/<board>`, the relative `O=` is resolved from `buildroot/`, so Buildroot finds no configuration and the BR2_EXTERNAL targets such as `board-fpga-reconfigure` do not exist.
 
 #### Adding a new board's FPGA project
 
