@@ -67,7 +67,7 @@ CMAKE_POLICY_VERSION_MINIMUM=3.5 make -C buildroot O=output/<board>
 |------|---------|
 | `configs/<board>_defconfig` | Buildroot defconfigs, one per board |
 | `board/tezuka/common/` | Shared scripts, kernel config, U-Boot config, rootfs overlays |
-| `board/tezuka/<board>/` | Board-specific DTS, U-Boot DTS, bitstream, patches, uboot-env |
+| `board/tezuka/<board>/` | Board-specific DTS, U-Boot DTS, bitstream, patches (the U-Boot environment is `board/tezuka/common/uboot-env.txt`; `fit_size` comes from the defconfig's post-image args) |
 | `package/<name>/` | Custom Buildroot packages (`.mk` + `Config.in`) |
 | `app/` | Host-side C utilities for development/testing |
 | `tools/` | Development helper scripts |
