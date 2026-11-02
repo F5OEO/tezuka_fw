@@ -68,7 +68,6 @@ public:
         if (!rxCfg || !lo) { fprintf(stderr, "iio: RX channels of ad9361-phy not found\n"); return false; }
         rxCfg_ = rxCfg;
         ensureFdd(phy);
-        }
         txCfg_ = iio_device_find_channel(phy, "voltage0", true);   // the TX path has its own sampling_frequency; the FIR config covers both paths
         rate_ = rateHz;
         if (keepClock) {
