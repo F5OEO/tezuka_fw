@@ -681,6 +681,7 @@ int runSession(RxOpts& o, RxCtl& ctl) {
     std::atomic<uint64_t> arrived{0};          // samples the reader got from the radio (the watchdog's report)
     auto ending = [&] { return gStop != 0 || ctl.stop.load() || sessionEnd.load(); };
     std::thread reader;
+    if (useIio && !iio.setDeliveryRate(rate * 1e6)) return 1;   // rate: what the receiver gets after the FPGA (samples or symbols per second)
     if (useIio) reader = std::thread([&] {
         std::vector<cf32> b(IioSource::kBlock);
         while (!ending()) {

@@ -130,8 +130,23 @@ public:
         if (cs8_) iio_channel_disable(q_); else iio_channel_enable(q_);
         ensureFdd(phy);   // after the rate and FIR changes above, which the driver makes in the alert state
         iio_device_set_kernel_buffers_count(dev_, 8);   // a few extra buffers ride out the receiver being busy
-        buf_ = iio_device_create_buffer(dev_, kBlock, false);
+        block_ = blockFor(rateHz);
+        buf_ = iio_device_create_buffer(dev_, block_, false);
         if (!buf_) { fprintf(stderr, "iio: cannot create the RX buffer\n"); return false; }
+        return true;
+    }
+
+    // The rate the samples really reach the receiver at (Hz), once the FPGA DDC or symbol front end behind the radio decimates: the buffer is
+    // sized for about 0.1 s of it. A fixed 65536 samples would be a second of a 66 kS symbol stream, and the transport stream would leave in
+    // one burst a second (players that take a long gap for a new stream reset). Call it before the first read().
+    bool setDeliveryRate(double hz) {
+        const size_t want = blockFor(hz);
+        if (!dev_ || !buf_ || want == block_) return buf_ != nullptr;
+        iio_buffer_destroy(buf_);
+        block_ = want;
+        buf_ = iio_device_create_buffer(dev_, block_, false);
+        if (!buf_) { fprintf(stderr, "iio: cannot create the RX buffer (%zu samples)\n", block_); return false; }
+        fprintf(stderr, "iio: %zu sample buffers (%.0f ms at %.3f Msps)\n", block_, 1e3 * block_ / hz, hz / 1e6);
         return true;
     }
 
@@ -205,9 +220,16 @@ public:
         return rxCfg_ && iio_channel_attr_read_double(rxCfg_, "hardwaregain", &g) == 0 ? (int)std::lround(g) : -1;
     }
 
-    static constexpr size_t kBlock = 1 << 16;
+    static constexpr size_t kBlock = 1 << 16;   // the largest buffer (read() callers size their array for it)
 
 private:
+    // a power of two near 0.1 s of samples, 4096 - kBlock
+    static size_t blockFor(double hz) {
+        size_t n = 4096;
+        while (n < kBlock && n < hz * 0.1) n <<= 1;
+        return n;
+    }
+    size_t block_ = kBlock;
     iio_context* ctx_ = nullptr;
     iio_device* dev_ = nullptr;
     iio_channel *i_ = nullptr, *q_ = nullptr;
@@ -247,6 +269,7 @@ public:
     static long long readRxRate(const std::string&) { return 0; }
     size_t read(std::complex<float>*, size_t) { return 0; }
     void cancel() {}
+    bool setDeliveryRate(double) { return true; }
     int gainDb() const { return -1; }
     static constexpr size_t kBlock = 1 << 16;
 };
