@@ -28,6 +28,7 @@ struct DatvStatus {
     std::string serviceName, providerName;
     std::vector<std::pair<int, int>> es; // elementary stream (pid, stream type)
     int matype1 = -1, matype2 = -1;      // baseband header MATYPE bytes of the last frame, -1 not known
+    std::string info;                    // why the receiver is not receiving (rx_info), empty = nothing to report
     std::vector<std::pair<std::string, std::string>> settings;   // receiver settings echoed on dt/zynqrx/set/<name> (gain, bw, std, roll, mods, ...)
 };
 
@@ -54,16 +55,26 @@ public:
         mosquitto_connect_callback_set(mosq_, [](mosquitto* m, void*, int rc) {
             if (rc == 0 && mosquitto_subscribe(m, nullptr, "cmd/zynqrx/#", 1) != MOSQ_ERR_SUCCESS) fprintf(stderr, "mqtt: subscribe failed\n");
             else if (rc == 0) fprintf(stderr, "mqtt: connected, listening on cmd/zynqrx/#\n");
+            // pluto_stream's transmit symbol rate and PTT (retained): RX and TX share the AD9361 clock, so the receiver follows the transmission's (txclock)
+            if (rc == 0) { mosquitto_subscribe(m, nullptr, "dt/pluto/+/tx/dvbs2/sr", 1); mosquitto_subscribe(m, nullptr, "dt/pluto/+/tx/mute", 1); }
         });
         mosquitto_message_callback_set(mosq_, [](mosquitto*, void* self, const mosquitto_message* msg) {
             static const std::string pre = "cmd/zynqrx/";
             if (!msg->topic || !msg->payload) return;
             const std::string topic = msg->topic;
-            if (topic.compare(0, pre.size(), pre) != 0) return;
+            // dt/pluto/<call>/tx/dvbs2/sr -> "@txsr:<call>", dt/pluto/<call>/tx/mute -> "@txmute:<call>"
+            std::string key;
+            auto ends = [&](const char* s) { const size_t n = strlen(s); return topic.size() > 9 + n && topic.compare(topic.size() - n, n, s) == 0; };
+            if (topic.compare(0, 9, "dt/pluto/") == 0) {
+                if (ends("/tx/dvbs2/sr")) key = "@txsr:" + topic.substr(9, topic.size() - 12 - 9);
+                else if (ends("/tx/mute")) key = "@txmute:" + topic.substr(9, topic.size() - 8 - 9);
+                else return;
+            } else if (topic.compare(0, pre.size(), pre) == 0) key = topic.substr(pre.size());
+            else return;
             std::string v((const char*)msg->payload, (size_t)msg->payloadlen);   // not NUL-terminated on the wire
             while (!v.empty() && (v.back() == '\n' || v.back() == '\r' || v.back() == ' ' || v.back() == '\t')) v.pop_back();
             auto* l = (MqttLink*)self;
-            if (l->handler_) l->handler_(topic.substr(pre.size()), v);
+            if (l->handler_) l->handler_(key, v);
         });
         const int rc = mosquitto_connect_async(mosq_, host.c_str(), port, 60);
         if (rc != MOSQ_ERR_SUCCESS) fprintf(stderr, "mqtt: cannot connect to %s:%d yet (%s), retrying\n", host.c_str(), port, mosquitto_strerror(rc));
@@ -100,6 +111,7 @@ inline void datvPublish(MqttLink& mq, const DatvStatus& s) {
     static const char* states[] = {"Init", "Hunting", "found header", "demod_s", "demod_s2"};
     pub("process", s.running ? "start" : "stop");
     pub("rx_state", states[std::min(4, std::max(0, s.state))]);
+    pub("rx_info", s.info);
     mq.publish("dt/zynqrx/set/sr", std::to_string(s.srKS));
     {   // whole kHz as longmynd sends it, with one decimal only when the frequency has one
         char fb[32];

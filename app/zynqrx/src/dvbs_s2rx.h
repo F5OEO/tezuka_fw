@@ -48,6 +48,7 @@ public:
     S2Rx();
     ~S2Rx();
     void setSymbolRate(double hz) { symbolRate_ = hz; }
+    void setCarrierFloor(double hz) { carrierFloorHz_ = hz; }   // widens the carrier loop to about this bandwidth (LNB phase noise); 0: the narrow loop only. Taken at the next frame header
     void setPlCode(int n) { plCode_ = n; }
     void setIsi(int isi) { isiSel_ = isi; }
     void setBlocking(bool b) { blocking_ = b; }
@@ -65,7 +66,7 @@ public:
     // (push() drops a block when the thread is far behind, unless setBlocking(true)). The first thing the thread does is the frequency search over the
     // frames of the window, then it processes the symbols from the first header on.
     void start(const S2HuntResult& h, const cf32* win, size_t n);
-    void push(const cf32* z, size_t n);
+    void push(const cf32* z, size_t n, float scale = 1.f);   // symbols (times `scale`)
     bool tracking() const { return tracking_.load(); }
     bool lost() const { return lost_.load(); }            // header synchronisation was lost: hunt again
     void drain();                                  // waits until everything pushed so far is decoded and delivered (recordings, tests)
@@ -80,6 +81,7 @@ private:
     struct Impl;
     std::unique_ptr<Impl> p_;
     double symbolRate_ = 1e6;
+    std::atomic<double> carrierFloorHz_{12000.0};
     std::atomic<int> plCode_{-1}, isiSel_{-1};
     std::atomic<bool> blocking_{false};
     std::atomic<bool> tracking_{false}, lost_{false}, inverted_{false};

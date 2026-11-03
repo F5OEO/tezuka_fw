@@ -31,8 +31,9 @@ public:
         th_ = std::thread([this] { loop(); });
     }
 
-    // Queues a block of symbols (copied). Returns false when it was dropped because the thread is too far behind.
-    bool push(const cf32* z, size_t n) {
+    // Queues a block of symbols (copied, times `scale` when it is not 1: the copy and the scaling in one pass). Returns false when it was dropped because the
+    // thread is too far behind.
+    bool push(const cf32* z, size_t n, float scale = 1.f) {
         std::unique_lock<std::mutex> lk(mu_);
         if (queued_ + n > maxSymbols_) {
             if (blocking_) spaceCv_.wait(lk, [&] { return queued_ + n <= maxSymbols_ || stopFlag_; });
@@ -40,7 +41,12 @@ public:
         }
         Item it;
         if (!free_.empty()) { it.data = std::move(free_.back()); free_.pop_back(); }
-        it.data.assign(z, z + n);
+        if (scale == 1.f) it.data.assign(z, z + n);
+        else {
+            it.data.resize(n);
+            cf32* d = it.data.data();
+            for (size_t i = 0; i < n; i++) d[i] = z[i] * scale;
+        }
         queued_ += n;
         q_.push_back(std::move(it));
         lk.unlock();

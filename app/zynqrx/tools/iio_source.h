@@ -1,5 +1,6 @@
 // Live IQ from the radio's AD936x through libiio (zynqrx rx --iio). Built only with -DZYNQRX_IIO (Makefile: IIO=1, the default for the board).
 #pragma once
+#include <cstring>
 #include <algorithm>
 #include <cstddef>
 #include <cstdint>
@@ -43,7 +44,9 @@ public:
     IioSource& operator=(const IioSource&) = delete;
     ~IioSource() {
         if (buf_) iio_buffer_destroy(buf_);
-        if (firOn_ && rxCfg_) {   // the radio goes back to a rate it can run without the FIR
+        // the radio goes back to a rate it can run without the FIR, unless someone else (pluto_stream setting up a transmission) has
+        // moved the clock meanwhile: that setting is theirs and stays
+        if (firOn_ && rxCfg_ && std::llabs(currentRate() - std::llround(rate_)) <= std::llround(rate_) / 1000) {
             setRate(std::llround(4 * rate_));
             setFirEn(rxCfg_, 0);
         }
@@ -52,7 +55,9 @@ public:
 
     // uri empty = the local context (on the board); otherwise e.g. ip:192.168.2.1 or usb:1.2.5. gainDb < 0 = the radio's slow attack AGC.
     // rrcRoll > 0: the RRC decimate-by-4 FIR with that roll-off; rateHz is then the output rate (2 samples per symbol, 0.52 - 15.36 Msps).
-    bool open(const std::string& uri, double rateHz, double freqHz, double bwHz, double gainDb, double rrcRoll = 0, bool cs8 = false) {
+    // keepClock: the converter rate and the FIR stay as they are (pluto_stream set them for a transmission: RX and TX share the clock);
+    // rateHz is then ignored and rate() tells what the radio runs at.
+    bool open(const std::string& uri, double rateHz, double freqHz, double bwHz, double gainDb, double rrcRoll = 0, bool cs8 = false, bool keepClock = false) {
         ctx_ = uri.empty() ? iio_create_default_context() : iio_create_context_from_uri(uri.c_str());
         if (!ctx_) { fprintf(stderr, "iio: cannot open context %s\n", uri.empty() ? "(default)" : uri.c_str()); return false; }
         iio_device* phy = iio_context_find_device(ctx_, "ad9361-phy");
@@ -62,9 +67,14 @@ public:
         iio_channel* lo = iio_device_find_channel(phy, "altvoltage0", true);    // RX LO
         if (!rxCfg || !lo) { fprintf(stderr, "iio: RX channels of ad9361-phy not found\n"); return false; }
         rxCfg_ = rxCfg;
+        ensureFdd(phy);
         txCfg_ = iio_device_find_channel(phy, "voltage0", true);   // the TX path has its own sampling_frequency; the FIR config covers both paths
         rate_ = rateHz;
-        if (rrcRoll > 0) {
+        if (keepClock) {
+            long long cur = 0;
+            if (iio_channel_attr_read_longlong(rxCfg, "sampling_frequency", &cur) < 0 || cur <= 0) { fprintf(stderr, "iio: cannot read the RX sampling frequency\n"); return false; }
+            rate_ = (double)cur;
+        } else if (rrcRoll > 0) {
             if (rateHz < 2.083e6 / 4 || rateHz > 61.44e6 / 4) { fprintf(stderr, "iio: the RRC filter needs 0.52 - 15.36 Msps\n"); return false; }
             setFirEn(rxCfg, 0);
             bool loaded = false;
@@ -89,7 +99,12 @@ public:
             }
             if (!loaded) { fprintf(stderr, "iio: the radio did not accept the RRC FIR at %.3f Msps\n", rateHz / 1e6); return false; }
         }
-        if ((!firOn_ && iio_channel_attr_write_longlong(rxCfg, "sampling_frequency", (long long)rateHz) < 0) ||
+        // A plain rate: a receiver killed before it could restore the radio (start_zynqrx kills a slow one) may have left the RRC FIR of an earlier
+        // session switched on, which would decimate this stream by 4 behind a stale filter. Both paths together: with the FIR on one side only the
+        // driver finds no clock chain for the next rate ("ADC clock below limit") and leaves the radio in the alert state (no samples at all).
+        // This session owns the clock (not txclock); pluto_stream sets its own FIR again with its next symbol rate.
+        if (!firOn_ && !keepClock) setFirEn(rxCfg, 0);
+        if ((!firOn_ && !keepClock && iio_channel_attr_write_longlong(rxCfg, "sampling_frequency", (long long)rateHz) < 0) ||
             iio_channel_attr_write_longlong(rxCfg, "rf_bandwidth", (long long)(bwHz > 0 ? bwHz : rateHz)) < 0 ||
             iio_channel_attr_write_longlong(lo, "frequency", (long long)freqHz) < 0) {
             fprintf(stderr, "iio: the radio refused %.3f Msps / %.3f MHz\n", rateHz / 1e6, freqHz / 1e6);
@@ -113,9 +128,25 @@ public:
         }
         iio_channel_enable(i_);
         if (cs8_) iio_channel_disable(q_); else iio_channel_enable(q_);
+        ensureFdd(phy);   // after the rate and FIR changes above, which the driver makes in the alert state
         iio_device_set_kernel_buffers_count(dev_, 8);   // a few extra buffers ride out the receiver being busy
-        buf_ = iio_device_create_buffer(dev_, kBlock, false);
+        block_ = blockFor(rateHz);
+        buf_ = iio_device_create_buffer(dev_, block_, false);
         if (!buf_) { fprintf(stderr, "iio: cannot create the RX buffer\n"); return false; }
+        return true;
+    }
+
+    // The rate the samples really reach the receiver at (Hz), once the FPGA DDC or symbol front end behind the radio decimates: the buffer is
+    // sized for about 0.1 s of it. A fixed 65536 samples would be a second of a 66 kS symbol stream, and the transport stream would leave in
+    // one burst a second (players that take a long gap for a new stream reset). Call it before the first read().
+    bool setDeliveryRate(double hz) {
+        const size_t want = blockFor(hz);
+        if (!dev_ || !buf_ || want == block_) return buf_ != nullptr;
+        iio_buffer_destroy(buf_);
+        block_ = want;
+        buf_ = iio_device_create_buffer(dev_, block_, false);
+        if (!buf_) { fprintf(stderr, "iio: cannot create the RX buffer (%zu samples)\n", block_); return false; }
+        fprintf(stderr, "iio: %zu sample buffers (%.0f ms at %.3f Msps)\n", block_, 1e3 * block_ / hz, hz / 1e6);
         return true;
     }
 
@@ -162,6 +193,25 @@ public:
         return n;
     }
 
+    // the RX sampling frequency the radio runs at now (Hz), 0 when it cannot be read: with keepClock, a change means pluto_stream moved the clock
+    long long currentRate() const {
+        long long v = 0;
+        return rxCfg_ && iio_channel_attr_read_longlong(rxCfg_, "sampling_frequency", &v) == 0 ? v : 0;
+    }
+    double rate() const { return rate_; }
+
+    // The RX sampling frequency of the local (uri empty) or remote radio, read without opening a buffer; 0 when unreadable
+    static long long readRxRate(const std::string& uri) {
+        iio_context* c = uri.empty() ? iio_create_default_context() : iio_create_context_from_uri(uri.c_str());
+        if (!c) return 0;
+        long long v = 0;
+        iio_device* phy = iio_context_find_device(c, "ad9361-phy");
+        iio_channel* ch = phy ? iio_device_find_channel(phy, "voltage0", false) : nullptr;
+        if (!ch || iio_channel_attr_read_longlong(ch, "sampling_frequency", &v) < 0) v = 0;
+        iio_context_destroy(c);
+        return v;
+    }
+
     // Wakes a read() that waits for the next buffer (from another thread); that read() then returns 0
     void cancel() { if (buf_) iio_buffer_cancel(buf_); }
     // the gain the radio runs at now (dB), -1 when it cannot be read
@@ -170,9 +220,16 @@ public:
         return rxCfg_ && iio_channel_attr_read_double(rxCfg_, "hardwaregain", &g) == 0 ? (int)std::lround(g) : -1;
     }
 
-    static constexpr size_t kBlock = 1 << 16;
+    static constexpr size_t kBlock = 1 << 16;   // the largest buffer (read() callers size their array for it)
 
 private:
+    // a power of two near 0.1 s of samples, 4096 - kBlock
+    static size_t blockFor(double hz) {
+        size_t n = 4096;
+        while (n < kBlock && n < hz * 0.1) n <<= 1;
+        return n;
+    }
+    size_t block_ = kBlock;
     iio_context* ctx_ = nullptr;
     iio_device* dev_ = nullptr;
     iio_channel *i_ = nullptr, *q_ = nullptr;
@@ -181,6 +238,15 @@ private:
     iio_channel* txCfg_ = nullptr;
     // the sampling frequency of the RX path and of the TX path (what iio_attr -c voltage0 does: both)
     // filter_fir_en is a separate switch for the RX and the TX path on this kernel (in_voltage_ / out_voltage_ filter_fir_en); the FIR config covers both
+    // A clock change the driver could not make ("Failed to find suitable dividers") leaves its state machine in alert, where the radio delivers
+    // nothing (buffer refill -110 for every session after): put it back in FDD
+    static void ensureFdd(iio_device* phy) {
+        char ensm[32] = {0};
+        if (iio_device_attr_read(phy, "ensm_mode", ensm, sizeof ensm) > 0 && strncmp(ensm, "fdd", 3) != 0) {
+            fprintf(stderr, "iio: the radio was in the %s state, setting fdd\n", ensm);
+            iio_device_attr_write(phy, "ensm_mode", "fdd");
+        }
+    }
     long long setFirEn(iio_channel* rx, long long on) {
         const long long r = iio_channel_attr_write_longlong(rx, "filter_fir_en", on);
         if (txCfg_) iio_channel_attr_write_longlong(txCfg_, "filter_fir_en", on);
@@ -197,9 +263,13 @@ private:
 #else
 class IioSource {
 public:
-    bool open(const std::string&, double, double, double, double, double = 0, bool = false) { fprintf(stderr, "this build has no libiio (build with IIO=1)\n"); return false; }
+    bool open(const std::string&, double, double, double, double, double = 0, bool = false, bool = false) { fprintf(stderr, "this build has no libiio (build with IIO=1)\n"); return false; }
+    long long currentRate() const { return 0; }
+    double rate() const { return 0; }
+    static long long readRxRate(const std::string&) { return 0; }
     size_t read(std::complex<float>*, size_t) { return 0; }
     void cancel() {}
+    bool setDeliveryRate(double) { return true; }
     int gainDb() const { return -1; }
     static constexpr size_t kBlock = 1 << 16;
 };

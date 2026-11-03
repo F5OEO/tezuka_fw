@@ -312,6 +312,7 @@ function ExpertOptions({ d, lm, open, setOpen }) {
             {flag('ccm', 'Constant coding (CCM)', 'search only the MODCOD found first')}
             {flag('presence', 'Presence gate', 'look for a signal only while one is seen')}
             {flag('ldpc8', '8-bit LDPC', 'cheaper, about 2 dB less sensitive at low code rates')}
+            {flag('fpgafront', 'FPGA front end', 'symbol timing, mixer and AGC in the FPGA (symfront bitstream, 261 kS and up): frees CPU for the decoder')}
             <div title="Tezuka firmware: 8-bit samples from the FPGA, half the memory traffic, less dynamic range. Off = 12-bit samples in 16 bits"><Field label="CS8 samples">
               <Toggle on={(set('iqformat') || 'cs8') === 'cs8'} onChange={(v) => send('iqformat', v ? 'cs8' : 'cs16')} />
             </Field></div>

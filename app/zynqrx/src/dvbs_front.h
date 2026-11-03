@@ -14,11 +14,14 @@ public:
         double centerHz = 0;       // the carrier relative to the centre of the input
         double rollOff = 0.35;
         bool prefiltered = false;  // the input is already matched filtered (root raised cosine) at about 2 samples per symbol, e.g. by the radio's FPGA
+        bool symbols = false;      // the input is already one timing-recovered symbol per sample, unit mean power at a quarter of full scale (the FPGA symbol front end): only rescaled
     };
     void configure(const Config& c);
     void reset();                                           // keeps the configuration, forgets the signal
     void process(const cf32* x, size_t n, std::vector<cf32>& out);   // appends symbols
     const Config& config() const { return c_; }
+    // symbol input (Config::symbols): unit power at a quarter of full scale (512 of 2048 in 12 bits) is scaled to unit power
+    static constexpr float kSymbolScale = 4.f;
     SymbolTimer& timer() { return timer_; }
     const SymbolTimer& timer() const { return timer_; }
     int halfbands() const { return (int)hb_.size(); }

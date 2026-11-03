@@ -8,6 +8,7 @@
 #include <chrono>
 #include <cmath>
 #include <condition_variable>
+#include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <deque>
@@ -38,6 +39,12 @@ const cf32 kPilot(0.70710678f, 0.70710678f);
 // complex product written out (the library one tests for NaN results on every call)
 inline cf32 cmul(cf32 a, cf32 b) {
     return cf32(a.real() * b.real() - a.imag() * b.imag(), a.real() * b.imag() + a.imag() * b.real());
+}
+
+// x / |x| for a phasor that stays near the unit circle: sqrtf is one VFP instruction, std::abs of a complex is a call to hypotf
+inline cf32 unitPhasor(cf32 x) {
+    const float g = 1.f / std::sqrt(x.real() * x.real() + x.imag() * x.imag());
+    return cf32(x.real() * g, x.imag() * g);
 }
 
 // e^{-j d} for small d: the loop never turns by more than a fraction of a radian per symbol
@@ -207,7 +214,17 @@ struct S2Rx::Impl {
     }
     void setLoops() {
         // overdamped: the frequency is found from the headers (see decodeHeader), the loop only has to follow the phase
-        gains(dataBn(), 2.0, kpD, kiD);
+        const double bn = dataBn();
+        gains(bn, 2.0, kpD, kiD);
+        // The phase noise of an LNB is set in hertz, not per symbol: at a low symbol rate it turns the phase much more from one symbol to the next.
+        // Both gains are raised together until the loop follows it (setCarrierFloor), which the narrow loop above cannot do: with the typical mask
+        // of EN 302 307-1 H.8 at 1.5 Msym/s and QPSK 4/5, 0 to 14 frames out of 134 decoded at 5 - 6 dB, all of them with the floor. The cost is
+        // about 0.2 dB at the very edge of the waterfall on a clean carrier. Capped at 16 times: wider, the loop slips cycles on the noisy symbols.
+        const double floorHz = o.carrierFloorHz_.load(), rs = o.symbolRate_;
+        if (floorHz > 0 && rs > 0) {
+            const float k = (float)std::min(16.0, std::max(1.0, floorHz / (rs * bn)));
+            kpD *= k; kiD *= k;
+        }
         kpiD = kpD + kiD;
     }
 
@@ -320,7 +337,7 @@ struct S2Rx::Impl {
         ph = cmul(P, cf32(1.f - k2 * 0.5f, -(kap * (1.f - k2 * (1.f / 6.f)))));
         theta += (float)omega + kap;
         omega += kiD * de;
-        if ((++phCount & 31) == 0) ph /= std::abs(ph);
+        if ((++phCount & 31) == 0) ph = unitPhasor(ph);
     }
 
     void step(const cf32 z) {
@@ -832,7 +849,7 @@ struct S2Rx::Impl {
             phl = cmul(P, cf32(1.f - k2 * 0.5f, -(kap * (1.f - k2 * (1.f / 6.f)))));
             th += (float)om + kap;
             om += kiD * de;
-            if ((++pc & 31) == 0) phl /= std::abs(phl);
+            if ((++pc & 31) == 0) phl = unitPhasor(phl);
             p++;
             if (pilots) per++;
         }
@@ -917,6 +934,9 @@ struct S2Rx::Impl {
         for (auto& t : workers) if (t.joinable()) t.join();
         workers.clear();
         queue.clear();
+        if (refineLazy() && lazyHits + lazyMiss > 0)
+            fprintf(stderr, "lazy refinement: %llu frames decoded without it, %llu refined after a failed attempt\n", (unsigned long long)lazyHits.load(), (unsigned long long)lazyMiss.load());
+        lazyHits = 0; lazyMiss = 0;
     }
 
     void submit(Job&& j) {
@@ -938,10 +958,10 @@ struct S2Rx::Impl {
     ComputeChoice compute;
 
     // The front half of a frame's work: phase refinement, demapper, bit deinterleaver. dl receives the LDPC input (nldpc values).
-    static bool prepareFrame(Job& j, const S2Dims& d, std::vector<float>& llr, float* dl) {
+    static bool prepareFrame(Job& j, const S2Dims& d, std::vector<float>& llr, float* dl, bool refine = true) {
         if ((int)j.syms.size() != d.xfecSymbols) return false;
         llr.resize((size_t)d.xfecSymbols * (size_t)d.bitsPerSym);
-        {
+        if (refine) {
             // the phase error the carrier loop left, measured in blocks against decisions (block length from the noise level)
             const float es = 1.f / (2.f * std::max(j.sigma2, 1e-3f));
             const int W = std::max(8, std::min(512, (int)(83.f / es)));
@@ -953,6 +973,22 @@ struct S2Rx::Impl {
         s2BitDeinterleaveLlr(llr.data(), d.nldpc, j.mod, j.rate, dl);
         return true;
     }
+
+    // On by default on the Zynq, where the refinement is a tenth of the receiver's work and a clean signal decodes as well without it; DECT2_REFINE_LAZY=0/1
+    // overrides
+    static bool refineLazy() {
+        static const bool v = [] {
+            if (const char* e = getenv("DECT2_REFINE_LAZY")) return atoi(e) != 0;
+#if defined(__arm__) && !defined(__aarch64__)
+            return true;
+#else
+            return false;
+#endif
+        }();
+        return v;
+    }
+    static constexpr int kLazyIters = 10;     // iterations of the attempt without refinement
+    std::atomic<uint64_t> lazyHits{0}, lazyMiss{0};
 
     // set by setNoBch(), or at start by the environment variable DECT2_NO_BCH=1
     static inline std::atomic<bool> gNoBch{[] { const char* e = getenv("DECT2_NO_BCH"); return e && atoi(e) != 0; }()};
@@ -970,8 +1006,14 @@ struct S2Rx::Impl {
         s2BbScramble(bb.data(), d.kbch);
         r.ok = true; r.bchFixed = fixed; r.bb = bb;
         // bit errors before the LDPC decoder: hard decisions on the input against the decoded code word
+        // in blocks of 255 with an 8-bit count, which the compiler turns into NEON compares and adds (the plain loop was about 2% of the CPU)
         size_t diff = 0;
-        for (int i = 0; i < d.nldpc; i++) diff += (dl[(size_t)i] < 0) != (hard[(size_t)i] != 0);
+        for (int i0 = 0; i0 < d.nldpc; i0 += 255) {
+            const int i1 = std::min(d.nldpc, i0 + 255);
+            uint8_t c = 0;
+            for (int i = i0; i < i1; i++) c += (uint8_t)((dl[(size_t)i] < 0.f) != (hard[(size_t)i] != 0));
+            diff += c;
+        }
         r.berPre = (double)diff / d.nldpc;
     }
 
@@ -987,8 +1029,8 @@ struct S2Rx::Impl {
             if (off > 0 && cur < 0) setpriority(PRIO_PROCESS, (id_t)syscall(SYS_gettid), std::min(19, cur + off));
         }
 #endif
-        int quickScore = 8;
-        unsigned quickTick = 0;
+        int quickScore = 8, lazyScore = 8;
+        unsigned quickTick = 0, lazyTick = 0;
         std::vector<float> llr, dlAll;
         std::vector<uint8_t> hard, bb, hardAll, okAll;
         std::vector<int> itAll;
@@ -1016,9 +1058,16 @@ struct S2Rx::Impl {
             std::vector<Result> res(nb);
             std::vector<char> usable(nb, 0);
             dlAll.resize(nb * (size_t)d.nldpc);
+            // Lazy phase refinement (the default on 32-bit ARM, DECT2_REFINE_LAZY=0/1, CPU decoder only): the frame is first decoded without the refinement, with a few
+            // iterations; on a clean signal that is enough and the refinement is saved. A frame that does not converge is refined and decoded as
+            // usual. On a marginal signal the first attempt is mostly wasted: as for the quick 8-bit attempt, a score of recent attempts turns it
+            // off, and one frame in 32 tries again.
+            const bool lazy = !gpu && refineLazy() && (lazyScore > 4 || (++lazyTick & 31) == 0);
+            std::vector<char> refined(nb, 0);
             for (size_t i = 0; i < nb; i++) {
                 res[i].seq = jobs[i].seq; res[i].frameSyms = jobs[i].frameSyms; res[i].mod = jobs[i].mod; res[i].rate = jobs[i].rate; res[i].sh = jobs[i].sh;
-                usable[i] = prepareFrame(jobs[i], d, llr, dlAll.data() + i * (size_t)d.nldpc) ? 1 : 0;
+                usable[i] = prepareFrame(jobs[i], d, llr, dlAll.data() + i * (size_t)d.nldpc, !lazy) ? 1 : 0;
+                refined[i] = !lazy;
             }
             const LdpcCode& code = s2Ldpc(j0.rate, j0.sh);
             const float alpha = s2LdpcAlpha(j0.rate);
@@ -1039,6 +1088,16 @@ struct S2Rx::Impl {
                 const uint8_t* hp = nullptr;
                 if (gpuDone && okAll[i]) { ok = true; onGpu = true; iters = itAll[i]; hp = hardAll.data() + i * (size_t)d.nldpc; }
                 else {
+                    LdpcCode::setDeadline(frameDeadlineNs(jobs[i].frameSyms));
+                    if (!refined[i]) {
+                        dlv.assign(dl, dl + d.nldpc);
+                        const bool q8 = force8.load() || s2RateValue(j0.rate) >= q8MinRate();
+                        ok = q8 ? code.decodeFast8(dlv, kLazyIters, hard, &iters) : code.decodeFast(dlv, kLazyIters, hard, &iters, alpha);
+                        lazyScore = ok ? std::min(16, lazyScore + 1) : std::max(0, lazyScore - 4);
+                        if (ok) { lazyHits++; finishFrame(jobs[i], d, dl, hard.data(), ok, iters, false, bb, res[i]); deposit(std::move(res[i])); continue; }
+                        lazyMiss++;
+                        prepareFrame(jobs[i], d, llr, dlAll.data() + i * (size_t)d.nldpc, true);
+                    }
                     // the CPU decoder: the chosen path, or the answer for a frame the GPU could not decode (it uses the same code with the right scaling)
                     dlv.assign(dl, dl + d.nldpc);
                     const auto t0 = std::chrono::steady_clock::now();
@@ -1057,10 +1116,27 @@ struct S2Rx::Impl {
                     if (!gpuDone) compute.report(false, std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count());
                     hp = hard.data();
                 }
+                LdpcCode::setDeadline(0);
                 finishFrame(jobs[i], d, dl, hp, ok, iters, onGpu, bb, res[i]);
                 deposit(std::move(res[i]));
             }
         }
+    }
+
+    // The time a frame may take in the CPU decoder (steady clock, ns), from now: eight frame durations, 150 ms - 2 s (DECT2_LDPC_BUDGET_MS sets it,
+    // 0 = no limit). Frames are output in order, so one the decoder keeps working on holds the transport stream: at 1.5 MS a frame that slowly
+    // improves without ever converging (a dip in the signal) took 2 - 3 s with all its iterations and the float retry, and the picture froze that long.
+    // Past the budget it is reported bad (22 ms of programme lost at 1.5 MS) and the output goes on. A frame that decodes normally takes a few ms.
+    int64_t frameDeadlineNs(uint32_t frameSyms) const {
+        static const double fixedMs = [] { const char* e = getenv("DECT2_LDPC_BUDGET_MS"); return e && *e ? atof(e) : -1.0; }();
+        double secs;
+        if (fixedMs == 0) return 0;
+        if (fixedMs > 0) secs = fixedMs / 1e3;
+        else {
+            const double rs = o.symbolRate_;
+            secs = rs > 0 && frameSyms ? std::min(2.0, std::max(0.15, 8.0 * frameSyms / rs)) : 2.0;
+        }
+        return std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now().time_since_epoch()).count() + (int64_t)(secs * 1e9);
     }
 
     // ------------------------------------------------------------------ results in order, packets
@@ -1208,9 +1284,9 @@ void S2Rx::start(const S2HuntResult& h, const cf32* win, size_t n) {
     });
 }
 
-void S2Rx::push(const cf32* z, size_t n) {
+void S2Rx::push(const cf32* z, size_t n, float scale) {
     if (!tracking_.load()) return;
-    p_->th.push(z, n);
+    p_->th.push(z, n, scale);
 }
 
 void S2Rx::drain() {
