@@ -1191,10 +1191,12 @@ struct S2Rx::Impl {
         }
     }
 
-    // The time a frame may take in the CPU decoder (steady clock, ns), from now: eight frame durations, 150 ms - 2 s (DECT2_LDPC_BUDGET_MS sets it,
+    // The time a frame may take in the CPU decoder (steady clock, ns), from now: eight frame durations, 150 - 300 ms (DECT2_LDPC_BUDGET_MS sets it,
     // 0 = no limit). Frames are output in order, so one the decoder keeps working on holds the transport stream: at 1.5 MS a frame that slowly
     // improves without ever converging (a dip in the signal) took 2 - 3 s with all its iterations and the float retry, and the picture froze that long.
     // Past the budget it is reported bad (22 ms of programme lost at 1.5 MS) and the output goes on. A frame that decodes normally takes a few ms.
+    // The 300 ms ceiling is for the low symbol rates: at 250 kS eight frames are a second, and a frame that did not converge held the transport stream
+    // that long (past the 0.75 s gap after which a player such as Android-DATV restarts the stream) for 0.13 s of programme.
     int64_t frameDeadlineNs(uint32_t frameSyms) const {
         static const double fixedMs = [] { const char* e = getenv("DECT2_LDPC_BUDGET_MS"); return e && *e ? atof(e) : -1.0; }();
         double secs;
@@ -1202,7 +1204,7 @@ struct S2Rx::Impl {
         if (fixedMs > 0) secs = fixedMs / 1e3;
         else {
             const double rs = o.symbolRate_;
-            secs = rs > 0 && frameSyms ? std::min(2.0, std::max(0.15, 8.0 * frameSyms / rs)) : 2.0;
+            secs = rs > 0 && frameSyms ? std::min(0.3, std::max(0.15, 8.0 * frameSyms / rs)) : 0.3;
         }
         return std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now().time_since_epoch()).count() + (int64_t)(secs * 1e9);
     }
