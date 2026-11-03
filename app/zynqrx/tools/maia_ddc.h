@@ -93,10 +93,21 @@ public:
     // what maia-httpd reports as the output rate after design() (0 when it did not say)
     double outputHz() const { return outHz_ > 0 && std::isfinite(outHz_) ? outHz_ : 0; }
     // the route goes back to the full rate stream for the next user of the RX buffer
-    ~MaiaDdc() { if (enabled_) enable(false); }
+    // The DDC's NCO (PATCH /api/ddc/config {"frequency"}, within +-fs/2 of the converter rate): the signal at LO + hz is mixed to DC. design() and
+    // designRrc() reset it to 0, so call this after them.
+    bool setFrequency(double hz) {
+        char body[64];
+        snprintf(body, sizeof body, "{\"frequency\":%.1f}", hz);
+        std::string resp;
+        const int st = request("PATCH", "/api/ddc/config", body, resp);
+        if (st / 100 != 2) { fprintf(stderr, "ddc: NCO %.1f Hz refused (%d) %s\n", hz, st, resp.substr(0, 160).c_str()); return false; }
+        nco_ = hz != 0;
+        return true;
+    }
+    ~MaiaDdc() { if (nco_) setFrequency(0); if (enabled_) enable(false); }
 
 private:
-    bool enabled_ = false;
+    bool enabled_ = false, nco_ = false;
     double outHz_ = 0;
 
     // maia-httpd's limits (maia-httpd src/ddc/constants.rs, ddc.rs): 18-bit coefficients, stage decimation 2 - 127, operations = ceil(len / d)

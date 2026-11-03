@@ -55,19 +55,20 @@ public:
         mosquitto_connect_callback_set(mosq_, [](mosquitto* m, void*, int rc) {
             if (rc == 0 && mosquitto_subscribe(m, nullptr, "cmd/zynqrx/#", 1) != MOSQ_ERR_SUCCESS) fprintf(stderr, "mqtt: subscribe failed\n");
             else if (rc == 0) fprintf(stderr, "mqtt: connected, listening on cmd/zynqrx/#\n");
-            // pluto_stream's transmit symbol rate and PTT (retained): RX and TX share the AD9361 clock, so the receiver follows the transmission's (txclock)
-            if (rc == 0) { mosquitto_subscribe(m, nullptr, "dt/pluto/+/tx/dvbs2/sr", 1); mosquitto_subscribe(m, nullptr, "dt/pluto/+/tx/mute", 1); }
+            // pluto_stream's transmit symbol rate, PTT and stream mode (retained; mode pass = passthrough, not a DVB-S2 transmission): RX and TX share the AD9361 clock, so the receiver follows the transmission's (txclock)
+            if (rc == 0) { mosquitto_subscribe(m, nullptr, "dt/pluto/+/tx/dvbs2/sr", 1); mosquitto_subscribe(m, nullptr, "dt/pluto/+/tx/mute", 1); mosquitto_subscribe(m, nullptr, "dt/pluto/+/tx/stream/mode", 1); }
         });
         mosquitto_message_callback_set(mosq_, [](mosquitto*, void* self, const mosquitto_message* msg) {
             static const std::string pre = "cmd/zynqrx/";
             if (!msg->topic || !msg->payload) return;
             const std::string topic = msg->topic;
-            // dt/pluto/<call>/tx/dvbs2/sr -> "@txsr:<call>", dt/pluto/<call>/tx/mute -> "@txmute:<call>"
+            // dt/pluto/<call>/tx/dvbs2/sr -> "@txsr:<call>", dt/pluto/<call>/tx/mute -> "@txmute:<call>", dt/pluto/<call>/tx/stream/mode -> "@txmode:<call>"
             std::string key;
             auto ends = [&](const char* s) { const size_t n = strlen(s); return topic.size() > 9 + n && topic.compare(topic.size() - n, n, s) == 0; };
             if (topic.compare(0, 9, "dt/pluto/") == 0) {
                 if (ends("/tx/dvbs2/sr")) key = "@txsr:" + topic.substr(9, topic.size() - 12 - 9);
                 else if (ends("/tx/mute")) key = "@txmute:" + topic.substr(9, topic.size() - 8 - 9);
+                else if (ends("/tx/stream/mode")) key = "@txmode:" + topic.substr(9, topic.size() - 15 - 9);
                 else return;
             } else if (topic.compare(0, pre.size(), pre) == 0) key = topic.substr(pre.size());
             else return;
