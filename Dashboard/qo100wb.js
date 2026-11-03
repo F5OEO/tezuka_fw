@@ -9,7 +9,8 @@
 //
 //   const mon = new Qo100Wb((signals, state) => { ... });   // called after every frame / state change
 //   mon.start();  ...  mon.stop();          (a second argument receives every raw frame, to draw the spectrum)
-//   Qo100Wb.detect(frame)  -> [{ freq, bw, sr, level, start, end }]      (pure, for tests)
+//   Qo100Wb.detect(frame, f0, span, threshold)  -> [{ freq, bw, sr, level, start, end }]      (pure, for tests; f0 and span in MHz, default the BATC feed's; threshold in counts, default 1.5 dB over the noise)
+//   Qo100Wb.localFrame(db, state)  -> Float32Array in the feed's scale (not clamped to 16 bits), from the board's own spectrum (dB per bin), to run detect() on it
 //
 // A signal: freq = centre (MHz, downlink), bw = measured width (MHz), sr = symbol rate in kS/s aligned to
 // the QO-100 grid (33, 66, 125, 250, 333, 500, 1000, 1500, 2000), level = dB above the noise floor,
@@ -19,7 +20,7 @@
 
   const WS_URL = 'wss://eshail.batc.org.uk/wb/fft';
   const PROTOCOL = 'fft';
-  const F0 = 10490.5, SPAN = 9.0;          // MHz: the frame covers F0 .. F0 + SPAN
+  const F0_BATC = 10490.5, SPAN_BATC = 9.0;   // MHz: the frame covers F0 .. F0 + SPAN
   const NOISE = 11000;                      // counts: the usual noise floor of the feed
   const THRESHOLD = 16000;                  // counts: smoothed power above which something is a signal
   const COUNTS_PER_DB = 3276.8;             // the feed's scale: 20 dB over the 16-bit range
@@ -38,16 +39,18 @@
   }
 
   // frame: Uint16Array of power values across the band
-  function detect(frame) {
+  function detect(frame, f0, span, threshold) {
+    const THRESH = threshold != null ? threshold : THRESHOLD;
+    const F0 = f0 != null ? f0 : F0_BATC, SPAN = span != null ? span : SPAN_BATC;
     const n = frame.length, binMHz = SPAN / n, out = [];
     if (n < 16) return out;
     const avg = (i) => (frame[i] + frame[i - 1] + frame[i - 2]) / 3;     // 3-bin moving average
     let i = 2;
     while (i < n) {
-      if (avg(i) <= THRESHOLD) { i++; continue; }
+      if (avg(i) <= THRESH) { i++; continue; }
       // a region above the threshold: [a, b)
       const a = i - 2;
-      while (i < n && avg(i) > THRESHOLD) i++;
+      while (i < n && avg(i) > THRESH) i++;
       const b = i;
       if (b - a < 3) continue;
       // the top of the signal: the mean of its middle 40 %
@@ -67,6 +70,41 @@
       out.push({ freq: centre, bw, sr, level: (top - NOISE) / COUNTS_PER_DB, start: F0 + s * binMHz, end: F0 + (e + 1) * binMHz, beacon: centre < BEACON_BELOW });
     }
     return out;
+  }
+
+  // The board's own spectrum (the /waterfall feed, power in dB per bin, many more bins than the BATC frame and noisier) brought to the BATC
+  // feed's form so that detect() runs on it unchanged: averaged down to about 10 kHz bins (the BATC bin is 9.8 kHz), smoothed over time in
+  // power, and scaled so that the noise floor (a low percentile of the bins) sits at the feed's noise level, 3277 counts per dB.
+  // state: an object kept by the caller between frames.
+  const LOCAL_BINS = 1024, LOCAL_ALPHA = 0.3;
+  function localFrame(db, state) {
+    const L = db.length, N = Math.min(LOCAL_BINS, L);
+    if (!state.acc || state.acc.length !== N) state.acc = new Float32Array(N);
+    const acc = state.acc, first = !state.n;
+    for (let k = 0; k < N; k++) {
+      const a = Math.floor((k * L) / N), b = Math.max(a + 1, Math.floor(((k + 1) * L) / N));
+      let p = 0; for (let i = a; i < b; i++) p += Math.pow(10, db[i] / 10);
+      p /= b - a;
+      acc[k] = first ? p : acc[k] + LOCAL_ALPHA * (p - acc[k]);
+    }
+    state.n = (state.n || 0) + 1;
+    const d = new Float32Array(N);
+    for (let k = 0; k < N; k++) d[k] = 10 * Math.log10(acc[k] > 1e-30 ? acc[k] : 1e-30);
+    const sorted = Array.from(d).sort((x, y) => x - y);
+    const noise = sorted[Math.floor(N * 0.35)];
+    // a Float32Array, not 16 bits: the feed's scale tops out 16.6 dB above its noise, and the beacon is about 20 dB above the floor here
+    const out = new Float32Array(N);
+    for (let k = 0; k < N; k++) out[k] = Math.max(0, NOISE + (d[k] - noise) * COUNTS_PER_DB);
+    return out;
+  }
+
+  // Crops a frame (from f0, span MHz) to the BATC band when it covers it entirely (the edges of the radio's span are also where its filter rolls
+  // off); a frame that does not cover it is returned as it is.
+  function crop(frame, f0, span) {
+    const n = frame.length;
+    if (f0 > F0_BATC + 1e-6 || f0 + span < F0_BATC + SPAN_BATC - 1e-6) return { frame, f0, span };
+    const a = Math.round(((F0_BATC - f0) / span) * n), b = Math.round(((F0_BATC + SPAN_BATC - f0) / span) * n);
+    return { frame: frame.subarray(a, b), f0: f0 + (a / n) * span, span: ((b - a) / n) * span };
   }
 
   class Qo100Wb {
@@ -112,6 +150,9 @@
     }
   }
   Qo100Wb.detect = detect;
+  Qo100Wb.localFrame = localFrame;
+  Qo100Wb.crop = crop;
+  Qo100Wb.F0 = F0_BATC; Qo100Wb.SPAN = SPAN_BATC;
   Qo100Wb.alignSymbolRate = alignSymbolRate;
 
   root.Qo100Wb = Qo100Wb;

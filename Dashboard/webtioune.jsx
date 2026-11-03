@@ -58,11 +58,11 @@ const RX_SR_PRESETS = [125, 250, 333, 500, 1000];
 // drawn on a canvas at 10 Hz from the latest frame. Click: on a detected signal it tunes to its centre and
 // symbol rate, elsewhere to the clicked frequency at the current symbol rate. The receiver's own tuning is
 // drawn as a band.
-const SPEC_F0 = 10490.5, SPEC_SPAN = 9.0, SPEC_NOISE = 11000;
-function Qo100Spectrum({ frameRef, signals, rxDlMHz, rxSrKs, namesRef, onPick }) {
+const SPEC_NOISE = 11000;
+function Qo100Spectrum({ frameRef, signals, rxDlMHz, rxSrKs, namesRef, onPick, f0 = 10490.5, span = 9.0, emptyText = 'waiting for the BATC spectrum feed…' }) {
   const cvRef = useWtR(null);
   const live = useWtR({});
-  live.current = { signals, rxDlMHz, rxSrKs };
+  live.current = { signals, rxDlMHz, rxSrKs, f0, span, emptyText };
   const yMax = useWtR(30000);
   const H = 150;
   useWtE(() => {
@@ -75,8 +75,9 @@ function Qo100Spectrum({ frameRef, signals, rxDlMHz, rxSrKs, namesRef, onPick })
       const accent = css.getPropertyValue('--accent').trim() || '#f5a623';
       const ink = css.getPropertyValue('--text-dim').trim() || css.getPropertyValue('--muted').trim() || '#8a8f98';
       const grid = 'rgba(128,128,128,.22)';
-      const padB = 16, ph = H - padB, X = (mhz) => ((mhz - SPEC_F0) / SPEC_SPAN) * w;
-      const { signals: sg, rxDlMHz: rx, rxSrKs: rs } = live.current;
+      const padB = 16, ph = H - padB;
+      const { signals: sg, rxDlMHz: rx, rxSrKs: rs, f0: SPEC_F0, span: SPEC_SPAN, emptyText } = live.current;
+      const X = (mhz) => ((mhz - SPEC_F0) / SPEC_SPAN) * w;
       const nameOf = (s) => { const n = namesRef.current.find((q) => q.freq >= s.start - 0.03 && q.freq <= s.end + 0.03); return n ? n.name : ''; };
       g.font = '10px sans-serif'; g.textBaseline = 'alphabetic';
       // Labels above the signals (a decoded name, else the symbol rate). A label that would overlap one already placed in a row goes
@@ -97,10 +98,10 @@ function Qo100Spectrum({ frameRef, signals, rxDlMHz, rxSrKs, namesRef, onPick })
         rowEnd[r] = l.x + l.hw; l.row = r;
       }
       const padT = 4 + 13 * Math.max(1, rowEnd.length);
-      for (let f = 10491; f <= 10499; f++) { const x = Math.round(X(f)) + .5; g.strokeStyle = grid; g.beginPath(); g.moveTo(x, 0); g.lineTo(x, ph); g.stroke(); g.fillStyle = ink; g.textAlign = 'center'; g.fillText(String(f), x, H - 3); }
+      for (let f = Math.ceil(SPEC_F0); f <= SPEC_F0 + SPEC_SPAN; f++) { const x = Math.round(X(f)) + .5; g.strokeStyle = grid; g.beginPath(); g.moveTo(x, 0); g.lineTo(x, ph); g.stroke(); g.fillStyle = ink; g.textAlign = 'center'; g.fillText(String(f), x, H - 3); }
       if (rx > 0 && rs > 0) { g.fillStyle = 'rgba(255,255,255,.10)'; const x0 = X(rx - rs / 2000); g.fillRect(x0, 0, Math.max(2, X(rx + rs / 2000) - x0), ph); g.fillStyle = accent; g.fillRect(Math.round(X(rx)), 0, 1, ph); }
       const fr = frameRef.current;
-      if (!fr || fr.length < 16) { g.fillStyle = ink; g.textAlign = 'center'; g.fillText('waiting for the BATC spectrum feed…', w / 2, ph / 2); return; }
+      if (!fr || fr.length < 16) { g.fillStyle = ink; g.textAlign = 'center'; g.fillText(emptyText, w / 2, ph / 2); return; }
       let peak = 0; for (let i = 0; i < fr.length; i++) if (fr[i] > peak) peak = fr[i];
       yMax.current += (Math.max(30000, peak * 1.08) - yMax.current) * 0.2;
       const Y = (v) => ph - Math.max(0, Math.min(1, (v - 9000) / (yMax.current - 9000))) * (ph - padT);
@@ -127,7 +128,7 @@ function Qo100Spectrum({ frameRef, signals, rxDlMHz, rxSrKs, namesRef, onPick })
   }, []);
   const pick = (e) => {
     const r = cvRef.current.getBoundingClientRect();
-    const mhz = SPEC_F0 + ((e.clientX - r.left) / r.width) * SPEC_SPAN;
+    const mhz = live.current.f0 + ((e.clientX - r.left) / r.width) * live.current.span;
     const hit = live.current.signals.find((s) => mhz >= s.start - 0.03 && mhz <= s.end + 0.03);
     if (hit) onPick(hit.freq, hit.sr); else onPick(Math.round(mhz * 1000) / 1000, 0);
   };
@@ -177,7 +178,30 @@ function RxSpectrum({ frameRef, centerHz, spanHz, rxHz, rxSrKs, onPick }) {
   const live = useWtR({});
   live.current = { centerHz, spanHz, rxHz, rxSrKs };
   const range = useWtR({ lo: -100, hi: -20 });
+  const zoom = useWtR(1);                                        // mouse wheel or pinch; the zoomed view stays centred on the receive frequency (the DDC NCO)
+  const manual = useWtR(false);                                  // false: the view fits 2 x the symbol rate around the receive frequency; a wheel or pinch makes it manual
+  const [isManual, setIsManual] = useWtS(false);
+  const pinch = useWtR({ pts: new Map(), d0: 0, z0: 1, t: 0 });
   const H = 150;
+  // the visible window: the whole span, or span / zoom centred on the receive frequency (kept inside the span)
+  const MIN_VIEW = 50e3;
+  const zoomNow = () => {
+    const { spanHz: sp, rxSrKs: rs } = live.current;
+    if (manual.current || !(sp > 0)) return zoom.current;
+    return rs > 0 ? Math.max(1, Math.min(sp / MIN_VIEW, sp / (2 * rs * 1e3))) : 1;      // auto: the view is 2 x the symbol rate wide
+  };
+  const view = () => {
+    const { centerHz: c, spanHz: sp, rxHz: rx } = live.current;
+    const z = zoomNow(), vs = sp / z;
+    const vc = z > 1 && rx > 0 ? Math.min(c + sp / 2 - vs / 2, Math.max(c - sp / 2 + vs / 2, rx)) : c;
+    return { f0: vc - vs / 2, span: vs, full0: c - sp / 2, full: sp, z };
+  };
+  const setZoom = (z) => {
+    const sp = live.current.spanHz, z0 = zoomNow();
+    if (!manual.current) { manual.current = true; zoom.current = z0; setIsManual(true); }   // the first wheel / pinch step starts from the fitted view
+    zoom.current = Math.max(1, Math.min(sp > 0 ? Math.max(1, sp / MIN_VIEW) : 1, z));
+  };
+  const fit = () => { manual.current = false; setIsManual(false); };
   useWtE(() => {
     const draw = () => {
       const cv = cvRef.current; if (!cv) return;
@@ -193,41 +217,66 @@ function RxSpectrum({ frameRef, centerHz, spanHz, rxHz, rxSrKs, onPick }) {
       g.font = '10px sans-serif'; g.textBaseline = 'alphabetic';
       const fr = frameRef.current;
       if (!fr || !(sp > 0)) { g.fillStyle = ink; g.textAlign = 'center'; g.fillText('waiting for the spectrum feed…', w / 2, ph / 2); return; }
-      const f0 = c - sp / 2, X = (hz) => ((hz - f0) / sp) * w;
+      const V = view(), f0 = V.f0, vs = V.span, X = (hz) => ((hz - f0) / vs) * w;
       // frequency grid on a 1-2-5 step giving about 8 lines
-      const raw = sp / 8, mag = Math.pow(10, Math.floor(Math.log10(raw)));
+      const raw = vs / 8, mag = Math.pow(10, Math.floor(Math.log10(raw)));
       const step = mag * ([1, 2, 5, 10].find((m) => m * mag >= raw) || 10);
-      for (let f = Math.ceil(f0 / step) * step; f <= f0 + sp; f += step) {
+      for (let f = Math.ceil(f0 / step) * step; f <= f0 + vs; f += step) {
         const x = Math.round(X(f)) + .5; g.strokeStyle = grid; g.beginPath(); g.moveTo(x, 0); g.lineTo(x, ph); g.stroke();
         g.fillStyle = ink; g.textAlign = 'center'; g.fillText((f / 1e6).toFixed(step >= 1e6 ? 0 : step >= 1e5 ? 1 : step >= 1e4 ? 2 : 3), Math.min(w - 14, Math.max(14, x)), H - 3);
       }
-      if (rx > 0 && rs > 0 && rx > f0 && rx < f0 + sp) { g.fillStyle = 'rgba(255,255,255,.10)'; const x0 = X(rx - rs * 500); g.fillRect(x0, 0, Math.max(2, X(rx + rs * 500) - x0), ph); g.fillStyle = accent; g.fillRect(Math.round(X(rx)), 0, 1, ph); }
+      if (rx > 0 && rs > 0 && rx > f0 && rx < f0 + vs) { g.fillStyle = 'rgba(255,255,255,.10)'; const x0 = X(rx - rs * 500); g.fillRect(x0, 0, Math.max(2, X(rx + rs * 500) - x0), ph); g.fillStyle = accent; g.fillRect(Math.round(X(rx)), 0, 1, ph); }
       let lo = Infinity, hi = -Infinity;
       for (let i = 0; i < fr.length; i++) { const v = fr[i]; if (v < lo) lo = v; if (v > hi) hi = v; }
       if (!isFinite(lo)) return;
       const r = range.current; r.lo += (lo - 3 - r.lo) * 0.1; r.hi += (hi + 6 - r.hi) * 0.1;
       const Y = (v) => ph - Math.max(0, Math.min(1, (v - r.lo) / Math.max(10, r.hi - r.lo))) * (ph - padT);
       g.beginPath(); g.moveTo(0, ph);
+      const binAt = (px) => ((f0 + (px / w) * vs - V.full0) / V.full) * fr.length;   // the bins cover the whole span, the view may be a part of it
       for (let px = 0; px <= w; px++) {                           // max of the bins under each pixel
-        const a = Math.floor((px / w) * fr.length), b = Math.max(a + 1, Math.floor(((px + 1) / w) * fr.length));
+        const a = Math.max(0, Math.floor(binAt(px))), b = Math.max(a + 1, Math.floor(binAt(px + 1)));
         let m = -Infinity; for (let i = a; i < b && i < fr.length; i++) if (fr[i] > m) m = fr[i];
-        g.lineTo(px, Y(m));
+        g.lineTo(px, m === -Infinity ? ph : Y(m));
       }
       g.lineTo(w, ph); g.closePath();
       g.fillStyle = 'rgba(80,160,255,.25)'; g.fill();
       g.strokeStyle = 'rgba(110,180,255,.9)'; g.lineWidth = 1; g.stroke();
       g.fillStyle = ink; g.textAlign = 'left'; g.fillText(Math.round(r.hi) + ' dB', 3, 11);
+      if (V.z > 1.01) { g.textAlign = 'right'; g.fillText((manual.current ? '' : 'fit ') + '×' + V.z.toFixed(V.z < 10 ? 1 : 0) + ' · ' + (vs / 1e3 >= 1000 ? (vs / 1e6).toFixed(2) + ' MHz' : (vs / 1e3).toFixed(0) + ' kHz'), w - 4, 11); }
     };
     const id = setInterval(draw, 50); draw();
-    return () => clearInterval(id);
+    // mouse wheel zoom (a native listener: React's wheel handlers are passive and could not stop the page from scrolling)
+    const wheel = (e) => { e.preventDefault(); setZoom(zoomNow() * Math.exp(-e.deltaY * (e.deltaMode === 1 ? 0.05 : 0.0015))); };
+    const cv0 = cvRef.current;
+    if (cv0) cv0.addEventListener('wheel', wheel, { passive: false });
+    return () => { clearInterval(id); if (cv0) cv0.removeEventListener('wheel', wheel); };
   }, []);
-  const pick = (e) => {                                          // click: tune the receiver to the clicked frequency
-    const { centerHz: c, spanHz: sp } = live.current;
-    if (!(sp > 0) || !frameRef.current) return;
-    const r = cvRef.current.getBoundingClientRect();
-    onPick(Math.round(c - sp / 2 + ((e.clientX - r.left) / r.width) * sp));
+  // pinch on a touch screen: two pointers, the zoom follows the ratio of their distance to the start of the gesture
+  const pd = (e) => {
+    const P = pinch.current; P.pts.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    if (P.pts.size === 2) { const [a, b] = [...P.pts.values()]; P.d0 = Math.hypot(a.x - b.x, a.y - b.y) || 1; P.z0 = zoomNow(); P.t = Date.now(); try { cvRef.current.setPointerCapture(e.pointerId); } catch (_) {} }
   };
-  return <canvas ref={cvRef} onClick={pick} style={{ display: 'block', width: '100%', height: H, cursor: 'crosshair', borderRadius: 6 }} />;
+  const pm = (e) => {
+    const P = pinch.current; if (!P.pts.has(e.pointerId)) return;
+    P.pts.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    if (P.pts.size === 2) { const [a, b] = [...P.pts.values()]; setZoom(P.z0 * (Math.hypot(a.x - b.x, a.y - b.y) / P.d0)); P.t = Date.now(); }
+  };
+  const pu = (e) => { const P = pinch.current; P.pts.delete(e.pointerId); if (P.pts.size < 2) P.d0 = 0; };
+  const pick = (e) => {                                          // click: tune the receiver to the clicked frequency (not at the end of a pinch)
+    if (Date.now() - pinch.current.t < 400) return;
+    const { spanHz: sp } = live.current;
+    if (!(sp > 0) || !frameRef.current) return;
+    const r = cvRef.current.getBoundingClientRect(), V = view();
+    onPick(Math.round(V.f0 + ((e.clientX - r.left) / r.width) * V.span));
+  };
+  return (
+    <div style={{ position: 'relative' }}>
+      <canvas ref={cvRef} onClick={pick} onPointerDown={pd} onPointerMove={pm} onPointerUp={pu} onPointerCancel={pu}
+        style={{ display: 'block', width: '100%', height: H, cursor: 'crosshair', borderRadius: 6, touchAction: 'pan-y' }} />
+      {isManual && <button className="btn ghost" onClick={fit} title="back to the automatic zoom: 2 x the symbol rate around the receive frequency"
+        style={{ position: 'absolute', right: 4, top: 16, padding: '0 6px', fontSize: 11, lineHeight: '18px', height: 20 }}>fit</button>}
+    </div>
+  );
 }
 
 // Expert receiver options: every setting zynqrx takes over MQTT besides frequency / symbol rate (cmd/zynqrx/<name>, the same names as its command
@@ -237,6 +286,7 @@ const EXPERT_MODS = ['qpsk', '8psk', '16apsk', '32apsk'];
 const numIn = (lo, hi) => (v) => { const n = parseFloat(v); return !isNaN(n) && n >= lo && n <= hi; };
 const EXPERT_TEXT = [
   { k: 'gain', label: 'RX gain', suffix: 'dB', hint: 'auto = the radio AGC, or 0 – 73 dB', ok: (v) => v === 'auto' || numIn(0, 73)(v) },
+  { k: 'clock', label: 'Radio clock (span)', suffix: 'kHz', hint: 'fixed converter rate = the spectrum span (10000 = 10 MHz), the Maia DDC decimates to the symbol rate. 0 = the radio RRC filter. Symbol rates above a quarter of it use the RRC filter', ok: (v) => v === '0' || numIn(2000, 61440)(v) },
   { k: 'bw', label: 'Analog bandwidth', suffix: 'kHz', hint: '0 = 3 x the symbol rate', ok: numIn(0, 56000) },
 ];
 function ExpertText({ d, spec, reported }) {
@@ -307,6 +357,10 @@ function ExpertOptions({ d, lm, open, setOpen }) {
               <Select value={set('fasttiming') || 'auto'} onChange={(v) => send('fasttiming', v)}
                 options={[{ v: 'auto', l: 'Auto' }, { v: 'on', l: 'On' }, { v: 'off', l: 'Off' }]} />
             </Field></div>
+            <div title="RX and TX share the AD9361 clock. On = keep the clock pluto_stream set and decimate in the Maia DDC (FPGA), needed to receive while transmitting. Auto = on only while pluto_stream transmits DVB-S/S2 with PTT on, else the receiver keeps its own 10 MHz clock. Off = the receiver always sets its own rate and FIR"><Field label="TX clock (Maia DDC)">
+              <Select value={set('txclock') || 'auto'} onChange={(v) => send('txclock', v)}
+                options={[{ v: 'auto', l: 'Auto' }, { v: 'on', l: 'On' }, { v: 'off', l: 'Off' }]} />
+            </Field></div>
             {EXPERT_TEXT.map((spec) => <ExpertText key={spec.k} d={d} spec={spec} reported={set(spec.k)} />)}
             <ExpertLag d={d} reported={set('maxlag')} />
             {flag('ccm', 'Constant coding (CCM)', 'search only the MODCOD found first')}
@@ -358,11 +412,25 @@ function Webtioune({ d }) {
   // the same key as the DATV Controller's, so both pages use one value.
   const [lnbLo, setLnbLo] = useLS2('datv_lnb_lo', 9750e6, parseFloat);
   const [planMsg, setPlanMsg] = useWtS('');
+  // QO-100 mode (on by default): the radio's LO stays fixed at 745.0 MHz (zynqrx's `lo`; the Maia DDC NCO tunes the carrier inside the 10 MHz span,
+  // which with the 9750 MHz LNB LO is the middle of the wideband transponder, 10495 MHz) and the LNB LO is the standard 9750 MHz. Off: the LO follows the
+  // frequency (`lo` 0) and the LNB LO is free.
+  const [qo100, setQo100] = useLS2('webtioune_qo100', '1');
+  const loSent = useWtR('');
+  useWtE(() => {
+    if (qo100 === '1' && lnbLo !== 9750e6) setLnbLo(9750e6);
+    const rep = lm['set/lo'];                          // what zynqrx reports (kHz); nothing while it is not running or too old to know `lo`
+    const want = qo100 === '1' ? '745000' : '0';
+    if (rep == null || !d || !d.mqtt) return;
+    if (String(rep) !== want && loSent.current !== want + '|' + rep) { loSent.current = want + '|' + rep; d.publish('zynqrx/lo', want); }
+  }, [qo100, lm['set/lo'], d && d.mqtt]);
 
   // Live signals on the transponder, from the BATC spectrum monitor (qo100wb.js). A signal is kept lit for
   // 1.5 s after it was last seen, so the highlight does not flicker with the noise.
-  const [wbOn, setWbOn] = useLS2('webtioune_wb_live', '1');
-  const [wb, setWb] = useWtS({ signals: [], state: 'idle' });
+  // The source: the BATC feed (internet) or the board's own spectrum (the 10 MHz around the radio's LO, cropped to the BATC band, 10490.5 - 10499.5 MHz:
+  // LO 745 MHz with the usual 9750 MHz LNB), run through the same signal detection.
+  const [wbSrc, setWbSrc] = useLS2('webtioune_wb_src', 'batc');
+  const [wb, setWb] = useWtS({ signals: [], state: 'idle', f0: 10490.5, span: 9.0 });
   const wbFrame = useWtR(null);
   const [rxFrame, rxFeed] = useWaterfallFeed();
   // the feed's own {center, span} messages when it sends them, else the radio's RX frequency and sampling rate over MQTT (as the Spectrum page does)
@@ -370,25 +438,48 @@ function Webtioune({ d }) {
   // the spectrum spans the rate the FPGA sees: state/rx/sampling, already the decimated output rate when the AD9361 FIR is on (zynqrx's RRC, /4);
   // state/rx/span is the sweep span and goes stale outside a sweep
   const specSpan = rxFeed.span || (d && (d.sweepActive ? d.span : d.rxSampling)) || 0;
+  const localRef = useWtR({}); localRef.current = { center: specCenter, span: specSpan, lnbLo, feed: rxFeed.state };
   useWtE(() => {
-    if (wbOn !== '1' || !window.Qo100Wb) { wbFrame.current = null; setWb({ signals: [], state: 'idle' }); return; }
+    if (!window.Qo100Wb) { wbFrame.current = null; setWb({ signals: [], state: 'idle', f0: 10490.5, span: 9.0 }); return; }
     const seen = new Map();                       // key -> { sig, t }
-    let state = 'connecting', lastKey = '';
-    const mon = new window.Qo100Wb((sigs, st) => {
-      state = st;
+    let state = 'connecting', lastKey = '', f0 = 10490.5, span = 9.0, mon = null, localTimer = null;
+    const note = (sigs) => {
       const now = Date.now();
-      for (const g of sigs) seen.set(`${g.beacon ? 'b' : Math.round(g.freq * 50)}|${g.sr}`, { sig: g, t: now });
-    }, (frame) => { wbFrame.current = frame; });
-    mon.start();
+      for (const g of sigs) {
+        // the same signal measured a few kHz apart (a centre on the edge of a rounding step) is one signal: the newest measure replaces the older
+        for (const [k, v] of seen) if (v.sig.sr === g.sr && !v.sig.beacon === !g.beacon && Math.abs(v.sig.freq - g.freq) < 0.05) seen.delete(k);
+        seen.set(`${g.beacon ? 'b' : Math.round(g.freq * 50)}|${g.sr}`, { sig: g, t: now });
+      }
+    };
+    if (wbSrc === 'local') {
+      const st = {}; let last = null;
+      localTimer = setInterval(() => {
+        const L = localRef.current, fr = rxFrame.current;
+        if (!fr || !(L.span > 0) || L.feed !== 'live') { state = L.feed === 'offline' ? 'offline' : 'connecting'; return; }
+        state = 'live';
+        f0 = (L.center + L.lnbLo - L.span / 2) / 1e6; span = L.span / 1e6;
+        if (fr === last) return;                  // no new frame since the last pass
+        last = fr;
+        const full = window.Qo100Wb.localFrame(fr, st);
+        const c = window.Qo100Wb.crop(full, f0, span);      // the BATC band when the span covers it
+        wbFrame.current = c.frame; f0 = c.f0; span = c.span;
+        // the local floor is not flat (IF response, LO and DC spurs: humps of 2 - 3 dB over the noise level that would merge with a signal's
+        // skirt or pass for a wide signal): a region starts 4 dB over the floor here, 1.5 dB on the cleaner BATC feed. Real signals are 7 dB or more
+        note(window.Qo100Wb.detect(c.frame, f0, span, 11000 + 4 * 3276.8));
+      }, 100);
+    } else {
+      mon = new window.Qo100Wb((sigs, st) => { state = st; note(sigs); }, (frame) => { wbFrame.current = frame; });
+      mon.start();
+    }
     const id = setInterval(() => {
       const now = Date.now(), list = [];
       for (const [k, v] of seen) { if (now - v.t > 1500) seen.delete(k); else list.push(v.sig); }
       list.sort((a, b) => a.freq - b.freq);
-      const key = state + '|' + list.map((g) => `${g.freq.toFixed(2)}:${g.sr}:${g.level.toFixed(0)}`).join(',');
-      if (key !== lastKey) { lastKey = key; setWb({ signals: list, state }); }
+      const key = state + '|' + f0.toFixed(3) + '|' + span.toFixed(3) + '|' + list.map((g) => `${g.freq.toFixed(2)}:${g.sr}:${g.level.toFixed(0)}`).join(',');
+      if (key !== lastKey) { lastKey = key; setWb({ signals: list, state, f0, span }); }
     }, 500);
-    return () => { clearInterval(id); mon.stop(); wbFrame.current = null; };
-  }, [wbOn]);
+    return () => { clearInterval(id); clearInterval(localTimer); if (mon) mon.stop(); wbFrame.current = null; };
+  }, [wbSrc]);
   const onSpecPick = (dlMHz, sr) => {                   // sr 0 = keep the current symbol rate
     const ifHz = dlMHz * 1e6 - lnbLo;                    // downlink minus the LNB LO
     if (!(ifHz >= RX_FREQ_MIN_HZ && ifHz <= RX_FREQ_MAX_HZ)) { setPlanMsg(`IF ${(ifHz / 1e6).toFixed(1)} MHz is outside 70 MHz - 6 GHz with this LNB LO`); return; }
@@ -555,6 +646,9 @@ function Webtioune({ d }) {
         <div className="span-5 tile-stack">
           <Card title="Receiver" sub="zynqrx DVB-S2"
             right={<div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <div title="QO-100: the radio LO stays fixed at 745.0 MHz (the Maia DDC NCO tunes inside the 10 MHz span) and the LNB LO is 9750 MHz. Off: the LO follows the frequency and the LNB LO is free">
+                <Checkbox checked={qo100 === '1'} label="QO-100" onChange={(v) => setQo100(v ? '1' : '0')} />
+              </div>
               <Pill tone={!rxKnown ? 'neutral' : rxRunning ? 'ok' : 'warn'} dot>{!rxKnown ? 'No status' : rxRunning ? 'Running' : 'Stopped'}</Pill>
               <button className="btn primary" onClick={() => setProcess('start')} disabled={rxRunning || !d.mqtt}>Start</button>
               <button className="btn ghost" onClick={() => setProcess('stop')} disabled={!rxRunning || !d.mqtt}>Stop</button>
@@ -607,14 +701,22 @@ function Webtioune({ d }) {
             <RxSpectrum frameRef={rxFrame} centerHz={specCenter} spanHz={specSpan} rxHz={freqHz} rxSrKs={srKs} onPick={onRxSpecPick} />
           </Card>
 
-          <Card title="QO-100 WB spectrum" sub="click a signal or the trace to tune"
+          <Card title="QO-100 WB spectrum" sub={wbSrc === 'local' ? 'the board\'s own spectrum, cropped to the BATC band · click a signal or the trace to tune' : 'BATC feed · click a signal or the trace to tune'}
             right={<div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              <Pill tone={wb.state === 'live' ? 'ok' : wb.state === 'idle' ? 'neutral' : 'warn'} dot>{wb.state === 'live' ? 'WB live' : wb.state === 'idle' ? 'WB off' : wb.state === 'offline' ? 'WB offline' : 'WB …'}</Pill>
-              <Toggle on={wbOn === '1'} onChange={(v) => setWbOn(v ? '1' : '0')} labels={['LIVE', 'LIVE']} />
-              <div style={{ width: 170 }}><TextInput value={String(lnbLo)} suffix="LO Hz"
+              <Pill tone={wb.state === 'live' ? 'ok' : wb.state === 'idle' ? 'neutral' : 'warn'} dot>{wb.state === 'live' ? 'live' : wb.state === 'idle' ? 'off' : wb.state === 'offline' ? 'offline' : '…'}</Pill>
+              <Toggle on={wbSrc === 'local'} onChange={(v) => setWbSrc(v ? 'local' : 'batc')} labels={['BATC', 'LOCAL']} />
+              <div style={{ width: 170 }}><TextInput value={String(lnbLo)} suffix="LO Hz" disabled={qo100 === '1'}
                 onChange={(v) => { const n = parseFloat(v); if (!isNaN(n)) setLnbLo(n); }} /></div>
             </div>}>
-            <Qo100Spectrum frameRef={wbFrame} signals={wb.signals} rxDlMHz={(freqHz + lnbLo) / 1e6} rxSrKs={srKs} namesRef={namesRef} onPick={onSpecPick} />
+            <Qo100Spectrum frameRef={wbFrame} signals={wb.signals} f0={wb.f0} span={wb.span} emptyText={wbSrc === 'local' ? 'waiting for the board spectrum…' : 'waiting for the BATC spectrum feed…'} rxDlMHz={(freqHz + lnbLo) / 1e6} rxSrKs={srKs} namesRef={namesRef} onPick={onSpecPick} />
+            {wbSrc === 'local' && wb.state === 'live' && (wb.f0 > 10490.5 + 1e-3 || wb.f0 + wb.span < 10499.5 - 1e-3) && (
+              <div className="info-note" style={{ marginTop: 8 }}>
+                <Icon name="bolt" size={16} />
+                <p>The radio spectrum spans {(wb.span).toFixed(1)} MHz around {((wb.f0 + wb.span / 2) - lnbLo / 1e6).toFixed(1)} MHz (IF), which does not cover the 9 MHz QO-100 band.
+                  The receiver is probably on the transmission's clock (TX clock Auto while pluto_stream transmits): set TX clock to Off in the Expert options for the 10 MHz span
+                  (it cuts the clock pluto_stream set), and check Radio clock / Radio LO.</p>
+              </div>
+            )}
             {planMsg && (
               <div className="info-note" style={{ marginTop: 8 }}>
                 <Icon name="bolt" size={16} />
