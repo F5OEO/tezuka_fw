@@ -220,7 +220,11 @@ struct S2Rx::Impl {
         // Both gains are raised together until the loop follows it (setCarrierFloor), which the narrow loop above cannot do: with the typical mask
         // of EN 302 307-1 H.8 at 1.5 Msym/s and QPSK 4/5, 0 to 14 frames out of 134 decoded at 5 - 6 dB, all of them with the floor. The cost is
         // about 0.2 dB at the very edge of the waterfall on a clean carrier. Capped at 16 times: wider, the loop slips cycles on the noisy symbols.
-        const double floorHz = o.carrierFloorHz_.load(), rs = o.symbolRate_;
+        // A negative floor is auto: 12 kHz, but no more than 2.5% of the symbol rate. At 250 kS the 12 kHz floor (4.8% of the rate) let the loop
+        // follow so much noise that it slipped on isolated frames even on a clean carrier (7 of 298 lost at 6 dB, none from 9 kHz down)
+        double floorHz = o.carrierFloorHz_.load();
+        const double rs = o.symbolRate_;
+        if (floorHz < 0) floorHz = std::min(12000.0, 0.025 * rs);
         if (floorHz > 0 && rs > 0) {
             const float k = (float)std::min(16.0, std::max(1.0, floorHz / (rs * bn)));
             kpD *= k; kiD *= k;
@@ -957,6 +961,73 @@ struct S2Rx::Impl {
 
     ComputeChoice compute;
 
+    // Impulse erasure (QPSK and 8PSK; DECT2_IMPULSE_ERASE=0 turns it off). Short strong pulses on the channel (seen on the QO-100 wideband transponder: trains of
+    // ~40 us pulses about the signal's level, every 3.6 ms for 0.3 s) hit a few dozen symbols at a time. The demapper gives those symbols as much confidence as
+    // the others, and 6 - 10 such hits made whole frames fail the LDPC decoder even with 100 iterations, where a demodulator that discounts them loses nothing.
+    // Here the error to the nearest constellation point is averaged over 8 symbols; where that average is above 4 times the frame's typical value, the symbols
+    // (and 4 on each side) get zero LLRs: the decoder treats them as unknown, which costs a 4/5 code nothing at 1-2% of the frame. No more than 15% of a frame is
+    // erased (a frame that bad is noise, not pulses). It runs on the full decoding path only: on the Zynq the quick attempt without the
+    // phase refinement decodes nearly every clean frame, so the cost (three passes over the symbols) is paid only by frames that needed more.
+    static bool impulseErase() { static const bool on = [] { const char* e = getenv("DECT2_IMPULSE_ERASE"); return !(e && e[0] == '0'); }(); return on; }
+    static void eraseImpulses(const Job& j, const S2Dims& d, std::vector<float>& llr) {
+        if (!impulseErase() || (j.mod != kQpsk && j.mod != k8psk)) return;
+        const int n = d.xfecSymbols, bps = d.bitsPerSym;
+        const cf32* z = j.syms.data();
+        thread_local std::vector<float> e;
+        e.resize((size_t)n);
+        double pw = 0;
+        for (int i = 0; i < n; i++) pw += (double)std::norm(z[i]);
+        const float amp = (float)std::sqrt(pw / n);
+        if (amp <= 0.f) return;
+        const float inv = 1.f / amp;
+        if (j.mod == kQpsk) {
+            const float a = 0.70710678f;
+            for (int i = 0; i < n; i++) {
+                const float x = z[i].real() * inv, y = z[i].imag() * inv;
+                const float dx = x - (x > 0 ? a : -a), dy = y - (y > 0 ? a : -a);
+                e[(size_t)i] = dx * dx + dy * dy;
+            }
+        } else {
+            // nearest 8PSK point without atan2: fold into the first octant (|x|, |y|, then swap so that x >= y); there the candidates are the points at
+            // 0 and 45 degrees, and y < tan(22.5) x picks the one at 0
+            const float c = 0.70710678f, t = 0.41421356f;
+            for (int i = 0; i < n; i++) {
+                float x = std::fabs(z[i].real() * inv), y = std::fabs(z[i].imag() * inv);
+                if (y > x) std::swap(x, y);
+                float dx, dy;
+                if (y < t * x) { dx = x - 1.f; dy = y; } else { dx = x - c; dy = y - c; }
+                e[(size_t)i] = dx * dx + dy * dy;
+            }
+        }
+        // typical error: the mean of the frame without its worst values is close enough, and cheaper than a median (the 8-symbol average of plain noise
+        // seldom reaches 2.5 times the mean, so a 4x threshold leaves clean frames alone)
+        constexpr int W = 8, kGuard = 4;
+        double sum = 0;
+        for (int i = 0; i < n; i++) sum += e[(size_t)i];
+        const double mean = sum / n;
+        double s2 = 0; int cnt = 0;
+        for (int i = 0; i < n; i++) if (e[(size_t)i] < 3.0 * mean) { s2 += e[(size_t)i]; cnt++; }
+        const float typ = (float)(cnt ? s2 / cnt : mean);
+        const float thr = 4.f * typ * W;
+        thread_local std::vector<uint8_t> hit;
+        hit.assign((size_t)n, 0);
+        float acc = 0;
+        int marked = 0;
+        for (int i = 0; i < n; i++) {
+            acc += e[(size_t)i];
+            if (i >= W) acc -= e[(size_t)(i - W)];
+            if (i >= W - 1 && acc > thr) {
+                const int a0 = std::max(0, i - W + 1 - kGuard), a1 = std::min(n - 1, i + kGuard);
+                for (int k = a0; k <= a1; k++) if (!hit[(size_t)k]) { hit[(size_t)k] = 1; marked++; }
+            }
+        }
+        if (!marked || marked > n * 15 / 100) return;
+        for (int i = 0; i < n; i++)
+            if (hit[(size_t)i]) for (int b = 0; b < bps; b++) llr[(size_t)i * bps + b] = 0.f;
+        gErased.fetch_add((uint64_t)marked, std::memory_order_relaxed);
+    }
+    static inline std::atomic<uint64_t> gErased{0};
+
     // The front half of a frame's work: phase refinement, demapper, bit deinterleaver. dl receives the LDPC input (nldpc values).
     static bool prepareFrame(Job& j, const S2Dims& d, std::vector<float>& llr, float* dl, bool refine = true) {
         if ((int)j.syms.size() != d.xfecSymbols) return false;
@@ -970,6 +1041,7 @@ struct S2Rx::Impl {
             s2RefinePhase(j.syms.data(), d.xfecSymbols, j.mod, j.rate, j.sigma2, W, std::vector<PhaseMark>(), j.mod == kQpsk ? 1 : 2);
         }
         s2Demap(j.syms.data(), d.xfecSymbols, j.mod, j.rate, j.sigma2, llr.data());
+        if (refine) eraseImpulses(j, d, llr);     // only on the full path: a frame the quick attempt decoded never pays for it
         s2BitDeinterleaveLlr(llr.data(), d.nldpc, j.mod, j.rate, dl);
         return true;
     }
@@ -1123,10 +1195,12 @@ struct S2Rx::Impl {
         }
     }
 
-    // The time a frame may take in the CPU decoder (steady clock, ns), from now: eight frame durations, 150 ms - 2 s (DECT2_LDPC_BUDGET_MS sets it,
+    // The time a frame may take in the CPU decoder (steady clock, ns), from now: eight frame durations, 150 - 300 ms (DECT2_LDPC_BUDGET_MS sets it,
     // 0 = no limit). Frames are output in order, so one the decoder keeps working on holds the transport stream: at 1.5 MS a frame that slowly
     // improves without ever converging (a dip in the signal) took 2 - 3 s with all its iterations and the float retry, and the picture froze that long.
     // Past the budget it is reported bad (22 ms of programme lost at 1.5 MS) and the output goes on. A frame that decodes normally takes a few ms.
+    // The 300 ms ceiling is for the low symbol rates: at 250 kS eight frames are a second, and a frame that did not converge held the transport stream
+    // that long (past the 0.75 s gap after which a player such as Android-DATV restarts the stream) for 0.13 s of programme.
     int64_t frameDeadlineNs(uint32_t frameSyms) const {
         static const double fixedMs = [] { const char* e = getenv("DECT2_LDPC_BUDGET_MS"); return e && *e ? atof(e) : -1.0; }();
         double secs;
@@ -1134,7 +1208,7 @@ struct S2Rx::Impl {
         if (fixedMs > 0) secs = fixedMs / 1e3;
         else {
             const double rs = o.symbolRate_;
-            secs = rs > 0 && frameSyms ? std::min(2.0, std::max(0.15, 8.0 * frameSyms / rs)) : 2.0;
+            secs = rs > 0 && frameSyms ? std::min(0.3, std::max(0.15, 8.0 * frameSyms / rs)) : 0.3;
         }
         return std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now().time_since_epoch()).count() + (int64_t)(secs * 1e9);
     }
