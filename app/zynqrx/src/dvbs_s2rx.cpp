@@ -220,7 +220,11 @@ struct S2Rx::Impl {
         // Both gains are raised together until the loop follows it (setCarrierFloor), which the narrow loop above cannot do: with the typical mask
         // of EN 302 307-1 H.8 at 1.5 Msym/s and QPSK 4/5, 0 to 14 frames out of 134 decoded at 5 - 6 dB, all of them with the floor. The cost is
         // about 0.2 dB at the very edge of the waterfall on a clean carrier. Capped at 16 times: wider, the loop slips cycles on the noisy symbols.
-        const double floorHz = o.carrierFloorHz_.load(), rs = o.symbolRate_;
+        // A negative floor is auto: 12 kHz, but no more than 2.5% of the symbol rate. At 250 kS the 12 kHz floor (4.8% of the rate) let the loop
+        // follow so much noise that it slipped on isolated frames even on a clean carrier (7 of 298 lost at 6 dB, none from 9 kHz down)
+        double floorHz = o.carrierFloorHz_.load();
+        const double rs = o.symbolRate_;
+        if (floorHz < 0) floorHz = std::min(12000.0, 0.025 * rs);
         if (floorHz > 0 && rs > 0) {
             const float k = (float)std::min(16.0, std::max(1.0, floorHz / (rs * bn)));
             kpD *= k; kiD *= k;
