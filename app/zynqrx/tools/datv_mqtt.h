@@ -155,6 +155,7 @@ inline void datvPublish(MqttLink& mq, const DatvStatus& s) {
     }
     num("bch_uncorect", s.bchBadSince ? 1 : 0);
     num("bch_errors", locked && t.standard >= 2 ? 0 : 0);
+    num("crc_errors", locked && t.standard >= 2 ? (long long)t.crcErrors : 0);   // DVB-S2 user packets whose CRC-8 failed (flagged with the transport error indicator), since the receiver started
     num("ldpc_errors", locked && t.standard >= 2 && t.preFecBer >= 0 ? std::lround(t.preFecBer * (t.frameSize == 2 ? 16200 : 64800)) : 0);
     pub("service_name", s.serviceName);
     pub("provider_name", s.providerName);
