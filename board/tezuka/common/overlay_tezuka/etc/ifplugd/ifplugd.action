@@ -8,7 +8,12 @@ case "$2" in
         fi  
         ;;
     down)
-        /sbin/ip addr flush dev "$1"
+        # Only a DHCP lease is dropped: "up" above does not restore a static
+        # (or AP) address, so flushing it would leave eth0 without one after
+        # any link loss longer than the ifplugd down delay (5 s).
+        if [ -z "$ETH_IPADDR" ] || [ "$ETH_IPADDR" = "dhcp" ]; then
+          /sbin/ip addr flush dev "$1"
+        fi
         ;;
 esac
 exit 0
