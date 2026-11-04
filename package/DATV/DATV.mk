@@ -13,11 +13,11 @@ DATV_SITE = $(BR2_EXTERNAL_PLUTOSDR_PATH)/board/tezuka/common/overlay_datv
 # longmynd also installs an S97datv: ours has to land after it and replace it.
 DATV_DEPENDENCIES = longmynd zynqrx
 
-# Webtioune's player: the latest mpegts.js from its GitHub main branch, built (webpack production, minified)
+# Webtioune's player: the latest mpegts.js from the F5OEO fork (github.com/F5OEO/mpegts.js) main branch, built (webpack production, minified)
 # on the host at build time. Needs git, node, npm and network access, like the Dashboard build. If that
 # fails, the build goes on with the copy that is vendored in the overlay (root/vendor/mpegts/mpegts.js).
 # DATV_MPEGTS_BRANCH can be set to another branch or tag. The result is built again with DATV-rebuild.
-DATV_MPEGTS_REPO = https://github.com/xqq/mpegts.js.git
+DATV_MPEGTS_REPO = https://github.com/F5OEO/mpegts.js.git
 DATV_MPEGTS_BRANCH ?= master
 
 define DATV_BUILD_CMDS

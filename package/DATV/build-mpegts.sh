@@ -1,5 +1,5 @@
 #!/bin/sh
-# Builds the latest mpegts.js (https://github.com/xqq/mpegts.js, Apache-2.0) from its main branch.
+# Builds the latest mpegts.js (the F5OEO fork of https://github.com/xqq/mpegts.js, Apache-2.0) from its main branch.
 #   build-mpegts.sh <work dir> <output dir> [repo url] [branch]
 # Needs git, node and npm on the build host (the Dashboard build already needs node) and network access.
 # Writes <output dir>/mpegts.js (webpack production build, minified) and <output dir>/VERSION.
@@ -7,7 +7,7 @@
 set -e
 WORK=$1
 OUT=$2
-REPO=${3:-https://github.com/xqq/mpegts.js.git}
+REPO=${3:-https://github.com/F5OEO/mpegts.js.git}
 BRANCH=${4:-master}
 
 mkdir -p "$WORK" "$OUT"
