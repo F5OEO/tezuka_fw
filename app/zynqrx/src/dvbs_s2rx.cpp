@@ -1219,6 +1219,10 @@ struct S2Rx::Impl {
     bool haveCarry = false;
     uint8_t prevCrc = 0;
     bool havePrevCrc = false;
+    // The newest packet waits here until the CRC-8 of the next one tells if it was received right: a bad one leaves with the transport error indicator
+    // set, so a player can drop the damaged picture instead of decoding it (the BCH bypass and 8-bit LDPC let rare wrong code words through).
+    uint8_t heldPkt[188];
+    bool haveHeld = false;
     double pendingSyms = 0;
     int isiFirst = -1;
     std::vector<uint8_t> outPk;
@@ -1310,9 +1314,13 @@ struct S2Rx::Impl {
     void emitUp(const uint8_t* up, int upl, const S2BbHeader& h) {
         {
             const uint8_t crcOfThis = s2Crc8(up + 1, upl - 1);
-            if (havePrevCrc && up[0] != prevCrc) { std::lock_guard<std::mutex> lk(statMu); st.crcErrors++; }
+            if (havePrevCrc && up[0] != prevCrc) {
+                { std::lock_guard<std::mutex> lk(statMu); st.crcErrors++; }
+                if (haveHeld) heldPkt[1] |= 0x80;
+            }
             prevCrc = crcOfThis; havePrevCrc = true;
         }
+        if (haveHeld) { outPk.insert(outPk.end(), heldPkt, heldPkt + 188); haveHeld = false; }
         if (h.npd) {
             const int dnp = up[upl - 1];
             for (int i = 0; i < dnp; i++) {
@@ -1320,10 +1328,9 @@ struct S2Rx::Impl {
                 outPk.insert(outPk.end(), n, n + 188);
             }
         }
-        uint8_t pkt[188];
-        pkt[0] = (uint8_t)h.sync;
-        memcpy(pkt + 1, up + 1, 187);
-        outPk.insert(outPk.end(), pkt, pkt + 188);
+        heldPkt[0] = (uint8_t)h.sync;
+        memcpy(heldPkt + 1, up + 1, 187);
+        haveHeld = true;
         std::lock_guard<std::mutex> lk(statMu);
         st.packets++;
     }
@@ -1340,7 +1347,7 @@ void S2Rx::start(const S2HuntResult& h, const cf32* win, size_t n) {
     Impl& I = *p_;
     stop();
     I.startWorkers();
-    I.carry.clear(); I.haveCarry = false; I.havePrevCrc = false; I.pendingSyms = 0; I.isiFirst = -1;
+    I.carry.clear(); I.haveCarry = false; I.havePrevCrc = false; I.haveHeld = false; I.pendingSyms = 0; I.isiFirst = -1;
     I.seqNext = 0; I.nextOut = 0; I.results.clear();
     inverted_ = h.inverted;
     lost_ = false;
