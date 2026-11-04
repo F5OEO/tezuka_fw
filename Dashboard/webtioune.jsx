@@ -358,7 +358,7 @@ function ExpertOptions({ d, lm, open, setOpen }) {
                 options={[{ v: 'auto', l: 'Auto' }, { v: 'on', l: 'On' }, { v: 'off', l: 'Off' }]} />
             </Field></div>
             <div title="RX and TX share the AD9361 clock. On = keep the clock pluto_stream set and decimate in the Maia DDC (FPGA), needed to receive while transmitting. Auto = on only while pluto_stream transmits DVB-S/S2 with PTT on, else the receiver keeps its own 10 MHz clock. Off = the receiver always sets its own rate and FIR"><Field label="TX clock (Maia DDC)">
-              <Select value={set('txclock') || 'auto'} onChange={(v) => send('txclock', v)}
+              <Select value={set('txclock') || 'off'} onChange={(v) => send('txclock', v)}
                 options={[{ v: 'auto', l: 'Auto' }, { v: 'on', l: 'On' }, { v: 'off', l: 'Off' }]} />
             </Field></div>
             {EXPERT_TEXT.map((spec) => <ExpertText key={spec.k} d={d} spec={spec} reported={set(spec.k)} />)}
@@ -434,7 +434,9 @@ function Webtioune({ d }) {
   const wbFrame = useWtR(null);
   const [rxFrame, rxFeed] = useWaterfallFeed();
   // the feed's own {center, span} messages when it sends them, else the radio's RX frequency and sampling rate over MQTT (as the Spectrum page does)
-  const specCenter = rxFeed.center || (d && d.rxFreq) || 0;
+  // QO-100 mode: the LO is fixed at 745.0 MHz whatever carrier is tuned (the DDC NCO does that), so the local spectrum is centred there:
+  // 10495 MHz downlink, the middle of the BATC band
+  const specCenter = qo100 === '1' ? 745e6 : (rxFeed.center || (d && d.rxFreq) || 0);
   // the spectrum spans the rate the FPGA sees: state/rx/sampling, already the decimated output rate when the AD9361 FIR is on (zynqrx's RRC, /4);
   // state/rx/span is the sweep span and goes stale outside a sweep
   const specSpan = rxFeed.span || (d && (d.sweepActive ? d.span : d.rxSampling)) || 0;
@@ -480,6 +482,19 @@ function Webtioune({ d }) {
     }, 500);
     return () => { clearInterval(id); clearInterval(localTimer); if (mon) mon.stop(); wbFrame.current = null; };
   }, [wbSrc]);
+  // Start in QO-100 mode: a frequency outside the wideband transponder (the IF is 740.5 - 749.5 MHz with the 9750 MHz LNB LO, e.g. the 437 MHz
+  // default) is replaced by the 10491.5 MHz beacon (1500 kS), which the fixed LO and the DDC NCO can receive
+  const startRx = () => {
+    if (qo100 === '1') {
+      const dl = (freqHz + lnbLo) / 1e6;
+      if (!(dl >= 10490.5 && dl <= 10499.5)) {
+        const f = 10491.5e6 - lnbLo;
+        setFreqHz(f); setSrKs(1500);
+        d.publish('zynqrx/frequency', rxKHz(f)); d.publish('zynqrx/sr', 1500); d.publish('spectro/fps', RX_SPEC_FPS);
+      }
+    }
+    setProcess('start');
+  };
   const onSpecPick = (dlMHz, sr) => {                   // sr 0 = keep the current symbol rate
     const ifHz = dlMHz * 1e6 - lnbLo;                    // downlink minus the LNB LO
     if (!(ifHz >= RX_FREQ_MIN_HZ && ifHz <= RX_FREQ_MAX_HZ)) { setPlanMsg(`IF ${(ifHz / 1e6).toFixed(1)} MHz is outside 70 MHz - 6 GHz with this LNB LO`); return; }
@@ -650,7 +665,7 @@ function Webtioune({ d }) {
                 <Checkbox checked={qo100 === '1'} label="QO-100" onChange={(v) => setQo100(v ? '1' : '0')} />
               </div>
               <Pill tone={!rxKnown ? 'neutral' : rxRunning ? 'ok' : 'warn'} dot>{!rxKnown ? 'No status' : rxRunning ? 'Running' : 'Stopped'}</Pill>
-              <button className="btn primary" onClick={() => setProcess('start')} disabled={rxRunning || !d.mqtt}>Start</button>
+              <button className="btn primary" onClick={startRx} disabled={rxRunning || !d.mqtt}>Start</button>
               <button className="btn ghost" onClick={() => setProcess('stop')} disabled={!rxRunning || !d.mqtt}>Stop</button>
             </div>}>
             <div className="form-grid rx-tuner-compact" style={{ gridTemplateColumns: 'max-content minmax(0, 1fr)', gap: 12, alignItems: 'start' }}>
@@ -747,6 +762,7 @@ function Webtioune({ d }) {
             {(serviceName || showInfo) && (
               <div style={{ position: 'absolute', top: 14, left: 18, right: 'clamp(70px, 8vw, 120px)', pointerEvents: 'none', color: '#fff', textShadow: '0 2px 6px rgba(0,0,0,.9), 0 0 2px #000', overflow: 'hidden' }}>
                 {serviceName && <div style={{ fontSize: 'clamp(22px, 3.2vw, 44px)', fontWeight: 700, lineHeight: 1.1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{serviceName}</div>}
+                {serviceName && lm.provider_name && <div style={{ marginTop: 2, fontSize: 'clamp(13px, 1.6vw, 20px)', fontWeight: 500, lineHeight: 1.2, opacity: 0.9, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{lm.provider_name}</div>}
                 {showInfo && <div className="mono" style={{ marginTop: 6, fontSize: 'clamp(11px, 1.1vw, 14px)', lineHeight: 1.35 }}>{infoLines.map((l, k) => <div key={k}>{l}</div>)}</div>}
               </div>
             )}
