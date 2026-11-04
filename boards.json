@@ -6,6 +6,7 @@
   {"board": "libre",              "defconfig": "libre_maiasdr_defconfig"},
   {"board": "fishball",           "defconfig": "fishball_maiasdr_defconfig"},
   {"board": "fishball7020",       "defconfig": "fishball_maiasdr_7020_defconfig"},
+  {"board": "fishball_sync_7020",  "defconfig": "fishball_sync_7020_defconfig"},
   {"board": "fishball_mini_7010", "defconfig": "fishball_mini_defconfig",      "artifact": "fishball"},
   {"board": "fishball_mini_7020", "defconfig": "fishball_mini_7020_defconfig", "artifact": "fishball7020"},
   {"board": "nano",               "defconfig": "nano_defconfig"},
