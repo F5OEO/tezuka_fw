@@ -535,7 +535,11 @@ function Webtioune({ d }) {
     return () => clearInterval(id);
   }, [infoOn]);
 
+  // A decode error on a damaged picture ends the media element (Chrome does not recover from it): while the receiver is
+  // still locked the player is rebuilt, which costs about a second (the next keyframe). Backs off when it fails again at once.
+  const retryRef = useWtR({ timer: null, n: 0, since: 0 });
   const stop = () => {
+    clearTimeout(retryRef.current.timer);
     const p = playerRef.current;
     if (p) {
       playerRef.current = null;
@@ -569,11 +573,19 @@ function Webtioune({ d }) {
       { enableWorker: true, liveBufferLatencyChasing: true, liveBufferLatencyMaxLatency: 3, liveBufferLatencyMinRemain: 0.5 }
     );
     playerRef.current = player;
+    retryRef.current.since = Date.now();
     // a player that was stopped meanwhile (lock lost) must not report anything
     player.on(mp.Events.ERROR, (type, detail, info) => {
       if (playerRef.current !== player) return;
       setStatus('error');
       setErrorMsg(`${type}: ${detail}${info && info.msg ? ' — ' + info.msg : ''}`);
+      const r = retryRef.current;
+      if (Date.now() - r.since > 5000) r.n = 0;   // it had been playing for a while: not a persistent failure
+      if (lockedNow.current && r.n < 6) {
+        clearTimeout(r.timer);
+        r.timer = setTimeout(() => { if (lockedNow.current && playerRef.current === player) connect(); }, Math.min(1000 * 2 ** r.n, 8000));
+        r.n++;
+      }
     });
     player.on(mp.Events.STATISTICS_INFO, (st) => { if (playerRef.current === player) statsRef.current = st; });
     player.on(mp.Events.MEDIA_INFO, (info) => {
