@@ -31,6 +31,8 @@ python3 -m http.server 8080
 | `tweaks-panel.jsx` | `useTweaks` hook + draggable Tweaks panel (accent colors, density, sidebar labels) |
 | `icons.jsx` | `<Icon name="..." size={N} />` SVG icon sprite |
 | `charts.jsx` | Chart/gauge primitives: `Donut`, `BarGauge`, `RadialGauge`, `DialGauge`, `StreamChart`, `Sparkline`, `XYChart` |
+| `plotaxes.jsx` | Axis scales with units for canvas plots: `spDrawAxes` overlay for the HP-CRT screens (Spectrum, Radio Astronomy, Signal Classifier), `paPanel`/`paTicks` for framed plots |
+| `complexiq.jsx` | Complex I/Q Frequency Data Stream page (`/iq-waterfall`): magnitude/phase, real/imaginary, Bode, Smith views and the raw capture button; see `docs/complex-iq/` |
 | `paho-mqtt-min.js` | Paho MQTT client (copied from firmware MSD); loaded as a plain `<script>` before the JSX files |
 | `data.jsx` | `useLiveData()` — real MQTT connection + 1 Hz simulation for unmapped fields; shared UI primitives: `Card`, `Pill`, `Toggle`, `Slider`, `Field`, `Select`, `TextInput`, `Checkbox` |
 | `tuner.jsx` | `<FreqTuner>` — SDR++-style per-digit frequency/sample-rate input with mouse wheel, keyboard, and click |

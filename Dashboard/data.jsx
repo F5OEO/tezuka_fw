@@ -18,6 +18,11 @@ function applyMqtt(prev, path, raw) {
   if (path.startsWith('net/')) {
     return { ...prev, net: { ...prev.net, [path.slice(4)]: raw } };
   }
+  if (path.startsWith('cpdetect/')) {
+    // cpdetect (app/cpdetect): state/cpdetect/<key> from `cpdetect -l -M`
+    // on the board; `at` is when the last one arrived.
+    return { ...prev, cpdetect: { ...prev.cpdetect, [path.slice(9)]: raw, at: Date.now() } };
+  }
   if (path.startsWith('gpio/')) {
     const pin = path.slice(5);
     return { ...prev, gpio: { ...prev.gpio, [pin]: raw === '1' } };
@@ -191,6 +196,7 @@ function useLiveData(running = true) {
     kalibrateStatus: '', kalibrateChannels: [], kalibrateResultPpm: null, kalibrateResultPpb: null, kalibrateLog: [],
     gpsfix: null, gpsLocator: null,
     vpnEnabled: null, vpnStatus: null,
+    cpdetect: {},
   }));
 
   // MQTT connection — ws://[hostname]:9001/mqtt  or  wss://[hostname]:9002/mqtt over HTTPS

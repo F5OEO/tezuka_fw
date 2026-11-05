@@ -70,6 +70,41 @@ function fmtHzRate(hzPerS) {
   return sign + Math.round(abs) + ' Hz/s';
 }
 
+// CP-OFDM detector (cpdetect): shows what `cpdetect -l -i 2 -M` publishes as
+// state/cpdetect/<key> on the board. Display only; the program (app/cpdetect)
+// is started on the board by hand. Nothing is shown as current when no
+// message arrived for 10 s.
+function CpdetectCard({ d }) {
+  const c = d.cpdetect || {};
+  const [now, setNow] = useSCl(Date.now());
+  useECl(() => { const t = setInterval(() => setNow(Date.now()), 2000); return () => clearInterval(t); }, []);
+  const running = c.at != null && now - c.at < 10000;
+  const found = running && c.detected === '1';
+  const N = parseInt(c.fft_size), G = parseInt(c.guard_samples);
+  const spacing = parseFloat(c.spacing_hz), eps = parseFloat(c.eps);
+  const symbolUs = N > 0 && spacing > 0 ? (N + G) / (spacing * N) * 1e6 : null;
+  const cell = (label, value) => (
+    <div><div className="dim" style={{ fontSize: 11 }}>{label}</div><div>{found && value != null ? value : '—'}</div></div>
+  );
+  return (
+    <Card title="CP-OFDM detector" sub="Blind cyclic-prefix detection on the RX samples (cpdetect)" className="span-12"
+      right={<Pill tone={!running ? 'neutral' : found ? 'ok' : 'warn'} dot>{!running ? 'not running' : found ? 'detected' : 'nothing found'}</Pill>}>
+      <div className="mono" style={{ display: 'flex', flexWrap: 'wrap', gap: '4px 5ch' }}>
+        {cell('FFT size N', isNaN(N) ? null : N)}
+        {cell('Guard G (samples)', isNaN(G) ? null : G)}
+        {cell('Subcarrier spacing', isNaN(spacing) ? null : (spacing / 1e3).toFixed(3) + ' kHz')}
+        {cell('Symbol length', symbolUs == null ? null : symbolUs.toFixed(1) + ' µs')}
+        {cell('Carrier offset (fraction of spacing)', isNaN(eps) ? null : eps.toFixed(4) + (isNaN(spacing) ? '' : ' = ' + Math.round(eps * spacing) + ' Hz'))}
+        {cell('Peak / ratio', c.peak == null ? null : c.peak + ' / ' + c.ratio)}
+      </div>
+      <div className="dim" style={{ fontSize: 11, marginTop: 10, maxWidth: '80ch' }}>
+        {running ? 'Values update every cpdetect cycle. The carrier offset is the fractional part only.'
+          : 'Not running. Start it on the board: cpdetect -l -i 2 -M -s <sample rate> (the radio must run at that rate).'}
+      </div>
+    </Card>
+  );
+}
+
 function ClassifierPage({ d }) {
   const canvasRef = useRCl(null);
   const binsRef   = useRCl(null);      // Float32Array dB, current live frame
@@ -85,11 +120,11 @@ function ClassifierPage({ d }) {
   // Fixed display scale — this page isn't a general-purpose analyzer, so it
   // doesn't expose its own ref/range tuner. Must match the rest of the
   // Dashboard's default window (pages1.jsx / radioastro.jsx both default to
-  // refDb=130, range=SP_ROWS*10=80): /waterfall's bins are raw-amplitude-to-
-  // dB, not calibrated dBm, so they land around 50-130, not 0..-100. The
+  // refDb=100, range=SP_ROWS*10=80): /waterfall's bins are power converted
+  // with 10*log10, not calibrated dBm, so they land around 20-100, not 0..-100. The
   // previous 0/-100 window clipped every real bin to the top pixel row,
   // which read as an empty trace.
-  const refDb = 130, range = 80;
+  const refDb = 100, range = 80;
 
   // Band plan: fetched once from maia-httpd's static file serving (see
   // S59bandplan — /root/bandplan.json is a symlink to the persistent copy
@@ -143,7 +178,9 @@ function ClassifierPage({ d }) {
     if (w <= 0 || h <= 0) return;
     if (canvas.width !== w || canvas.height !== h) { canvas.width = w; canvas.height = h; }
     const ctx = canvas.getContext('2d');
-    spDraw(ctx, w, h, binsRef.current, refDb, range, 0, 1, 'off');
+    spDraw(ctx, w, h, binsRef.current, refDb, range, 0, 1, 'off',
+           { centerHz, spanHz, bottomInset: bandPlan.length ? 14 : 0 });
+    spDrawPeaks(ctx, w, h, binsRef.current, centerHz, spanHz, refDb, range, 0, 1);
 
     // Label chip + marker, positioned at freq_offset (a bin index into
     // the live frame, published by the daemon in the same bin space it
@@ -274,13 +311,13 @@ function ClassifierPage({ d }) {
 
   // WebSocket: same /waterfall feed radioastro.jsx and the Spectrum page
   // use. f[0] is a structural step index (unused here); f[1..] are FFT
-  // bins as raw linear amplitude — converted to dB for display only,
-  // the classifier daemon itself works in linear amplitude.
+  // bins as raw linear power — converted to dB (10*log10) for display only,
+  // the classifier daemon itself works in the linear domain.
   useECl(() => {
     let destroyed = false;
     const host  = window._tezukaDevHost || window.location.hostname;
     const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const toDB  = (v) => 20 * Math.log10(v > 0 ? v : 1e-10);
+    const toDB  = (v) => 10 * Math.log10(v > 0 ? v : 1e-10);   // /waterfall bins are power
 
     function connect() {
       if (destroyed) return;
@@ -355,6 +392,7 @@ function ClassifierPage({ d }) {
       ctx.lineWidth = 1.6;
       ctx.stroke();
     };
+    paDrawNormAxes(ctx, w, h, { centerHz, spanHz });
     drawTrace(liveNorm, 'rgba(255,200,40,0.9)');
 
     ctx.fillStyle = '#ffcd46';
@@ -413,6 +451,8 @@ function ClassifierPage({ d }) {
           High flatness + low peak/average → broadband/noise-like (e.g. OFDM). Low flatness + high peak/average → tonal (e.g. CW). A non-zero drift means the dominant peak is sweeping — a static single frame can't otherwise show that a signal is a chirp. Duty cycle and drift read "—" until the daemon's rolling history has enough samples (a few seconds after (re)start).
         </div>
       </Card>
+
+      <CpdetectCard d={d} />
 
       <Card title="Band Plan" sub="What's normally here, independent of the classifier — click a swatch above or Tune below" className="span-12"
         right={<Pill tone={bandPlanDirty ? 'warn' : 'neutral'}>{bandPlanDirty ? 'unsaved changes' : `${bandPlan.length} entries`}</Pill>}>
