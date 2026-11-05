@@ -36,6 +36,26 @@
                         reg = <0x6000000 0x8000000>;
                         label = "maia_sdr_recording";
                 };
+
+                /* Single-shot raw complex FFT capture, tapped before the
+                 * spectrometer's integrator discards phase. Address range
+                 * must match maia-hdl's MaiaSDRConfig.raw_capture_address_range
+                 * (default, not overridden by this board's maia_iio_lite
+                 * config). */
+                maia_sdr_raw_capture: maia_sdr_raw_capture@1a100000 {
+                        no-map;
+                        reg = <0x1a100000 0x100000>;
+                        label = "maia_sdr_raw_capture";
+                };
+
+                /* Continuous low-rate I/Q waterfall, same cadence as the
+                 * magnitude waterfall above. Address range must match
+                 * maia-hdl's MaiaSDRConfig.iq_waterfall_address_range. */
+                maia_sdr_iq_waterfall: maia_sdr_iq_waterfall@1a200000 {
+                        no-map;
+                        reg = <0x1a200000 0x20000>;
+                        label = "maia_sdr_iq_waterfall";
+                };
         };
 
         maia-sdr-recording {
@@ -47,5 +67,17 @@
                 compatible = "maia-sdr,rxbuffer";
                 memory-region = <&maia_sdr_spectrometer>;
                 buffer-size = <0x8000>;
+        };
+
+        maia-sdr-raw-capture {
+                compatible = "maia-sdr,recording";
+                memory-region = <&maia_sdr_raw_capture>;
+        };
+
+        maia-sdr-iq-waterfall {
+                compatible = "maia-sdr,rxbuffer";
+                memory-region = <&maia_sdr_iq_waterfall>;
+                /* 4096 bins * 4 bytes/bin (16-bit I + 16-bit Q) per buffer */
+                buffer-size = <0x4000>;
         };
 };
