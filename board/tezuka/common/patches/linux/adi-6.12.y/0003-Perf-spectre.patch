@@ -1,9 +1,0 @@
---- /tmp/meld-tmpywnsicls
-+++ linux-04fbdbb433faae8ffb3a5b24b7435509b11334cb/arch/arm/mm/Kconfig
-@@ -416,7 +416,6 @@
- 	select CPU_CP15_MPU if !MMU
- 	select CPU_HAS_ASID if MMU
- 	select CPU_PABRT_V7
--	select CPU_SPECTRE if MMU
- 	select CPU_THUMB_CAPABLE
- 	select CPU_TLB_V7 if MMU
