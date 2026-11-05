@@ -1,14 +1,33 @@
 #!/bin/sh
 ETH_IPADDR=$(fw_printenv -n ipaddr_eth 2> /dev/null)
+ETH_NETMASK=$(fw_printenv -n netmask_eth 2> /dev/null)
+ETH_GW=$(fw_printenv -n gateway_eth 2> /dev/null)
+[ -z "$ETH_NETMASK" ] && ETH_NETMASK=255.255.255.0
 
 case "$2" in
     up)
         if [ -z "$ETH_IPADDR" ] || [ "$ETH_IPADDR" = "dhcp" ]; then
           /sbin/udhcpc -i "$1" -t 15 -T 4 -n -q -x hostname:"$(hostname)"
-        fi  
+        else
+          # Static (or AP) config: ifup only runs at boot, so re-apply the
+          # address and default route here after a link loss.
+          if [ "$ETH_IPADDR" = "AP" ]; then
+            ETH_IPADDR=192.168.4.1
+            ETH_NETMASK=255.255.255.0
+            ETH_GW=
+          fi
+          /sbin/ifconfig "$1" "$ETH_IPADDR" netmask "$ETH_NETMASK" up
+          if [ -n "$ETH_GW" ]; then
+            /sbin/ip route replace default via "$ETH_GW" dev "$1"
+          fi
+        fi
         ;;
     down)
-        /sbin/ip addr flush dev "$1"
+        # Only DHCP leases are dropped; a static address stays configured so
+        # it is still there when the link comes back.
+        if [ -z "$ETH_IPADDR" ] || [ "$ETH_IPADDR" = "dhcp" ]; then
+          /sbin/ip addr flush dev "$1"
+        fi
         ;;
 esac
 exit 0
