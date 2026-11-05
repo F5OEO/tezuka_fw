@@ -1,0 +1,39 @@
+#!/bin/sh
+#
+# PlutoSky R2: keep the transmitter off at boot.
+#
+# The AD9361 driver powers both LOs up at probe, so the TX LO sits live at
+# its default 2.45 GHz from boot until something explicitly powers it down.
+# adi,tx-lo-powerdown-managed-enable does not change that: it only lets the
+# driver wake a powered-down TX LO for calibrations. pluto_mqtt_ctrl keeps
+# whatever state it finds when it retunes, so powering the LO down here,
+# before iiod (S23udc) and the DATV backend (S96plutostream) start, leaves
+# TX off until the user keys it (tx/mute 0, or a TX buffer from the
+# dashboard).
+
+PD=out_altvoltage1_TX_LO_powerdown
+
+phy_dir() {
+	for d in /sys/bus/iio/devices/iio:device*; do
+		[ "$(cat "$d/name" 2>/dev/null)" = "ad9361-phy" ] && echo "$d" && return
+	done
+}
+
+case "$1" in
+  start)
+	d=$(phy_dir)
+	if [ -n "$d" ] && [ -w "$d/$PD" ]; then
+		echo 1 > "$d/$PD"
+		echo "TX LO powered down"
+	else
+		echo "ad9361-phy not found, TX LO left as is"
+	fi
+	;;
+  stop|restart|reload)
+	;;
+  *)
+	echo "Usage: $0 {start}"
+	exit 1
+esac
+
+exit 0
