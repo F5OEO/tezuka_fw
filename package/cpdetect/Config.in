@@ -1,0 +1,10 @@
+config BR2_PACKAGE_CPDETECT
+	bool "cpdetect"
+	select BR2_PACKAGE_LIBIIO
+	help
+	  Blind cyclic-prefix (CP-OFDM) detector for the RX stream —
+	  reads time-domain IQ through libiio, finds the FFT size, guard
+	  length, symbol timing and fractional carrier offset of an OFDM
+	  signal without knowing the standard, and prints a JSON line
+	  (optionally also publishing to state/cpdetect/ over MQTT).
+	  Host-side reference and tests: tools/cpdetect.
