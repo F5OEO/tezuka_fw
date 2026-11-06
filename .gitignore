@@ -10,3 +10,4 @@ u_uac2.h
 board/tezuka/common/uboot-env.config
 Dashboard/node_modules/
 Dashboard/vendor/
+Dashboard/brand.local

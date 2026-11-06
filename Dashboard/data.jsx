@@ -416,4 +416,10 @@ function Checkbox({ checked, onChange, label }) {
   );
 }
 
-Object.assign(window, { useLiveData, fmtUptime, Card, Pill, Toggle, Slider, Field, Select, TextInput, TextArea, Checkbox });
+// Product name shown in the sidebar, breadcrumb, topbar and user guide.
+// bundle.py injects window.DASHBOARD_BRAND at build time (--brand, the
+// DASHBOARD_BRAND environment variable, or Dashboard/brand.local); the
+// dev page and an unbranded build fall back to Tezuka.
+const BRAND = (typeof window !== 'undefined' && window.DASHBOARD_BRAND) || 'Tezuka';
+
+Object.assign(window, { BRAND, useLiveData, fmtUptime, Card, Pill, Toggle, Slider, Field, Select, TextInput, TextArea, Checkbox });

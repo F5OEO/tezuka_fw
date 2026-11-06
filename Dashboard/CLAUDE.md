@@ -19,7 +19,9 @@ python3 -m http.server 8080
 # Then open http://localhost:8080/Tezuka%20Dashboard.html
 ```
 
-**For the shipped build** — `python3 bundle.py output.html` (this is what `board/tezuka/common/post-build.sh` runs into `target/root/index.html` for every board). After changing which `.jsx` loader/minify flags are used, or after editing `signals-entry.js`, re-run it and spot-check the page in a browser before committing — there's no automated test suite for this page.
+**For the shipped build** — `python3 bundle.py output.html` (this is what `board/tezuka/common/post-build.sh` runs into `target/root/index.html` for every board).
+
+**Branding** — the product name in the page title, sidebar, breadcrumb, topbar and user guide is the `BRAND` global (data.jsx), resolved by `bundle.py` at build time: `--brand NAME`, else the `DASHBOARD_BRAND` environment variable, else the first line of `Dashboard/brand.local` (gitignored, so a locally branded firmware build survives `git pull`), else `Tezuka`. The dev page always shows Tezuka. The F5OEO credit and repository links do not change with the brand. After changing which `.jsx` loader/minify flags are used, or after editing `signals-entry.js`, re-run it and spot-check the page in a browser before committing — there's no automated test suite for this page.
 
 `Tezuka Dashboard (standalone).html` is a self-contained single-file export (all JS inlined) for distribution. Edit source files, not the standalone.
 

@@ -33,7 +33,7 @@ function Sidebar({ route, setRoute, collapsed, labels, operator }) {
     <aside className={`sidebar ${collapsed ? "collapsed" : ""}`}>
       <a className="brand" href="https://github.com/F5OEO/tezuka_fw" target="_blank" rel="noopener noreferrer">
         <div className="brand-mark"><Icon name="wave" size={20} /></div>
-        {!collapsed && <div className="brand-text">Tezuka<span>SDR control · by F5OEO</span></div>}
+        {!collapsed && <div className="brand-text">{BRAND}<span>{BRAND === "Tezuka" ? "SDR control · by F5OEO" : "SDR control · Tezuka by F5OEO"}</span></div>}
       </a>
       <a className="sb-donate" href="https://www.paypal.com/paypalme/f5oeo" target="_blank" rel="noopener noreferrer" title="Support this project via PayPal">
         <Icon name="heart" size={16} />
@@ -89,8 +89,8 @@ function Topbar({ onMenu, route, mqtt, ver }) {
   return (
     <header className="topbar">
       <button className="icon-btn" onClick={onMenu}><Icon name="menu" size={20} /></button>
-      <div className="crumb"><span className="dim">Tezuka</span><span className="sep">/</span><b>{TITLES[route]}</b></div>
-      <div className="topbar-title">Tezuka<span className="topbar-sub">{ver.model}</span></div>
+      <div className="crumb"><span className="dim">{BRAND}</span><span className="sep">/</span><b>{TITLES[route]}</b></div>
+      <div className="topbar-title">{BRAND}<span className="topbar-sub">{ver.model}</span></div>
       <div className="top-actions">
         <span className={`mqtt-chip ${mqtt ? "up" : ""}`}><i />MQTT</span>
         <button className="icon-btn"><Icon name="bell" size={18} /></button>
