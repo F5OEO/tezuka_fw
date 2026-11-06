@@ -125,6 +125,10 @@ def main():
                           "built from one idealized curve rather than several real captures")
     ap.add_argument("--no-gate", action="store_true",
                      help="write a plain shape-only (version 1) template, with no feature gate")
+    ap.add_argument("--width-hz", type=float, default=0.0,
+                    help="real width of the whole template window in Hz; writes a version-3 "
+                         "template the device resamples to its live resolution (default: 0 = "
+                         "no resolution, matched bin-for-bin at whatever span is live)")
     ap.add_argument("--out", required=True)
     args = ap.parse_args()
 
@@ -143,7 +147,8 @@ def main():
             )
 
     new_template = Template(label=args.label, template_id=args.template_id,
-                             data=normalize(list(raw)), feature_ranges=feature_ranges)
+                             data=normalize(list(raw)), feature_ranges=feature_ranges,
+                             hz_per_bin=args.width_hz / args.bins if args.width_hz > 0 else 0.0)
 
     try:
         existing_n, existing = read_templates(args.out)
