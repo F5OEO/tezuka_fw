@@ -8,6 +8,12 @@ const MQTT_DEV_HOST = '10.0.0.58';
 // Exposed for use in other pages (e.g. spectrum WebSocket)
 window._tezukaDevHost = MQTT_DEV_HOST || window.location.hostname;
 
+// JSON payloads from the device: keep the raw string on a parse failure so
+// a malformed message shows up as text instead of silently vanishing.
+function parseJsonMaybe(raw) {
+  try { return JSON.parse(raw); } catch (_) { return raw; }
+}
+
 const HIST = 60;
 
 // ---- MQTT state/# → d fields ---------------------------------------------
@@ -125,6 +131,20 @@ function applyMqtt(prev, path, raw) {
     case 'classifier/bandwidth_bins':  return { ...prev, classifierBandwidthBins: raw };
     case 'classifier/frame_bins':      return { ...prev, classifierFrameBins: raw };
     case 'classifier/template_id':     return { ...prev, classifierTemplateId: raw };
+    // Atomic result + diagnostics (JSON), published by the step-2 daemon
+    // alongside the per-field topics above: {label, confidence, freq_offset,
+    // bandwidth_bins, frame_bins, template_id, snr_db, prom_db, margin,
+    // hz_per_bin, state, bg_age_s, online} on a match; {label:"unknown",
+    // best, best_snr_db, best_prom_db, margin, state, bg_age_s} otherwise.
+    case 'classifier/result':          return { ...prev, classifierResult: parseJsonMaybe(raw) };
+    // {frequency, bins, hz_per_bin, hot, masked} after each background learn.
+    case 'classifier/background':      return { ...prev, classifierBackground: parseJsonMaybe(raw) };
+    // The matched template resampled onto the live grid ({id, label, bins,
+    // hz_per_bin, data[]}), republished when the match or the grid changes,
+    // and the normalized live window it matched ({id, bins, data[]}) every
+    // match cycle. Both zero-mean / unit-L2-norm, directly comparable.
+    case 'classifier/template_shape':  return { ...prev, classifierTemplateShape: parseJsonMaybe(raw) };
+    case 'classifier/window':          return { ...prev, classifierWindow: parseJsonMaybe(raw) };
     // Per-frame scalar features (experimental) — published every cycle
     // regardless of match outcome, so these populate even while
     // classifierLabel is "unknown". See extract_frame_features() in
@@ -218,6 +238,27 @@ function useLiveData(running = true) {
       });
     };
 
+    // state/# and dt/pluto/# arrive as one WebSocket event per topic: the
+    // retained flood on subscribe is several hundred messages, and
+    // api_controller.sh republishes the whole tree every 2 s. One setD per
+    // message meant one full-app render per message (~80/s measured on a
+    // SignalSDRPro), which kept the browser's main thread busy even on a
+    // static page. Collect them and apply the batch in one state update.
+    const stBuf = [];
+    let stTimer = null;
+    const stFlush = () => {
+      stTimer = null;
+      const batch = stBuf.splice(0);
+      setD((p) => {
+        let n = p;
+        for (const [kind, key, payload] of batch) {
+          if (kind === 'datv') n = { ...n, datv: { ...n.datv, [key]: payload } };
+          else n = applyMqtt(n, key, payload);
+        }
+        return n;
+      });
+    };
+
     client.onMessageArrived = (msg) => {
       let payload;
       try { payload = msg.payloadString; } catch (_) { return; }
@@ -226,11 +267,11 @@ function useLiveData(running = true) {
         lmBuf[dest.slice('dt/zynqrx/'.length)] = payload;
         if (!lmTimer) lmTimer = setTimeout(lmFlush, 500);
       } else if (dest.startsWith('dt/pluto/')) {
-        const subPath = dest.split('/').slice(3).join('/');
-        setD((p) => ({ ...p, datv: { ...p.datv, [subPath]: payload } }));
+        stBuf.push(['datv', dest.split('/').slice(3).join('/'), payload]);
+        if (!stTimer) stTimer = setTimeout(stFlush, 100);
       } else {
-        const path = dest.replace(/^state\//, '');
-        setD((p) => applyMqtt(p, path, payload));
+        stBuf.push(['state', dest.replace(/^state\//, ''), payload]);
+        if (!stTimer) stTimer = setTimeout(stFlush, 100);
       }
     };
 
@@ -256,7 +297,7 @@ function useLiveData(running = true) {
       useSSL,
     });
 
-    return () => { clearTimeout(offlineTimer); clearTimeout(lmTimer); try { client.disconnect(); } catch (_) {} mqttRef.current = null; };
+    return () => { clearTimeout(offlineTimer); clearTimeout(lmTimer); clearTimeout(stTimer); try { client.disconnect(); } catch (_) {} mqttRef.current = null; };
   }, []);
 
   const publish = useCBD((path, value) => {

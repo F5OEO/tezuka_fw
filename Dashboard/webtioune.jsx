@@ -163,7 +163,7 @@ function useWaterfallFeed() {
         const f = new Float32Array(evt.data);
         if (f.length < 3) return;                    // f[0] is the step index, f[1..] the bins
         const db = new Float32Array(f.length - 1);
-        for (let i = 0; i < db.length; i++) db[i] = 20 * Math.log10(f[i + 1] > 0 ? f[i + 1] : 1e-10);
+        for (let i = 0; i < db.length; i++) db[i] = 10 * Math.log10(f[i + 1] > 0 ? f[i + 1] : 1e-10);
         frame.current = db;
       };
     };

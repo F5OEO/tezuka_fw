@@ -85,11 +85,10 @@ function ClassifierPage({ d }) {
   // Fixed display scale — this page isn't a general-purpose analyzer, so it
   // doesn't expose its own ref/range tuner. Must match the rest of the
   // Dashboard's default window (pages1.jsx / radioastro.jsx both default to
-  // refDb=130, range=SP_ROWS*10=80): /waterfall's bins are raw-amplitude-to-
-  // dB, not calibrated dBm, so they land around 50-130, not 0..-100. The
-  // previous 0/-100 window clipped every real bin to the top pixel row,
-  // which read as an empty trace.
-  const refDb = 130, range = 80;
+  // refDb=80, range=SP_ROWS*10=80): /waterfall's bins are integrated power
+  // converted with 10*log10, uncalibrated (not dBm), so the floor lands
+  // around 20-30 dB and strong signals around 70-80 dB.
+  const refDb = 80, range = 80;
 
   // Band plan: fetched once from maia-httpd's static file serving (see
   // S59bandplan — /root/bandplan.json is a symlink to the persistent copy
@@ -145,26 +144,41 @@ function ClassifierPage({ d }) {
     const ctx = canvas.getContext('2d');
     spDraw(ctx, w, h, binsRef.current, refDb, range, 0, 1, 'off');
 
-    // Label chip + marker, positioned at freq_offset (a bin index into
-    // the live frame, published by the daemon in the same bin space it
-    // ran correlation in — see app/classifier/classifier.c).
+    // Label chip + marker at the CENTRE of the matched window (freq_offset
+    // is the window's first bin, bandwidth_bins its width, both in the
+    // daemon's own bin space — see publish_result in classifier.c), with
+    // a bracket spanning the window itself. The daemon's frame_bins is
+    // mapped onto this canvas's own frame length in case they differ.
     const bins = binsRef.current;
-    if (bins && bins.length > 1 && d.classifierLabel && d.classifierLabel !== 'unknown') {
+    const res = (d.classifierResult && typeof d.classifierResult === 'object') ? d.classifierResult : null;
+    const label = res ? res.label : d.classifierLabel;
+    if (bins && bins.length > 1 && label && label !== 'unknown') {
       const n = bins.length;
-      const offset = Number(d.classifierFreqOffset) || 0;
-      const binI = Math.max(0, Math.min(n - 1, offset));
-      const x = (binI / (n - 1)) * w;
-      const dbv = bins[binI];
+      const frameBins = Number(res ? res.frame_bins : d.classifierFrameBins) || n;
+      const scale = n / frameBins;
+      const offset = (Number(res ? res.freq_offset : d.classifierFreqOffset) || 0) * scale;
+      const width  = (Number(res ? res.bandwidth_bins : d.classifierBandwidthBins) || 1) * scale;
+      const x0 = Math.max(0, (offset / (n - 1)) * w);
+      const x1 = Math.min(w, ((offset + width) / (n - 1)) * w);
+      const x = (x0 + x1) / 2;
+      let peakDb = -Infinity;
+      for (let i = Math.max(0, Math.floor(offset)); i < Math.min(n, Math.ceil(offset + width)); i++) if (bins[i] > peakDb) peakDb = bins[i];
+      if (!isFinite(peakDb)) peakDb = bins[Math.max(0, Math.min(n - 1, Math.round(offset)))];
       const top = refDb, bot = refDb - range;
-      const y = h - Math.max(0, Math.min(h, ((dbv - bot) / (top - bot)) * h));
+      const y = h - Math.max(0, Math.min(h, ((peakDb - bot) / (top - bot)) * h));
 
       ctx.save();
       ctx.strokeStyle = 'rgba(120,220,255,0.85)';
       ctx.lineWidth = 1.5;
       ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(x, y - 24); ctx.stroke();
+      // window bracket just under the chip's marker line
+      ctx.strokeStyle = 'rgba(120,220,255,0.55)';
+      ctx.beginPath();
+      ctx.moveTo(x0, y - 8); ctx.lineTo(x0, y - 14); ctx.lineTo(x1, y - 14); ctx.lineTo(x1, y - 8);
+      ctx.stroke();
 
-      const conf = Number(d.classifierConfidence) || 0;
-      const text = `${d.classifierLabel} · ${Math.round(conf * 100)}%`;
+      const conf = Number(res ? res.confidence : d.classifierConfidence) || 0;
+      const text = `${label} · ${Math.round(conf * 100)}%`;
       ctx.font = '600 13px system-ui, sans-serif';
       const tw = ctx.measureText(text).width;
       const chipX = Math.max(4, Math.min(w - tw - 16, x - tw / 2 - 8));
@@ -230,57 +244,44 @@ function ClassifierPage({ d }) {
   // Re-render whenever a new classification arrives, so the chip tracks
   // the latest label/offset even between spectrum frames. Also on band
   // plan / center / span changes, since those affect the strip's layout.
-  useECl(() => { redraw(); }, [d.classifierLabel, d.classifierConfidence, d.classifierFreqOffset, bandPlan, centerHz, spanHz]);
+  useECl(() => { redraw(); }, [d.classifierResult, d.classifierLabel, d.classifierConfidence, d.classifierFreqOffset, bandPlan, centerHz, spanHz]);
 
-  // Append to the scrolling log on genuine change only (state/classifier/*
-  // republishes at ~1/s even when nothing changed — logging every tick
-  // would just be noise).
-  //
-  // The daemon publishes one classification result as SIX separate MQTT
-  // messages (label, confidence, freq_offset, bandwidth_bins, frame_bins,
-  // template_id — see app/classifier/classifier.c's publish_result),
-  // which arrive as a burst, not atomically. Logging immediately on the
-  // first field to change (label) raced ahead of the later ones — the
-  // entry got created before freq_offset/bandwidth_bins/frame_bins had
-  // actually arrived, logging blank frequency/bandwidth, and since the
-  // dedup key wouldn't change on a later, fully-populated update for the
-  // *same* label+template, that blank entry was stuck permanently.
-  // Debouncing lets this effect re-arm on every one of the six fields
-  // changing, only actually logging once ~200ms passes with no further
-  // updates for this burst — by then all six have settled.
+  // Append to the scrolling log on genuine change only. The daemon publishes
+  // the whole decision as one JSON message on state/classifier/result (so
+  // there is no burst of per-field topics to reassemble any more); a new
+  // entry is logged when the label or template changes.
   useECl(() => {
-    const label = d.classifierLabel;
-    if (label == null) return;
-    const timer = setTimeout(() => {
-      const key = `${label}|${d.classifierTemplateId ?? ''}`;
-      if (lastLoggedRef.current === key) return;
-      lastLoggedRef.current = key;
-      const hz = binMatchToHz(d.classifierFreqOffset, d.classifierBandwidthBins, d.classifierFrameBins, centerHz, spanHz);
-      setLog((prev) => {
-        const entry = {
-          t: Date.now(),
-          label,
-          confidence: Number(d.classifierConfidence) || 0,
-          templateId: d.classifierTemplateId,
-          centerFreqHz: hz?.centerFreqHz ?? null,
-          bandwidthHz: hz?.bandwidthHz ?? null,
-        };
-        const next = [entry, ...prev];
-        return next.length > 50 ? next.slice(0, 50) : next;
-      });
-    }, 200);
-    return () => clearTimeout(timer);
-  }, [d.classifierLabel, d.classifierConfidence, d.classifierFreqOffset, d.classifierBandwidthBins, d.classifierFrameBins, d.classifierTemplateId]);
+    const res = d.classifierResult;
+    if (!res || typeof res !== 'object' || !res.label) return;
+    const key = `${res.label}|${res.template_id ?? ''}`;
+    if (lastLoggedRef.current === key) return;
+    lastLoggedRef.current = key;
+    const hz = res.label === 'unknown' ? null
+      : binMatchToHz(res.freq_offset, res.bandwidth_bins, res.frame_bins, centerHz, spanHz);
+    setLog((prev) => {
+      const entry = {
+        t: Date.now(),
+        label: res.label,
+        confidence: Number(res.confidence) || 0,
+        templateId: res.template_id,
+        snrDb: res.snr_db,
+        centerFreqHz: hz?.centerFreqHz ?? null,
+        bandwidthHz: hz?.bandwidthHz ?? null,
+      };
+      const next = [entry, ...prev];
+      return next.length > 50 ? next.slice(0, 50) : next;
+    });
+  }, [d.classifierResult]);
 
   // WebSocket: same /waterfall feed radioastro.jsx and the Spectrum page
   // use. f[0] is a structural step index (unused here); f[1..] are FFT
-  // bins as raw linear amplitude — converted to dB for display only,
-  // the classifier daemon itself works in linear amplitude.
+  // bins as linear power (integrated |X|^2) — converted to dB for display
+  // only, the classifier daemon itself works in linear power.
   useECl(() => {
     let destroyed = false;
     const host  = window._tezukaDevHost || window.location.hostname;
     const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const toDB  = (v) => 20 * Math.log10(v > 0 ? v : 1e-10);
+    const toDB  = (v) => 10 * Math.log10(v > 0 ? v : 1e-10);
 
     function connect() {
       if (destroyed) return;
@@ -305,13 +306,16 @@ function ClassifierPage({ d }) {
     return () => { destroyed = true; try { wsRef.current?.close(); } catch (_) {} };
   }, []);
 
-  // Reference-match panel: overlay the live captured shape against the
-  // matched template's stored shape. XYChart (charts.jsx) only takes a
-  // single series, so this is a small dedicated canvas rather than a
-  // shared component — both traces are already unit-normalized
-  // (zero-mean, unit-L2-norm) by the daemon, so a fixed [-1, 1] y-range
-  // works without per-frame rescaling.
+  // Reference-match panel: the matched template on the live grid against
+  // the normalized live window the daemon actually correlated it with.
+  // Both come from the daemon (state/classifier/template_shape and
+  // state/classifier/window, zero-mean / unit-L2-norm, same length), so
+  // what is drawn is exactly what was scored — not a proxy built from
+  // this page's own waterfall frame.
   const matchCanvasRef = useRCl(null);
+  const res = (d.classifierResult && typeof d.classifierResult === 'object') ? d.classifierResult : null;
+  const shape = (d.classifierTemplateShape && typeof d.classifierTemplateShape === 'object') ? d.classifierTemplateShape : null;
+  const win = (d.classifierWindow && typeof d.classifierWindow === 'object') ? d.classifierWindow : null;
   useECl(() => {
     const canvas = matchCanvasRef.current;
     if (!canvas) return;
@@ -323,46 +327,52 @@ function ClassifierPage({ d }) {
     ctx.fillStyle = 'rgba(255,255,255,0.03)';
     ctx.fillRect(0, 0, w, h);
 
-    const bins = binsRef.current;
-    if (!bins || bins.length < 2 || !d.classifierLabel || d.classifierLabel === 'unknown') {
+    const matched = res && res.label && res.label !== 'unknown';
+    const tplData = shape && Array.isArray(shape.data) && matched && shape.id === res.template_id ? shape.data : null;
+    const winData = win && Array.isArray(win.data) && matched && win.id === res.template_id ? win.data : null;
+    if (!tplData && !winData) {
       ctx.fillStyle = 'var(--dim, #888)';
       ctx.font = '13px system-ui, sans-serif';
-      ctx.fillText('No match to compare', 10, h / 2);
+      ctx.fillText(matched ? 'Waiting for the daemon\u2019s shapes\u2026' : 'No match to compare', 10, h / 2);
       return;
     }
 
-    // Live trace: reuse the raw linear (pre-dB) window around freq_offset
-    // if the daemon's window was narrower than the full frame — for the
-    // display here we just show a normalized version of the live dB
-    // trace itself, which is a fair visual proxy for "does the shape
-    // line up", without duplicating the daemon's own resample/normalize.
-    const n = bins.length;
-    const norm = (arr) => {
-      const lo = Math.min(...arr), hi = Math.max(...arr);
-      const span = hi - lo || 1;
-      return arr.map((v) => ((v - lo) / span) * 2 - 1);
-    };
-    const liveNorm = norm(Array.from(bins));
-
-    const drawTrace = (arr, color) => {
+    // Shared y-range so the two unit-norm traces are comparable by eye.
+    let lo = Infinity, hi = -Infinity;
+    for (const arr of [tplData, winData]) if (arr) for (const v of arr) { if (v < lo) lo = v; if (v > hi) hi = v; }
+    if (!(hi > lo)) { lo = -1; hi = 1; }
+    const pad = (hi - lo) * 0.08; lo -= pad; hi += pad;
+    const drawTrace = (arr, color, width) => {
       ctx.beginPath();
       arr.forEach((v, i) => {
-        const x = (i / (arr.length - 1)) * w;
-        const y = h - ((v + 1) / 2) * h;
+        const x = (i / Math.max(1, arr.length - 1)) * w;
+        const y = h - ((v - lo) / (hi - lo)) * h;
         i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
       });
       ctx.strokeStyle = color;
-      ctx.lineWidth = 1.6;
+      ctx.lineWidth = width;
       ctx.stroke();
     };
-    drawTrace(liveNorm, 'rgba(255,200,40,0.9)');
+    if (tplData) drawTrace(tplData, 'rgba(120,220,255,0.95)', 2.2);
+    if (winData) drawTrace(winData, 'rgba(255,200,40,0.9)', 1.4);
 
-    ctx.fillStyle = '#ffcd46';
     ctx.font = '12px system-ui, sans-serif';
-    ctx.fillText('— live', 8, 16);
     ctx.fillStyle = '#78dcff';
-    ctx.fillText(`matched: ${d.classifierLabel} (template #${d.classifierTemplateId ?? '?'})`, 8, h - 8);
-  }, [d.classifierLabel, d.classifierConfidence]);
+    ctx.fillText(`\u2014 template: ${res.label} (#${res.template_id ?? '?'}, ${shape ? shape.bins : '?'} bins` +
+                 (shape && shape.hz_per_bin > 0 ? `, ${fmtHz(shape.hz_per_bin * shape.bins)} wide)` : ')'), 8, 16);
+    ctx.fillStyle = '#ffcd46';
+    ctx.fillText(`\u2014 live window: ${Math.round((Number(res.confidence) || 0) * 100)}% match, ${Number(res.snr_db).toFixed(1)} dB SNR`, 8, 32);
+  }, [d.classifierResult, d.classifierTemplateShape, d.classifierWindow]);
+
+  // Status readout from the atomic result + background summary.
+  const bg = (d.classifierBackground && typeof d.classifierBackground === 'object') ? d.classifierBackground : null;
+  const stateText = !res ? '\u2014'
+    : res.online === false ? 'offline'
+    : res.state === 'learning' ? `learning background (${res.bg_age_s ?? 0} s)`
+    : res.state === 'idle' ? 'idle (no templates or empty residual)'
+    : res.label === 'unknown' ? 'no match' : 'match';
+  const stateTone = !res || res.online === false ? 'warn' : res.state === 'learning' ? 'neutral' : res.label === 'unknown' ? 'neutral' : 'ok';
+  const fmtDb = (v) => (v == null || !isFinite(Number(v))) ? '\u2014' : Number(v).toFixed(1) + ' dB';
 
   return (
     <>
@@ -377,7 +387,26 @@ function ClassifierPage({ d }) {
         </div>
       </Card>
 
-      <Card title="Reference match" sub="Live shape vs. the matched template" className="span-6">
+      <Card title="Decision" sub="What the daemon is doing right now" className="span-12"
+        right={<Pill tone={stateTone} dot>{stateText}</Pill>}>
+        <div className="mono" style={{ display: 'flex', flexWrap: 'wrap', gap: '4px 5ch' }}>
+          <div><div className="dim" style={{ fontSize: 11 }}>Best score</div><div>{res ? Math.round((Number(res.label === 'unknown' ? res.best : res.confidence) || 0) * 100) + '%' : '\u2014'}</div></div>
+          <div><div className="dim" style={{ fontSize: 11 }}>Window SNR</div><div>{fmtDb(res ? (res.label === 'unknown' ? res.best_snr_db : res.snr_db) : null)}</div></div>
+          <div><div className="dim" style={{ fontSize: 11 }}>Prominence</div><div>{fmtDb(res ? (res.label === 'unknown' ? res.best_prom_db : res.prom_db) : null)}</div></div>
+          <div><div className="dim" style={{ fontSize: 11 }}>Margin to runner-up</div><div>{res && res.margin != null ? Math.round(Number(res.margin) * 100) + ' pts' : '\u2014'}</div></div>
+          <div><div className="dim" style={{ fontSize: 11 }}>Resolution</div><div>{res && res.hz_per_bin > 0 ? fmtHz(res.hz_per_bin) + ' / bin' : (bg && bg.hz_per_bin > 0 ? fmtHz(bg.hz_per_bin) + ' / bin' : '\u2014')}</div></div>
+          <div><div className="dim" style={{ fontSize: 11 }}>Background age</div><div>{res && res.bg_age_s != null ? res.bg_age_s + ' s' : '\u2014'}</div></div>
+          <div><div className="dim" style={{ fontSize: 11 }}>Persistent lines / masked spurs</div><div>{bg ? `${bg.hot} / ${bg.masked}` : '\u2014'}</div></div>
+        </div>
+        <div style={{ display: 'flex', gap: 8, marginTop: 10, alignItems: 'center' }}>
+          <button className="btn ghost" onClick={() => d.publish('classifier/background', 'learn')}>Relearn background</button>
+          <span className="dim" style={{ fontSize: 11, maxWidth: '70ch' }}>
+            Labels are matched against the residual over a learned receiver baseline, and only accepted above the SNR and prominence gates. Relearn on a quiet moment if a retune happened without the daemon noticing.
+          </span>
+        </div>
+      </Card>
+
+      <Card title="Reference match" sub="Matched template vs. the live window the daemon scored" className="span-6">
         <div style={{ height: 160 }}>
           <canvas ref={matchCanvasRef} style={{ display: 'block', width: '100%', height: '100%' }} />
         </div>
@@ -391,6 +420,7 @@ function ClassifierPage({ d }) {
               <span className="dim">{new Date(e.t).toLocaleTimeString()}</span>
               <span>{e.label}</span>
               <span className="dim">{Math.round(e.confidence * 100)}%</span>
+              {e.snrDb != null && <span className="dim">{Number(e.snrDb).toFixed(0)} dB</span>}
               <span className="dim">{fmtHz(e.centerFreqHz)}</span>
               <span className="dim">± {fmtHz(e.bandwidthHz != null ? e.bandwidthHz / 2 : null)}</span>
               {e.templateId != null && <span className="dim">#{e.templateId}</span>}
