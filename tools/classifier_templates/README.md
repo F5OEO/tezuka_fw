@@ -13,6 +13,23 @@ regenerate it with `synthesize_template.py` if you change it — see
 immediately rather than reporting "unknown" until you push your own.
 Any `cmd/classifier/templates` push replaces it permanently.
 
+## Quick start: cut a template out of a recording (recommended)
+
+Record the band with a known emitter on it, then cut the emitter's shape
+out of the recording. The capture is processed exactly as the daemon does
+it (lower envelope, smooth receiver baseline, residual), so the template
+contains the emitter and not the receiver:
+
+```sh
+python3 replay/capture_frames.py 192.168.1.50 60 fm.raw
+python3 template_from_capture.py --raw fm.raw --span-hz 30.72e6 --fc-hz 98e6 \
+    --center-hz 93.3e6 --width-hz 400e3 --label "FM Broadcast" --template-id 1 --out templates.bin
+```
+
+The result is a version-3 template that records its resolution
+(`--width-hz / --bins` hertz per bin), so it matches at any span. The
+shipped starter set's FM Broadcast entry was made this way.
+
 ## Quick start: bootstrap from real hardware
 
 Fastest way to get a first working template set, no GNU Radio/TorchSig
@@ -28,9 +45,11 @@ python3 capture_from_device.py --host 192.168.1.50 --label CW    --template-id 2
 Each run captures and averages live `/waterfall` frames while the device
 is tuned to a known signal of that type, normalizes the result, and
 appends it to `templates.bin` (re-running with the same `--template-id`
-replaces that entry rather than duplicating it). All templates in one
-file must share the same bin count, so keep the device's span/FFT size
-consistent across captures — or write to separate files per span.
+replaces that entry rather than duplicating it). This averages the whole
+frame, receiver response included, so prefer `template_from_capture.py`
+above. Pass `--span-hz` (the device's `state/rx/span`) to record the
+resolution; without it the template is matched bin-for-bin and only
+works at the span it was captured at.
 
 Push the result to a device with `cmd/classifier/templates` (base64 of
 the file, matching WireGuard's `cmd/vpn/config` transport):
@@ -51,6 +70,10 @@ python3 synthesize_template.py --shape chirp      --label LoRa  --template-id 3 
 python3 synthesize_template.py --shape pulsed     --label ADS-B --template-id 4 --out templates.bin
 python3 synthesize_template.py --shape cw         --label Beacon --template-id 5 --out templates.bin
 ```
+
+Pass `--width-hz` (the real width of the whole template window) to get
+a version-3 template with a resolution; the starter set uses 2.5 MHz for
+DAB+ and 30 kHz for CW. Without it the shape is span-agnostic.
 
 **Important caveat**: this generates each class's *characteristic PSD
 envelope* directly (flat-top-with-rolloff for OFDM, narrow peak for
@@ -113,6 +136,17 @@ loads correctly (gate ranges included) through the actual cross-compiled
 experimental layer on top of the already-experimental base classifier — not
 yet tuned against real captured signals, and the default margins above are
 starting points, not calibrated values.
+
+## Offline testing (`replay/`)
+
+`replay/capture_frames.py` records raw frames, `replay/inject_emitter.py`
+adds a synthetic emitter shaped like a loaded template (stretched to its
+real width for a version-3 template) during a chosen time window, and
+`replay/tally_results.py` summarizes the daemon's result topic. The daemon
+replays a recording with `-r FILE -F FPS -S SPAN_HZ -B none`; run the
+cross-compiled binary under `qemu-arm-static` with the board sysroot as
+`-L`. See the main README's classifier section for the numbers this gave
+on real outdoor captures.
 
 ## File format
 

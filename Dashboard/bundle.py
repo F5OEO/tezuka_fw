@@ -10,10 +10,51 @@ transpiled and minified at build time via esbuild -- unlike the dev-mode
 Usage:
   python3 bundle.py > output.html
   python3 bundle.py /path/to/output.html
+  python3 bundle.py --brand 'My Radio' /path/to/output.html
+
+The product name shown in the page title, sidebar, breadcrumb, topbar and
+user guide is resolved, first match wins: --brand NAME, the DASHBOARD_BRAND
+environment variable, the first line of Dashboard/brand.local (gitignored,
+for a locally branded firmware build), else "Tezuka". The .jsx sources read
+it as window.DASHBOARD_BRAND (see BRAND in data.jsx).
 """
-import os, sys, subprocess
+import os, sys, subprocess, json
 
 HERE = os.path.dirname(os.path.abspath(__file__))
+
+def parse_args(argv):
+    brand, dest = None, None
+    it = iter(argv)
+    for a in it:
+        if a == '--brand':
+            brand = next(it, None)
+            if brand is None:
+                sys.exit('bundle.py: --brand needs a value')
+        elif a.startswith('--brand='):
+            brand = a[len('--brand='):]
+        elif dest is None:
+            dest = a
+        else:
+            sys.exit(f'bundle.py: unexpected argument {a!r}')
+    return brand, dest
+
+def resolve_brand(explicit):
+    if explicit:
+        return explicit.strip()
+    env = os.environ.get('DASHBOARD_BRAND', '').strip()
+    if env:
+        return env
+    local = os.path.join(HERE, 'brand.local')
+    if os.path.exists(local):
+        with open(local, encoding='utf-8') as f:
+            first = f.readline().strip()
+        if first:
+            return first
+    return 'Tezuka'
+
+BRAND_ARG, DEST = parse_args(sys.argv[1:])
+BRAND = resolve_brand(BRAND_ARG)
+print(f'[bundle] brand: {BRAND}', file=sys.stderr)
 ESBUILD = os.path.join(HERE, 'node_modules', '.bin', 'esbuild')
 
 def npm_install():
@@ -106,7 +147,7 @@ out.append('''\
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Tezuka Dashboard</title>
+<title>''' + BRAND + ''' Dashboard</title>
 <link rel="icon" href="data:,">
 <style>
 ''')
@@ -119,6 +160,9 @@ for rel, url in VENDOR:
     out.append('\n</script>\n')
 
 out.append('</head>\n<body>\n<div id="root"></div>\n')
+
+# Brand name for the .jsx sources (BRAND in data.jsx); must precede them.
+out.append('<script>window.DASHBOARD_BRAND = ' + json.dumps(BRAND) + ';</script>\n')
 
 for kind, fname in SOURCES:
     content = read(fname)
@@ -142,8 +186,8 @@ out.append('</body>\n</html>\n')
 
 result = ''.join(out)
 
-if len(sys.argv) > 1:
-    dest = sys.argv[1]
+if DEST:
+    dest = DEST
     os.makedirs(os.path.dirname(dest) or '.', exist_ok=True)
     with open(dest, 'w', encoding='utf-8') as f:
         f.write(result)

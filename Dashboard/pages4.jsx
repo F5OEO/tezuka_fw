@@ -9,7 +9,7 @@ const DOCS = {
     langLabel: 'FR',
     toc: 'Contents',
     intro: {
-      title: 'Tezuka Dashboard — User Guide',
+      title: `${BRAND} Dashboard — User Guide`,
       desc: 'Web control interface for Tezuka SDR boards (Zynq-7020 / AD9363). Communication uses MQTT WebSocket (ws://[host]:9001/mqtt) and a binary WebSocket (ws://[host]/waterfall) for real-time spectrum data.',
     },
     sections: [
@@ -31,7 +31,7 @@ const DOCS = {
           {
             title: 'Topbar',
             rows: [
-              ['Breadcrumb', '"Tezuka / <Page name>" — current location indicator.'],
+              ['Breadcrumb', `"${BRAND} / <Page name>" — current location indicator.`],
               ['MQTT chip', 'Green = connected to MQTT broker · grey = disconnected.'],
               ['Notification button', 'Bell icon — reserved for future alerts.'],
             ],
@@ -740,7 +740,7 @@ const DOCS = {
     langLabel: 'EN',
     toc: 'Sommaire',
     intro: {
-      title: 'Tezuka Dashboard — Guide utilisateur',
+      title: `${BRAND} Dashboard — Guide utilisateur`,
       desc: "Interface web de contrôle pour les cartes SDR Tezuka (Zynq-7020 / AD9363). La communication utilise MQTT WebSocket (ws://[host]:9001/mqtt) et un WebSocket binaire (ws://[host]/waterfall) pour les données spectrales temps réel.",
     },
     sections: [
@@ -762,7 +762,7 @@ const DOCS = {
           {
             title: 'Barre supérieure (Topbar)',
             rows: [
-              ['Fil d\'Ariane', '"Tezuka / <Nom de page>" — indicateur de position courante.'],
+              ['Fil d\'Ariane', `"${BRAND} / <Nom de page>" — indicateur de position courante.`],
               ['Puce MQTT', 'Verte = connecté au broker MQTT · grise = déconnecté.'],
               ['Bouton notification', 'Icône cloche — réservé pour les futures alertes.'],
             ],

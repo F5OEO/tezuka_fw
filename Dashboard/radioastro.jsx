@@ -26,7 +26,7 @@ function RadioAstronomyPage({ d }) {
   const integSecRef    = useRRa(ra.integSec ?? 30);
   const centerHzRef    = useRRa(ra.centerHz ?? (d.rxFreq ?? 1420405751));
   const bandwidthRef   = useRRa(ra.bandwidth ?? 2.5e6);
-  const refDbRef       = useRRa(ra.refDb ?? 130);
+  const refDbRef       = useRRa(ra.refDb ?? 80);
   const rangeRef       = useRRa(ra.range ?? SP_ROWS * 10);
 
   // Frequency switching (classical Dicke-style calibration): alternate the
@@ -124,7 +124,7 @@ function RadioAstronomyPage({ d }) {
     let destroyed = false;
     const host  = window._tezukaDevHost || window.location.hostname;
     const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const toDB  = (v) => 20 * Math.log10(v > 0 ? v : 1e-10);
+    const toDB  = (v) => 10 * Math.log10(v > 0 ? v : 1e-10);
 
     function resetWindow(len) {
       ringRef.current = [];

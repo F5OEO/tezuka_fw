@@ -46,7 +46,7 @@ async def capture_frames(host: str, port: int, n_frames: int, path: str = "/wate
     """Connects to ws://host:port/waterfall (same protocol maia-httpd
     serves, same parsing radioastro.jsx and classifier.c both use: the
     binary message is a float32 array where f[0] is a structural step
-    index and f[1:] are FFT bins as raw linear amplitude) and returns a
+    index and f[1:] are FFT bins as linear power) and returns a
     list of the raw f[1:] bin arrays for n_frames received messages."""
     uri = f"ws://{host}:{port}{path}"
     frames = []
@@ -99,6 +99,9 @@ def main():
                           "spread into the template's expected range (default: 0.15)")
     ap.add_argument("--no-gate", action="store_true",
                      help="write a plain shape-only (version 1) template, with no feature gate")
+    ap.add_argument("--span-hz", type=float, default=0.0,
+                    help="the device's current span in Hz (state/rx/span); recorded as the "
+                         "template's resolution so it matches at other spans (default: 0 = none)")
     ap.add_argument("--out", required=True, help="templates.bin path to write/append to")
     args = ap.parse_args()
 
@@ -120,7 +123,8 @@ def main():
                   "-- writing a shape-only template instead", file=sys.stderr)
 
     new_template = Template(label=args.label, template_id=args.template_id,
-                             data=normalize(avg), feature_ranges=feature_ranges)
+                             data=normalize(avg), feature_ranges=feature_ranges,
+                             hz_per_bin=args.span_hz / len(avg) if args.span_hz > 0 else 0.0)
 
     # Append to an existing file if present (and its canonical_n matches),
     # otherwise start a fresh one — makes it natural to build a template

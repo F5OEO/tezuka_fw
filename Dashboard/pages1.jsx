@@ -572,7 +572,7 @@ function SpectrumPage({ d }) {
   const sweepLenR  = useSpR(0);
   const sweepMaskR = useSpR(0);     // bitmask of steps received since last buffer init
   const dirtyRef    = useSpR(true);
-  const refDbRef    = useSpR(sp.refDb  ?? 130);
+  const refDbRef    = useSpR(sp.refDb  ?? 80);
   const rangeRef    = useSpR(sp.range  ?? SP_ROWS * 10);
   const isSweepR    = useSpR(false);
   const mousePosRef = useSpR(null);   // {px} normalised 0-1 when cursor is over canvas
@@ -619,7 +619,7 @@ function SpectrumPage({ d }) {
   const dispZoomRef    = useSpR(1);    // last rendered zoom, guards against redundant setDispZoom
   const fosforRef      = useSpR('off');
 
-  const [refDb,    setRefDb]    = useSpS(() => sp.refDb    ?? 130);
+  const [refDb,    setRefDb]    = useSpS(() => sp.refDb    ?? 80);
   const [range,    setRange]    = useSpS(() => sp.range    ?? SP_ROWS * 10);
   const [centerHz, setCenterHz] = useSpS(() => sp.centerHz ?? (d.rxFreq    ?? 437e6));
   const [spanHz,   setSpanHz]   = useSpS(() => sp.spanHz   ?? (d.span ?? d.rxSampling ?? null));
@@ -909,7 +909,7 @@ function SpectrumPage({ d }) {
     const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
 
     // Convert raw float amplitude to dBFS
-    const toDB = (v) => 20 * Math.log10(v > 0 ? v : 1e-10);
+    const toDB = (v) => 10 * Math.log10(v > 0 ? v : 1e-10);
 
     function connect() {
       if (destroyed) return;

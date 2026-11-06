@@ -19,7 +19,9 @@ python3 -m http.server 8080
 # Then open http://localhost:8080/Tezuka%20Dashboard.html
 ```
 
-**For the shipped build** — `python3 bundle.py output.html` (this is what `board/tezuka/common/post-build.sh` runs into `target/root/index.html` for every board). After changing which `.jsx` loader/minify flags are used, or after editing `signals-entry.js`, re-run it and spot-check the page in a browser before committing — there's no automated test suite for this page.
+**For the shipped build** — `python3 bundle.py output.html` (this is what `board/tezuka/common/post-build.sh` runs into `target/root/index.html` for every board).
+
+**Branding** — the product name in the page title, sidebar, breadcrumb, topbar and user guide is the `BRAND` global (data.jsx), resolved by `bundle.py` at build time: `--brand NAME`, else the `DASHBOARD_BRAND` environment variable, else the first line of `Dashboard/brand.local` (gitignored, so a locally branded firmware build survives `git pull`), else `Tezuka`. The dev page always shows Tezuka. The F5OEO credit and repository links do not change with the brand. After changing which `.jsx` loader/minify flags are used, or after editing `signals-entry.js`, re-run it and spot-check the page in a browser before committing — there's no automated test suite for this page.
 
 `Tezuka Dashboard (standalone).html` is a self-contained single-file export (all JS inlined) for distribution. Edit source files, not the standalone.
 
@@ -46,7 +48,7 @@ python3 -m http.server 8080
 
 **Routing**: hash-based (`location.hash`). The `NAV` array in `app.jsx` defines all routes. Adding a page requires: (1) a new case in the `page()` switch, (2) an entry in `NAV`, (3) a title in `TITLES`.
 
-**Live data**: `useLiveData()` in `data.jsx` connects to the MQTT broker at `ws://[hostname]:9001/mqtt` and subscribes to `state/#`. It also runs a 1 Hz simulation tick for system metrics (CPU, memory, temperature) that have no MQTT topic yet. Returns a `d` object; all pages that display live metrics receive `d` as a prop from `<App>`. `d.publish(path, value)` sends a `cmd/<path>` message to the broker.
+**Live data**: `useLiveData()` in `data.jsx` connects to the MQTT broker at `ws://[hostname]:9001/mqtt` and subscribes to `state/#`. Incoming `state/#` and `dt/pluto/#` messages are collected and applied as one state update per 100 ms (`stFlush`): the retained flood on subscribe and the 2 s republish of the whole tree are several hundred messages, and one render per message kept the browser's main thread at 60-75% CPU even on a static page. It also runs a 1 Hz simulation tick for system metrics (CPU, memory, temperature) that have no MQTT topic yet. Returns a `d` object; all pages that display live metrics receive `d` as a prop from `<App>`. `d.publish(path, value)` sends a `cmd/<path>` message to the broker.
 
 **Theming**: CSS custom properties `--accent` and `--accent-2` are set on `:root` by `App` via the `useTweaks` hook. Density is set via `data-density` on the `.app` element.
 
@@ -95,6 +97,11 @@ The on-device backend is `api_controller.sh` (polling script, 2 s interval, `boa
 | `state/system/clkref/lock` | Reference lock (0/1) — real (`vctcxo_lock` reg `0x10` bit `[0]`) where the IP exists; else derived from `refclk_source` |
 | `state/system/clkref/frequency` | Nominal reference frequency in Hz implied by the selected mode (`10000000` for `10mhz`, `1` for `pps`) — not a measured value; this IP has no frequency register. `n/a` where the IP doesn't exist |
 | `state/system/clkref/correction` | Live 16-bit VCTCXO DAC setpoint (reg `0x08`); `n/a` where the IP doesn't exist |
+| `state/classifier/result` | One JSON message per classifier cycle: `{label, confidence, freq_offset, bandwidth_bins, frame_bins, template_id, snr_db, prom_db, margin, hz_per_bin, state, bg_age_s, online}` on a match, `{label:"unknown", best, best_snr_db, best_prom_db, margin, state, bg_age_s, online}` otherwise; `state` is `learning`, `idle` or `ok`. Retained; the daemon's last will sets `online:false` |
+| `state/classifier/background` | JSON `{frequency, bins, hz_per_bin, hot, masked}` after each background learn (start, retune, or `cmd/classifier/background`) |
+| `state/classifier/template_shape` | JSON `{id, label, bins, hz_per_bin, data[]}`: the matched template resampled onto the live grid, zero-mean / unit-norm; republished when the match or the grid changes |
+| `state/classifier/window` | JSON `{id, bins, data[]}`: the normalized live window the daemon scored against that template, every match cycle |
+| `state/classifier/label`, `confidence`, `freq_offset`, `bandwidth_bins`, `frame_bins`, `template_id`, `feature_*` | Older per-field classifier topics, still published; `freq_offset` is the matched window's first bin |
 
 **Command topics** (`cmd/…`):
 
@@ -110,6 +117,7 @@ The on-device backend is `api_controller.sh` (polling script, 2 s interval, `boa
 | `cmd/operator/name` | Set operator name |
 | `cmd/operator/callsign` | Set operator callsign (device reboot required) |
 | `cmd/operator/locator` | Set operator Maidenhead locator |
+| `cmd/classifier/background` | `learn` relearns the classifier's receiver background (do it on a quiet moment) |
 | `cmd/system/clkref/source` | Select reference clock mode (`10mhz`/`pps`/`none`) — writes `vctcxo_lock` reg `0x0C` `dac_ref_sel`; no-op on boards without that IP (no auto-detect, must be selected explicitly) |
 
 All payloads are plain text strings (numbers as decimal, flags as `0`/`1`). Messages are published with the retain flag (`-r`) so late-connecting clients get the last value immediately.
