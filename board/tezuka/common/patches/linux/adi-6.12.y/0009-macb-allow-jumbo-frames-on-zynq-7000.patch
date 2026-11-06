@@ -1,0 +1,30 @@
+From: MUSTARDTIGERFPV <122312693+MUSTARDTIGERFPV@users.noreply.github.com>
+Subject: [PATCH] net: macb: allow jumbo frames on Zynq-7000
+
+zynq_config does not set MACB_CAPS_JUMBO, so macb_change_mtu() rejects
+any MTU above 1500 with EINVAL. zynqmp_config sets it along with
+.jumbo_max_len, and the Zynq-7000 GEM has the same JML register that
+macb_init() programs; do the same here.
+
+The link still comes up at 1500, this only permits a larger MTU. The
+GEM TX packet buffer is 4 KB: on a PlutoSky R2 frames pass up to MTU
+3900 and fail at 4000. iio_readdev over GbE at 950 MHz: 59.0 -> 75.8
+MB/s (bbr+fq), 76.0 -> 92.4 MB/s (cubic+pfifo_fast).
+
+Signed-off-by: MUSTARDTIGERFPV <122312693+MUSTARDTIGERFPV@users.noreply.github.com>
+---
+--- a/drivers/net/ethernet/cadence/macb_main.c	2026-09-05 12:30:43
++++ b/drivers/net/ethernet/cadence/macb_main.c	2026-09-05 12:30:43
+@@ -4960,10 +4960,11 @@
+ 
+ static const struct macb_config zynq_config = {
+ 	.caps = MACB_CAPS_GIGABIT_MODE_AVAILABLE | MACB_CAPS_NO_GIGABIT_HALF |
+-		MACB_CAPS_NEEDS_RSTONUBR,
++		MACB_CAPS_NEEDS_RSTONUBR | MACB_CAPS_JUMBO,
+ 	.dma_burst_length = 16,
+ 	.clk_init = macb_clk_init,
+ 	.init = macb_init,
++	.jumbo_max_len = 10240,
+ 	.usrio = &macb_default_usrio,
+ };
+ 
