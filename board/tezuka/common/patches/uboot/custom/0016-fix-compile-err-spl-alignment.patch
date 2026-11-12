@@ -1,0 +1,11 @@
+--- a/scripts/Makefile.xpl
++++ b/scripts/Makefile.xpl
+@@ -256,7 +256,7 @@ MKIMAGEFLAGS_boot.bin = -T zynqmpimage -
+ endif
+
+ $(obj)/$(SPL_BIN)-align.bin: $(obj)/$(SPL_BIN).bin
+-	@dd if=$< of=$@ conv=block,sync bs=4 2>/dev/null;
++	@dd if=$< of=$@ conv=sync bs=4 2>/dev/null;
+
+ spl/boot.bin: $(obj)/$(SPL_BIN)-align.bin FORCE
+	$(call if_changed,mkimage)
