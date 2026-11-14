@@ -368,7 +368,7 @@ struct RxTune {
     int stdHint = 0, isi = -1, pls = -1, modsMask = 0, fastTiming = 2;
     bool ccm = false, presence = false, ldpc8 = false, wsKeyframe = false, noBch = false, cs8 = true;
     bool fpgaFront = false;                   // fpgafront: the FPGA symbol front end (radio RRC filter from 261 kS, an RRC in the FPGA DDC below)
-    int txClock = 0;                          // txclock: 0 off (default), 1 on, 2 auto = on while pluto_stream transmits DVB-S / S2 with PTT on (dt/pluto/+/tx/dvbs2/sr set, tx/mute 0, tx/stream/mode dvbs*), else the receiver's own 10 MHz clock
+    int txClock = 2;                          // txclock: 0 off, 1 on, 2 auto (default) = on while pluto_stream transmits DVB-S / S2 with PTT on (dt/pluto/+/tx/dvbs2/sr set, tx/mute 0, tx/stream/mode dvbs*), else the receiver's own 10 MHz clock
     double carrierHz = -1;                    // carrierbw: DVB-S2 carrier loop floor in Hz (LNB phase noise), 0 = the narrow loop only, -1 = auto
     double loMHz = 745.0;                     // lo: the radio's fixed LO, kHz on MQTT; the DDC NCO tunes inside the clock's span, the LO moves only for a carrier outside it. 0 = the LO follows the frequency
     double clockMHz = 10;                     // clock: the radio's fixed converter rate, kHz on MQTT (the spectrum span); the FPGA DDC decimates to the symbol rate. 0 = off

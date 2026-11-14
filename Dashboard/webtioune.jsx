@@ -358,7 +358,7 @@ function ExpertOptions({ d, lm, open, setOpen }) {
                 options={[{ v: 'auto', l: 'Auto' }, { v: 'on', l: 'On' }, { v: 'off', l: 'Off' }]} />
             </Field></div>
             <div title="RX and TX share the AD9361 clock. On = keep the clock pluto_stream set and decimate in the Maia DDC (FPGA), needed to receive while transmitting. Auto = on only while pluto_stream transmits DVB-S/S2 with PTT on, else the receiver keeps its own 10 MHz clock. Off = the receiver always sets its own rate and FIR"><Field label="TX clock (Maia DDC)">
-              <Select value={set('txclock') || 'off'} onChange={(v) => send('txclock', v)}
+              <Select value={set('txclock') || 'auto'} onChange={(v) => send('txclock', v)}
                 options={[{ v: 'auto', l: 'Auto' }, { v: 'on', l: 'On' }, { v: 'off', l: 'Off' }]} />
             </Field></div>
             {EXPERT_TEXT.map((spec) => <ExpertText key={spec.k} d={d} spec={spec} reported={set(spec.k)} />)}
