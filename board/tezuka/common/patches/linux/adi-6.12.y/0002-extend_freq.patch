@@ -1,3 +1,15 @@
+Extend the AD9361/AD9363 RF LO range to 46.875 MHz - 6 GHz
+
+ADI specifies the AD9363 only from 325 MHz to 3.8 GHz and limits it to that
+range in the driver (and the AD9361 RX to 70 MHz and up). This patch lifts
+both limits to the full VCO/divider range, as on the usual Pluto
+modification. The PLLs lock over the whole range, but sensitivity, image
+rejection, LO leakage and the front-end match outside 325 MHz - 3.8 GHz are
+not specified by ADI and vary between boards.
+
+The RF PLL clock runs at half the LO frequency, so the lowest frequency
+accepted is 46875002 Hz, not MIN_*_CARRIER_FREQ_HZ itself.
+
 --- /dev/null
 +++ linux-04fbdbb433faae8ffb3a5b24b7435509b11334cb/drivers/iio/adc/ad9361_regs.h
 @@ -2817,11 +2817,11 @@

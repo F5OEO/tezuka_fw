@@ -15,7 +15,7 @@
 
 ## Key Features
 
-* **Frequency Extension:** Expanded tuning range from **47.5 MHz to 6 GHz**.
+* **Frequency Extension:** Expanded tuning range from **46.875 MHz to 6 GHz** for RX and TX. ADI specifies the AD9363 only from 325 MHz to 3.8 GHz; outside that range the PLLs still lock, but sensitivity, image rejection and LO leakage are not specified and vary between boards.
 * **Seamless Input Switching:** Easily switch between RX1/RX2 and TX1/TX2.
 * **Extended Bandwidth:** Complex 8-bit mode unlocks stable streaming up to **14 MHz over USB** and **45 MHz over GbE network**.
 * **Risk-Free Booting:** Built-in **SD Card boot support** for effortless updates with zero risk of bricking your flash memory.
