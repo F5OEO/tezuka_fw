@@ -1,0 +1,184 @@
+maia-kmod: invalidate rxbuffer caches through a kernel mapping
+
+IOCTL_CACHEINV invalidated L1 through the userspace address of the
+buffer mapping, saved in a driver-global vm_start. 0002-0004 guard that
+address with mmap_done and a mutex, but cannot close the gap: munmap()
+tears down the page tables before it calls vm_ops->close, so an ioctl
+that already passed the mmap_done check can still run DC IMVAC on an
+address with no mapping. On ARMv7 such a cache operation can abort,
+and v7_dma_inv_range() has no exception fixup (unlike the USER()
+wrapped v7_coherent_user_range), so the result is a kernel oops. The
+address is also only meaningful in the process that created the
+mapping.
+
+Map the reserved rxbuffer region into the kernel at probe time with
+devm_memremap(MEMREMAP_WB) and invalidate through that mapping. The
+Cortex-A9 L1 data cache is physically indexed and tagged, so this
+removes the lines userspace reads through its own mapping. The kernel
+mapping lives as long as the device, so the invalidation no longer
+depends on any userspace mapping and needs no lock. vm_start goes away;
+mmap_done and the mutex stay to keep the one-mapping rule.
+
+Also invalidate the outer (L2) cache before L1, in both the rxbuffer
+and the recording path. That is the order Linux uses after a
+DMA_FROM_DEVICE transfer; with L1 first, a speculative L1 refill
+between the two operations can bring stale L2 data back into L1.
+
+diff --git a/maia-kmod/maia-sdr.c b/maia-kmod/maia-sdr.c
+index dbb6797..a13f1f5 100644
+--- a/maia-kmod/maia-sdr.c
++++ b/maia-kmod/maia-sdr.c
+@@ -11,6 +11,7 @@
+ #include <linux/dma-mapping.h>
+ #include <linux/err.h>
+ #include <linux/fs.h>
++#include <linux/io.h>
+ #include <linux/init.h>
+ #include <linux/ioctl.h>
+ #include <linux/module.h>
+@@ -47,8 +48,11 @@ struct maia_sdr_rxbuffer_drvdata {
+ 	phys_addr_t mem_base_addr;
+ 	phys_addr_t buffer_size;
+ 	unsigned int num_buffers;
++	// Kernel mapping of the whole reserved region, used only for cache
++	// maintenance. It lives as long as the device, so unlike a userspace
++	// address it can never be unmapped under an IOCTL_CACHEINV.
++	void *kaddr;
+ 	int mmap_done;
+-	unsigned long vm_start;
+ 	struct mutex lock;
+ };
+ 
+@@ -93,18 +97,22 @@ static int maia_sdr_recording_mmap(struct file *file,
+ 		return ret;
+ 	}
+ 
++	// Invalidate the outer (L2) cache first, by physical address, then
++	// L1. This is the order Linux uses after a DMA_FROM_DEVICE transfer:
++	// invalidating L1 first would let a speculative L1 refill fetch stale
++	// L2 lines before L2 is invalidated.
++	arm_cache_outer_inv_range(drvdata->mem_base_addr + offset,
++				  drvdata->mem_base_addr + offset + size);
++
+ 	// Invalidate ARMv7 L1 cache by virtual address range.
+ 	//
+ 	// The L1 data cache is physically indexed and physically tagged, but
+-	// invalidation is done using virtual addresses, line by line. We use
+-	// the userspace virtual addresses, since the DMA buffer is not mapped
+-	// at all in kernel memory.
++	// invalidation is done using virtual addresses, line by line. The
++	// recording region is not mapped in kernel memory, so we use the
++	// userspace mapping created above; it cannot go away while we are
++	// still inside mmap().
+ 	v7_dma_inv_range(vma->vm_start, vma->vm_end);
+ 
+-	// Invalidate L2 cache by physical address range.
+-	arm_cache_outer_inv_range(drvdata->mem_base_addr + offset,
+-				  drvdata->mem_base_addr + offset + size);
+-
+ 	return 0;
+ }
+ 
+@@ -114,7 +122,6 @@ static void maia_sdr_rxbuffer_vm_close(struct vm_area_struct *vma)
+ 
+ 	mutex_lock(&drvdata->lock);
+ 	drvdata->mmap_done = 0;
+-	drvdata->vm_start = 0;
+ 	mutex_unlock(&drvdata->lock);
+ }
+ 
+@@ -141,14 +148,10 @@ static int maia_sdr_rxbuffer_mmap(struct file *file, struct vm_area_struct *vma)
+ 		return -EINVAL;
+ 	}
+ 
+-	// The mmap_done check, remap_pfn_range() and the mmap_done/vm_start
+-	// update must all happen under the same critical section: otherwise
+-	// two concurrent mmap() calls (e.g. from two iiod client contexts)
+-	// can both pass the check before either sets mmap_done, and both
+-	// remap the same DMA buffer, leaving vm_start pointing at whichever
+-	// mapping happened to finish last. remap_pfn_range() can sleep, so
+-	// this section needs a sleepable lock, not the spinlock previously
+-	// used here (which could only cover the non-sleeping cacheinv path).
++	// The mmap_done check, remap_pfn_range() and the mmap_done update
++	// must all happen under the same critical section: otherwise two
++	// concurrent mmap() calls can both pass the check and both map the
++	// buffer. remap_pfn_range() can sleep, so this needs a mutex.
+ 	mutex_lock(&drvdata->lock);
+ 
+ 	if (drvdata->mmap_done) {
+@@ -166,7 +169,6 @@ static int maia_sdr_rxbuffer_mmap(struct file *file, struct vm_area_struct *vma)
+ 		return ret;
+ 	}
+ 	drvdata->mmap_done = 1;
+-	drvdata->vm_start = vma->vm_start;
+ 	vma->vm_private_data = (void *)drvdata;
+ 	vma->vm_ops = &maia_sdr_rxbuffer_vm_ops;
+ 
+@@ -180,32 +182,29 @@ maia_sdr_rxbuffer_cacheinv(struct maia_sdr_rxbuffer_drvdata *drvdata,
+ 			   unsigned num_buffer)
+ {
+ 	unsigned long offset;
+-	unsigned long start;
+-	int ret = 0;
++	phys_addr_t phys;
++	unsigned long kva;
+ 
+ 	if (num_buffer >= drvdata->num_buffers) {
+ 		return -1;
+ 	}
+-	mutex_lock(&drvdata->lock);
+-	if (!drvdata->mmap_done) {
+-		ret = -1;
+-		goto out_unlock;
+-	}
+ 	offset = drvdata->buffer_size * num_buffer;
+-	start = drvdata->vm_start + offset;
+-	// See maia_sdr_recording_mmap for how the cache invalidation works.
+-	v7_dma_inv_range(start, start + drvdata->buffer_size);
+-out_unlock:
+-	mutex_unlock(&drvdata->lock);
+-	if (ret) {
+-		return ret;
+-	}
++	phys = drvdata->mem_base_addr + offset;
++	kva = (unsigned long)drvdata->kaddr + offset;
+ 
+-	// mem_base_addr is fixed at probe time, so this call doesn't touch
+-	// anything the lock above protects -- keep it outside to shorten the
+-	// critical section.
+-	start = drvdata->mem_base_addr + offset;
+-	arm_cache_outer_inv_range(start, start + drvdata->buffer_size);
++	// Outer (L2) first, by physical address, then L1 by virtual address,
++	// as Linux does after a DMA_FROM_DEVICE transfer.
++	//
++	// L1 is invalidated through the driver's own kernel mapping of the
++	// buffer. The Cortex-A9 L1 data cache is physically indexed and
++	// tagged, so this removes the lines that userspace reads through its
++	// mapping too. The kernel mapping exists for the life of the device,
++	// so this cannot fault, needs no lock against munmap(), and works
++	// whichever process has the buffer mapped. (Using the userspace
++	// address here could hit a mapping that munmap() had already torn
++	// down, and a cache operation on an unmapped address can abort.)
++	arm_cache_outer_inv_range(phys, phys + drvdata->buffer_size);
++	v7_dma_inv_range(kva, kva + drvdata->buffer_size);
+ 	return 0;
+ }
+ 
+@@ -444,6 +443,17 @@ static int maia_sdr_probe_rxbuffer(struct platform_device *pdev)
+ 	drvdata->mem_base_addr = reserved_mem->base;
+ 	drvdata->num_buffers = reserved_mem->size / drvdata->buffer_size;
+ 
++	// The region is no-map reserved memory, so it is not in the linear
++	// map. Map it cacheable, like the userspace mapping, for cache
++	// maintenance.
++	drvdata->kaddr = devm_memremap(&pdev->dev, reserved_mem->base,
++				       reserved_mem->size, MEMREMAP_WB);
++	if (IS_ERR(drvdata->kaddr)) {
++		ret = PTR_ERR(drvdata->kaddr);
++		dev_err(&pdev->dev, "memremap of the buffer failed\n");
++		goto probe_rxbuffer_error;
++	}
++
+ 	cdev_init(&drvdata->cdev, &rxbuffer_fops);
+ 	drvdata->cdev.owner = THIS_MODULE;
+ 	minor = ida_alloc_range(&maia_sdr_device_ida, 0, MAIA_SDR_MINOR_MAX - 1,
