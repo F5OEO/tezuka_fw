@@ -391,6 +391,14 @@ dump_data () {
   if [ "${FWENV[wireguard_enabled]}" = "1" ]; then publish "vpn/enabled" on; else publish "vpn/enabled" off; fi
   publish_vpn_status
 
+  # SCEP device certificate. scep-client writes the status JSON (it never
+  # carries the challenge password), only on boards with overlay_maia.
+  if [ -x /usr/sbin/scep-client ]; then
+    if [ "${FWENV[scep_enabled]}" = "1" ]; then publish "scep/enabled" on; else publish "scep/enabled" off; fi
+    rd /tmp/scep_status.json; [ "$REPLY" != n/a ] && publish "scep/status" "$REPLY"
+    rd /tmp/scep_probe.json;  [ "$REPLY" != n/a ] && publish "scep/probe" "$REPLY"
+  fi
+
   if [ "${FWENV[classifier_enabled]}" = "1" ]; then publish "classifier/enabled" on; else publish "classifier/enabled" off; fi
 
   # Reference clock status. On boards with the vctcxo_lock IP (VCXO_BASE
@@ -1119,6 +1127,54 @@ parse_cmd () {
         /etc/init.d/S51wireguard restart
       fi
       publish_vpn_status &
+    ;;
+    scep/enabled)
+      # "on" is normally set by scep-client provision itself, once a
+      # certificate was obtained; "off" is the Dashboard's Revert button
+      [ -x /usr/sbin/scep-client ] || return
+      if [ "$val" = "on" ]; then
+        # fw_setenv in the foreground (unlike vpn/enabled): scep-client
+        # reads scep_enabled to decide whether to install the certificate
+        fw_setenv scep_enabled "1" 2>/dev/null
+        /etc/init.d/S55scep start >/dev/null 2>&1
+      else
+        fw_setenv scep_enabled "0" 2>/dev/null
+        /etc/init.d/S55scep stop >/dev/null 2>&1
+        /usr/sbin/scep-client disable >/dev/null 2>&1 &
+      fi
+      publish_force "scep/enabled" "$val"
+    ;;
+    scep/probe)
+      # payload: "auto" (gateways + LAN DNS servers) or a host[:port];
+      # scep-client validates it. Results land in /tmp/scep_probe.json.
+      # Not an empty payload: a retained empty publish means "delete".
+      [ -x /usr/sbin/scep-client ] || return
+      [[ "$val" =~ ^[A-Za-z0-9.:-]+$ ]] || return
+      [ "$val" = auto ] && val=""
+      /usr/sbin/scep-client probe "$val" >/dev/null 2>&1 &
+    ;;
+    scep/provision)
+      # base64 config (as scep/config), then enroll + install in one
+      # background job, so the enrollment always sees the new config
+      [ -x /usr/sbin/scep-client ] || return
+      [[ "$val" =~ ^[A-Za-z0-9+/=]+$ ]] || return
+      ( echo "$val" | base64 -d 2>/dev/null | /usr/sbin/scep-client set-config >/dev/null 2>&1 &&
+          /usr/sbin/scep-client provision >/dev/null 2>&1 ) &
+    ;;
+    scep/config)
+      # base64 of key=value lines (url, cn, san, ca_fingerprint, challenge,
+      # ...), same line-safe transport as vpn/config. The challenge is
+      # write-only: scep-client keeps it in a 600 file and the status JSON
+      # only says whether one is set.
+      [ -x /usr/sbin/scep-client ] || return
+      [[ "$val" =~ ^[A-Za-z0-9+/=]+$ ]] || return
+      ( echo "$val" | base64 -d 2>/dev/null | /usr/sbin/scep-client set-config >/dev/null 2>&1
+        /usr/sbin/scep-client recheck >/dev/null 2>&1 ) &
+    ;;
+    scep/enroll)
+      # force an enrollment/renewal now (daemon if running, else one-shot)
+      [ -x /usr/sbin/scep-client ] || return
+      /usr/sbin/scep-client renew-now >/dev/null 2>&1 &
     ;;
     classifier/enabled)
       if [ "$val" = "on" ]; then

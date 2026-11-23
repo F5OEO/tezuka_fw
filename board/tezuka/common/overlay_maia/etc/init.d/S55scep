@@ -1,0 +1,52 @@
+#!/bin/sh
+#
+# SCEP certificate enrollment/renewal daemon (see /usr/sbin/scep-client).
+# Runs after S50maia-sdr-certificates (JFFS2 mounted, self-signed set present)
+# and does its network work in the background, so boot never waits on the
+# SCEP server.
+#
+# "stop" only stops the daemon: the installed certificate stays in place
+# across reboots. Going back to the self-signed one is "scep-client disable"
+# (what the Dashboard's toggle does).
+#
+
+PIDFILE=/var/run/scep-client.pid
+
+start() {
+	printf "Starting scep-client: "
+	# Status for the Dashboard even when disabled
+	/usr/sbin/scep-client status >/dev/null 2>&1
+	# Bounded for the same reason as in S51wireguard: fw_printenv can block
+	# when the U-Boot env device is not ready yet
+	if [ "$(timeout 3 fw_printenv -n scep_enabled 2>/dev/null)" != "1" ]; then
+		echo "disabled"
+		return 0
+	fi
+	start-stop-daemon -S -b -q -m -p "$PIDFILE" -x /usr/sbin/scep-client -- daemon
+	[ $? = 0 ] && echo "OK" || echo "FAIL"
+}
+
+stop() {
+	printf "Stopping scep-client: "
+	start-stop-daemon -K -q -p "$PIDFILE" 2>/dev/null
+	# the shell defers its TERM trap until a running sscep returns, which
+	# can be a long PENDING poll: end that one too
+	killall sscep 2>/dev/null
+	rm -f "$PIDFILE"
+	echo "OK"
+}
+
+case "$1" in
+	start)
+		start;;
+	stop)
+		stop;;
+	restart|reload)
+		stop
+		start;;
+	*)
+		echo "Usage: $0 {start|stop|restart}"
+		exit 1
+esac
+
+exit $?

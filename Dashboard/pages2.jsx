@@ -670,6 +670,52 @@ function Network({ d }) {
   useE2(() => { if (d.vpnEnabled != null) setVpnOn(d.vpnEnabled === 'on'); }, [d.vpnEnabled]);
   const vpnStatus = d.vpnStatus;
 
+  // Device certificate (SCEP). Nothing happens at boot: the user probes for
+  // servers (or types a URL) and presses Provision. The form is seeded once
+  // from scep/status; the challenge field is write-only like vpnConf (blank
+  // = keep the stored one), the device only reports whether one is set.
+  const scep = d.scepStatus;
+  const probe = d.scepProbe;
+  const [scepForm, setScepForm] = useS2(null);
+  const [scepChallenge, setScepChallenge] = useS2('');
+  const [probeHost, setProbeHost] = useS2('');
+  // status/probe JSON are republished every 2 s; a request counts as done
+  // once their "updated" stamp moves past the one seen at click time
+  const [probeSent, setProbeSent] = useS2(null);
+  const [provSent, setProvSent] = useS2(null);
+  useE2(() => {
+    if (scep && scepForm == null)
+      setScepForm({ url: scep.url || '', cn: scep.cn || '', san: scep.san || '', ca_fingerprint: scep.ca_fingerprint || '' });
+  }, [scep, scepForm]);
+  useE2(() => {
+    if (probeSent != null && probe && probe.updated !== probeSent && probe.state !== 'running') setProbeSent(null);
+  }, [probe, probeSent]);
+  useE2(() => {
+    if (provSent != null && scep && scep.updated !== provSent && scep.state !== 'enrolling') setProvSent(null);
+  }, [scep, provSent]);
+  const sf = scepForm || { url: '', cn: '', san: '', ca_fingerprint: '' };
+  const setSf = (k) => (v) => setScepForm({ ...sf, [k]: v });
+  const scepUrlOk = /^http:\/\/\S+$/.test(sf.url.trim());
+  const scepFpOk = /^([0-9A-Fa-f]{2}:?){32}$|^$/.test(sf.ca_fingerprint.trim());
+  const probeHostOk = /^([A-Za-z0-9.-]+(:\d{1,5})?)?$/.test(probeHost.trim());
+  const probing = probeSent != null || probe?.state === 'running';
+  const provisioning = provSent != null || scep?.state === 'enrolling';
+  const runProbe = () => {
+    setProbeSent(probe?.updated ?? 0);
+    d.publish('scep/probe', probeHost.trim() || 'auto');
+  };
+  const pickServer = (r) => setScepForm({ ...sf, url: r.url, ca_fingerprint: r.ca_fingerprint });
+  const provisionScep = () => {
+    const lines = ['url', 'cn', 'san', 'ca_fingerprint'].map((k) => `${k}=${sf[k].trim()}`);
+    if (scepChallenge) lines.push(`challenge=${scepChallenge}`);
+    setProvSent(scep?.updated ?? 0);
+    d.publish('scep/provision', btoa(unescape(encodeURIComponent(lines.join('\n') + '\n'))));
+    setScepChallenge('');
+  };
+  const scepTone = { enrolled: 'ok', enrolling: 'warn', pending: 'warn', error: 'bad' }[scep?.state] || 'neutral';
+  const fmtDate = (t) => (t ? new Date(t * 1000).toLocaleDateString() : '—');
+  const shortFp = (fp) => (fp ? fp.slice(0, 16).replace(/(..)(?!$)/g, '$1:') + '…' : '');
+
   return (
     <div className="page">
       <div className="grid-12">
@@ -736,6 +782,72 @@ function Network({ d }) {
             )}
           </Field>
         </Card>
+
+        {scep && (
+        <Card title="HTTPS certificate (SCEP)" sub="Request the HTTPS / MQTT-TLS certificate from a SCEP server on the network, typically the router" className="span-12">
+          <Field label="Find a SCEP server" hint={`Leave blank to try the gateway and LAN DNS servers${probe?.hosts?.length ? ` (last: ${probe.hosts.join(', ')})` : ''}, on the usual SCEP paths, ports 80 and 8080`}>
+            <div className="form-grid">
+              <TextInput value={probeHost} onChange={setProbeHost} invalid={!probeHostOk} placeholder="host or host:port (optional)" />
+              <button className="btn ghost" disabled={probing || !probeHostOk} onClick={runProbe}>{probing ? 'Probing…' : 'Probe'}</button>
+            </div>
+          </Field>
+          {!probing && probe && probe.state !== 'running' && (
+            <Field label="Servers found" hint={probe.results?.length ? "Pick one: it fills the URL and pins that CA's fingerprint" : undefined}>
+              {probe.message && <span className="dim">{probe.message}</span>}
+              {(probe.results || []).map((r) => {
+                const on = sf.url === r.url && sf.ca_fingerprint.toUpperCase().replace(/:/g, '') === r.ca_fingerprint;
+                return (
+                  <button key={r.url + r.ca_fingerprint} className={`btn ${on ? 'primary' : 'ghost'} block mt`} onClick={() => pickServer(r)}
+                    style={{ justifyContent: 'flex-start', textAlign: 'left', flexWrap: 'wrap' }}>
+                    <span className="mono">{r.url}</span>
+                    <span className="dim">{' · '}{r.ca_subject}{' · '}<span className="mono">{shortFp(r.ca_fingerprint)}</span></span>
+                  </button>
+                );
+              })}
+            </Field>
+          )}
+          <div className="form-grid mt">
+            <Field label="SCEP URL" hint="From the list above, or typed in. http:// only (SCEP encrypts the request itself)">
+              <TextInput value={sf.url} onChange={setSf('url')} invalid={sf.url !== '' && !scepUrlOk} placeholder="http://192.168.1.1/scep" />
+            </Field>
+            <Field label="Challenge password" hint={scep.challenge_set ? "A challenge is stored. Leave blank to keep it" : "None stored"}>
+              <TextInput type="password" autoComplete="new-password" value={scepChallenge} onChange={setScepChallenge}
+                placeholder={scep.challenge_set ? "••••••••" : ""} />
+            </Field>
+            <Field label="Common name" hint="Blank = hostname">
+              <TextInput value={sf.cn} onChange={setSf('cn')} placeholder={d.net?.hostname || 'hostname'} />
+            </Field>
+            <Field label="Subject alt names" hint="auto = hostname, hostname.local, all IPv4 addresses">
+              <TextInput value={sf.san} onChange={setSf('san')} placeholder="auto  or  DNS:pluto.lan,IP:192.168.1.20" />
+            </Field>
+          </div>
+          <Field label="CA fingerprint (SHA-256)" hint="Filled when you pick a found server. Blank = trust the CA seen on the first request and pin it. Compare with the router's CA">
+            <TextInput value={sf.ca_fingerprint} onChange={setSf('ca_fingerprint')} invalid={!scepFpOk} placeholder="pinned on first request" />
+          </Field>
+          <div className="mt">
+            <button className="btn primary" disabled={provisioning || !scepUrlOk || !scepFpOk} onClick={provisionScep}>
+              {provisioning ? 'Provisioning…' : 'Provision certificate'}
+            </button>{' '}
+            {scep.active && (
+              <button className="btn ghost" disabled={provisioning} onClick={() => d.publish('scep/enabled', 'off')}>Revert to self-signed</button>
+            )}
+          </div>
+          <div className="mt" />
+          <Field label="Status">
+            <Pill tone={scepTone} dot>{scep.state}</Pill>
+            {scep.active && <>{' '}<Pill tone="ok">in use</Pill></>}
+            {scep.message && <span className="dim mono">{' '}{scep.message}</span>}
+          </Field>
+          {scep.subject && (
+            <Field label="Certificate">
+              <span className="dim mono">
+                {scep.subject}{' · issuer '}{scep.issuer}{' · serial '}{scep.serial}
+                {' · valid '}{fmtDate(scep.not_before)}{' → '}{fmtDate(scep.not_after)}
+              </span>
+            </Field>
+          )}
+        </Card>
+        )}
       </div>
     </div>
   );

@@ -95,6 +95,9 @@ The on-device backend is `api_controller.sh` (polling script, 2 s interval, `boa
 | `state/system/clkref/lock` | Reference lock (0/1) — real (`vctcxo_lock` reg `0x10` bit `[0]`) where the IP exists; else derived from `refclk_source` |
 | `state/system/clkref/frequency` | Nominal reference frequency in Hz implied by the selected mode (`10000000` for `10mhz`, `1` for `pps`) — not a measured value; this IP has no frequency register. `n/a` where the IP doesn't exist |
 | `state/system/clkref/correction` | Live 16-bit VCTCXO DAC setpoint (reg `0x08`); `n/a` where the IP doesn't exist |
+| `state/scep/enabled` | SCEP device certificate in use (`on`/`off`, u-boot env `scep_enabled`) |
+| `state/scep/probe` | JSON from `scep-client probe` (`/tmp/scep_probe.json`): `state` (`running`/`done`/`error`), `message`, `hosts`, `results[]` of `{url, ca_subject, ca_fingerprint}` |
+| `state/scep/status` | JSON from `scep-client` (`/tmp/scep_status.json`): `state`, `message`, `url`, `cn`, `san`, `ca_fingerprint`, `challenge_set`, `active`, `subject`, `issuer`, `serial`, `not_before`, `not_after`. Never the challenge itself |
 
 **Command topics** (`cmd/…`):
 
@@ -111,6 +114,11 @@ The on-device backend is `api_controller.sh` (polling script, 2 s interval, `boa
 | `cmd/operator/callsign` | Set operator callsign (device reboot required) |
 | `cmd/operator/locator` | Set operator Maidenhead locator |
 | `cmd/system/clkref/source` | Select reference clock mode (`10mhz`/`pps`/`none`) — writes `vctcxo_lock` reg `0x0C` `dac_ref_sel`; no-op on boards without that IP (no auto-detect, must be selected explicitly) |
+| `cmd/scep/probe` | `auto` (gateways + LAN DNS servers) or `host[:port]`: look for SCEP servers on the usual paths, result in `state/scep/probe` |
+| `cmd/scep/provision` | base64 config (as `cmd/scep/config`), then enroll, install and mark in use. The only way a first certificate is obtained: nothing happens at boot |
+| `cmd/scep/enabled` | `off` (Revert to self-signed) stops `S55scep` and restores the self-signed certificate; `on` restarts the renewal daemon |
+| `cmd/scep/config` | base64 of `key=value` lines (`url`, `cn`, `san`, `ca_fingerprint`, `challenge`, `clear_challenge=1`, `key_bits`, `pending_timeout`) |
+| `cmd/scep/enroll` | Force a renewal now |
 
 All payloads are plain text strings (numbers as decimal, flags as `0`/`1`). Messages are published with the retain flag (`-r`) so late-connecting clients get the last value immediately.
 
