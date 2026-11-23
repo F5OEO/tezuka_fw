@@ -118,6 +118,10 @@ function applyMqtt(prev, path, raw) {
     // field from an incoming MQTT payload.
     case 'vpn/enabled':                return { ...prev, vpnEnabled: raw };
     case 'vpn/status': try { return { ...prev, vpnStatus: JSON.parse(raw) }; } catch { return prev; }
+    // scep/status never carries the challenge password, only challenge_set
+    case 'scep/enabled':               return { ...prev, scepEnabled: raw };
+    case 'scep/status': try { return { ...prev, scepStatus: JSON.parse(raw) }; } catch { return prev; }
+    case 'scep/probe':  try { return { ...prev, scepProbe: JSON.parse(raw) }; } catch { return prev; }
     case 'classifier/enabled':         return { ...prev, classifierEnabled: raw };
     case 'classifier/label':           return { ...prev, classifierLabel: raw };
     case 'classifier/confidence':      return { ...prev, classifierConfidence: raw };
@@ -191,6 +195,7 @@ function useLiveData(running = true) {
     kalibrateStatus: '', kalibrateChannels: [], kalibrateResultPpm: null, kalibrateResultPpb: null, kalibrateLog: [],
     gpsfix: null, gpsLocator: null,
     vpnEnabled: null, vpnStatus: null,
+    scepEnabled: null, scepStatus: null, scepProbe: null,
   }));
 
   // MQTT connection — ws://[hostname]:9001/mqtt  or  wss://[hostname]:9002/mqtt over HTTPS

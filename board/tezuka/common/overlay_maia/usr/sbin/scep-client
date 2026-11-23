@@ -1,0 +1,826 @@
+#!/bin/sh
+#
+# scep-client - enroll and renew the device TLS certificate from a SCEP
+# server (RFC 8894) on the local network, typically the router.
+#
+# The issued certificate replaces the self-signed one S50maia-sdr-certificates
+# generates, at the same paths, so maia-httpd (HTTPS) and mosquitto (wss on
+# :9002) pick it up without any change to their own configuration:
+#   /mnt/jffs2/maia-httpd.crt  leaf + intermediate CA certs
+#   /mnt/jffs2/maia-httpd.key  private key
+#   /mnt/jffs2/maia-sdr-ca.crt the CA root (the one maia-httpd offers for download)
+# The self-signed set is kept in /mnt/jffs2/scep/selfsigned/ and put back by
+# "scep-client disable".
+#
+# Configuration: /mnt/jffs2/scep/scep.conf (key=value, mode 600), written by
+# "scep-client set-config" (reads key=value lines on stdin):
+#   url             SCEP endpoint, http:// only (sscep has no TLS)
+#   challenge       challenge password (write-only, never shown in the status)
+#   cn              subject CN, default: the hostname
+#   san             "auto" (hostname, hostname.local, every IPv4 address) or
+#                   a list like DNS:pluto.lan,IP:192.168.1.20
+#   ca_fingerprint  SHA-256 of the CA cert. Set by the Dashboard when a probe
+#                   result is picked. Empty: the CA the server presents on the
+#                   first successful enrollment is trusted and pinned
+#   key_bits        RSA key size, default 2048
+#   pending_timeout seconds to keep polling while the server answers PENDING
+#                   (manual approval on the router), default 3600
+#
+# A certificate is only ever obtained on request ("provision", the
+# Dashboard's Provision button), never at boot. Once one is in use, the
+# daemon renews it when a third of its lifetime is left; at boot it only
+# checks the installed files, and talks to the server 15 minutes later at
+# the earliest.
+#
+# Commands:
+#   probe [host[:port]]  look for SCEP servers (default: the gateways and
+#                the LAN DNS servers) on the usual paths, results in
+#                /tmp/scep_probe.json
+#   provision    enroll now with the saved config, install the certificate,
+#                mark it in use (u-boot env scep_enabled=1), start the daemon
+#   daemon       renewal loop started by S55scep. SIGUSR1 forces a renewal,
+#                SIGUSR2 re-checks now (after a config change)
+#   enroll       one forced enrollment/renewal in the foreground (installs
+#                only when scep_enabled=1)
+#   renew-now    SIGUSR1 to the daemon, or "enroll" when it is not running
+#   recheck      SIGUSR2 to the daemon
+#   set-config   update scep.conf from key=value lines on stdin
+#   disable      put the self-signed certificates back
+#   status       rewrite /tmp/scep_status.json and print it
+#
+
+SCEP_DIR=/mnt/jffs2/scep
+CONF=$SCEP_DIR/scep.conf
+BACKUP_DIR=$SCEP_DIR/selfsigned
+DEV_KEY=$SCEP_DIR/device.key
+DEV_CRT=$SCEP_DIR/device.crt
+DEV_CHAIN=$SCEP_DIR/chain.pem
+DEV_CA=$SCEP_DIR/ca.crt
+
+ACTIVE_CRT=/mnt/jffs2/maia-httpd.crt
+ACTIVE_KEY=/mnt/jffs2/maia-httpd.key
+ACTIVE_CA=/mnt/jffs2/maia-sdr-ca.crt
+
+STATUS=/tmp/scep_status.json
+STATE_FILE=/tmp/scep_state
+PROBE=/tmp/scep_probe.json
+PIDFILE=/var/run/scep-client.pid
+LOCK=/tmp/scep.lock
+PROBE_LOCK=/tmp/scep_probe.lock
+
+# Where SCEP servers usually live: micromdm/step-ca/small servers, Cisco IOS
+# and EJBCA-style, Microsoft NDES, EJBCA. MikroTik paths are admin-chosen
+# (/scep/<name>), so those have to be typed in.
+PROBE_PATHS="/scep /cgi-bin/pkiclient.exe /certsrv/mscep/mscep.dll /scep/pkiclient.exe /ejbca/publicweb/apply/scep/pkiclient.exe"
+PROBE_PORTS="80 8080"
+
+log() {
+	echo "scep-client: $*" >&2
+	logger -t scep-client "$*" 2>/dev/null
+}
+
+# ------------------------------------------------------------------
+# Configuration
+# ------------------------------------------------------------------
+
+conf_get() {
+	[ -f "$CONF" ] || return 0
+	sed -n "s/^$1=//p" "$CONF" | tail -n 1
+}
+
+conf_set() {
+	(
+		umask 077
+		mkdir -p "$SCEP_DIR"
+		{
+			if [ -f "$CONF" ]; then grep -v "^$1=" "$CONF"; fi
+			if [ -n "$2" ]; then printf '%s=%s\n' "$1" "$2"; fi
+			true
+		} > "$CONF.new" && mv "$CONF.new" "$CONF"
+	)
+}
+
+# printf '%s\n': an empty value must still be one (empty) line for grep
+matches() {
+	printf '%s\n' "$1" | grep -qE "$2"
+}
+
+set_config() {
+	errors=""
+	cr=$(printf '\r')
+	while IFS= read -r line || [ -n "$line" ]; do
+		line=${line%"$cr"}
+		case $line in *=*) ;; *) continue ;; esac
+		k=${line%%=*}
+		v=${line#*=}
+		case $k in
+		url)
+			if matches "$v" '^(http://[^[:space:]"\\]+)?$'; then
+				conf_set url "$v"
+			else
+				errors="$errors url must be http://host/path;"
+			fi ;;
+		cn)
+			if matches "$v" '^[A-Za-z0-9 ._-]{0,64}$'; then
+				conf_set cn "$v"
+			else
+				errors="$errors cn has invalid characters;"
+			fi ;;
+		san)
+			if matches "$v" '^(auto|((DNS:[A-Za-z0-9.*-]+|IP:[0-9A-Fa-f.:]+)(,|$))+)?$'; then
+				conf_set san "$v"
+			else
+				errors="$errors san must be auto or DNS:x,IP:y;"
+			fi ;;
+		ca_fingerprint)
+			v=$(printf '%s' "$v" | tr -d ': ' | tr a-f A-F)
+			if matches "$v" '^([0-9A-F]{64})?$'; then
+				conf_set ca_fingerprint "$v"
+			else
+				errors="$errors ca_fingerprint must be a SHA-256 (64 hex digits);"
+			fi ;;
+		challenge)
+			# empty = keep the stored one (the Dashboard never sees it)
+			[ -z "$v" ] && continue
+			if printf '%s' "$v" | grep -q '[[:cntrl:]]'; then
+				errors="$errors challenge has control characters;"
+			else
+				conf_set challenge "$v"
+			fi ;;
+		clear_challenge)
+			[ "$v" = 1 ] && conf_set challenge "" ;;
+		key_bits)
+			case $v in 2048|3072|4096) conf_set key_bits "$v" ;;
+			*) errors="$errors key_bits must be 2048, 3072 or 4096;" ;; esac ;;
+		pending_timeout)
+			if matches "$v" '^[0-9]{1,6}$'; then
+				conf_set pending_timeout "$v"
+			else
+				errors="$errors pending_timeout must be seconds;"
+			fi ;;
+		esac
+	done
+	if [ -n "$errors" ]; then
+		set_state error "config rejected:$errors"
+		return 1
+	fi
+	# drop a stale error (e.g. an earlier rejected config); a valid
+	# certificate keeps reporting "enrolled"
+	if [ "$(sed -n 1p "$STATE_FILE" 2>/dev/null)" != enrolled ]; then
+		set_state configured "configuration saved"
+	fi
+	return 0
+}
+
+enabled() {
+	[ "$(timeout 3 fw_printenv -n scep_enabled 2>/dev/null)" = "1" ]
+}
+
+# ------------------------------------------------------------------
+# Status (/tmp/scep_status.json, published by api_controller.sh)
+# ------------------------------------------------------------------
+
+json_str() {
+	printf '%s' "$1" | tr -d '\000-\037' | sed 's/\\/\\\\/g; s/"/\\"/g'
+}
+
+# $1 cert, $2 startdate|enddate -> seconds since epoch
+cert_epoch() {
+	d=$(openssl x509 -in "$1" -noout -"$2" -dateopt iso_8601 2>/dev/null) || return 1
+	d=${d#*=}
+	d=${d%Z}
+	date -u -d "$d" +%s 2>/dev/null
+}
+
+fingerprint() {
+	openssl x509 -in "$1" -noout -fingerprint -sha256 2>/dev/null |
+		sed 's/.*=//; s/://g' | tr a-f A-F
+}
+
+# $1 state, $2 message: remembered across calls so a later "status" (after a
+# config change) keeps reporting the last outcome
+set_state() {
+	printf '%s\n%s\n' "$1" "$2" > "$STATE_FILE"
+	[ "$1" = error ] && log "$2"
+	write_status
+}
+
+write_status() {
+	state=unconfigured
+	msg=""
+	if [ -f "$STATE_FILE" ]; then
+		state=$(sed -n 1p "$STATE_FILE")
+		msg=$(sed -n 2p "$STATE_FILE")
+	elif [ -f "$DEV_CRT" ]; then
+		state=enrolled
+	fi
+	subject="" issuer="" not_before=0 not_after=0 serial="" active=false
+	if [ -f "$DEV_CRT" ]; then
+		subject=$(openssl x509 -in "$DEV_CRT" -noout -subject -nameopt RFC2253 2>/dev/null | sed 's/^subject=//')
+		issuer=$(openssl x509 -in "$DEV_CRT" -noout -issuer -nameopt RFC2253 2>/dev/null | sed 's/^issuer=//')
+		serial=$(openssl x509 -in "$DEV_CRT" -noout -serial 2>/dev/null | sed 's/^serial=//')
+		not_before=$(cert_epoch "$DEV_CRT" startdate) || not_before=0
+		not_after=$(cert_epoch "$DEV_CRT" enddate) || not_after=0
+		[ -d "$BACKUP_DIR" ] && cmp -s "$DEV_KEY" "$ACTIVE_KEY" && active=true
+	fi
+	challenge_set=false
+	[ -n "$(conf_get challenge)" ] && challenge_set=true
+	tmp="$STATUS.$$"
+	printf '{"state":"%s","message":"%s","url":"%s","cn":"%s","san":"%s","ca_fingerprint":"%s","challenge_set":%s,"key_bits":%s,"pending_timeout":%s,"active":%s,"subject":"%s","issuer":"%s","serial":"%s","not_before":%s,"not_after":%s,"updated":%s}\n' \
+		"$(json_str "$state")" "$(json_str "$msg")" \
+		"$(json_str "$(conf_get url)")" "$(json_str "$(conf_get cn)")" \
+		"$(json_str "$(conf_get san)")" "$(json_str "$(conf_get ca_fingerprint)")" \
+		"$challenge_set" "$(conf_get key_bits | grep -E '^[0-9]+$' || echo 2048)" \
+		"$(conf_get pending_timeout | grep -E '^[0-9]+$' || echo 3600)" "$active" \
+		"$(json_str "$subject")" "$(json_str "$issuer")" "$(json_str "$serial")" \
+		"${not_before:-0}" "${not_after:-0}" "$(date +%s)" > "$tmp" && mv "$tmp" "$STATUS"
+}
+
+# ------------------------------------------------------------------
+# Enrollment
+# ------------------------------------------------------------------
+
+lock() {
+	if ! mkdir "$LOCK" 2>/dev/null; then
+		pid=$(cat "$LOCK/pid" 2>/dev/null)
+		if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then
+			return 1
+		fi
+		rm -rf "$LOCK"
+		mkdir "$LOCK" 2>/dev/null || return 1
+	fi
+	echo $$ > "$LOCK/pid"
+}
+
+unlock() {
+	rm -rf "$LOCK"
+}
+
+# 0 when the clock is plausible. Certificates (and the CA's view of our
+# request) are meaningless at 1970, which is where a board without RTC starts
+# until chrony or GPS sets the time.
+wait_for_clock() {
+	n=0
+	while [ "$(date +%Y)" -lt 2025 ]; do
+		[ "$n" -ge "$1" ] && return 1
+		sleep 5
+		n=$((n + 5))
+	done
+	return 0
+}
+
+auto_san() {
+	h=$(hostname)
+	s="DNS:$h,DNS:$h.local"
+	for ip in $(ip -4 -o addr show 2>/dev/null |
+			awk '$2 != "lo" && $2 !~ /^wg/ { split($4, a, "/"); print a[1] }'); do
+		s="$s,IP:$ip"
+	done
+	echo "$s"
+}
+
+# Escape a value for an OpenSSL config file: backslash before the characters
+# the parser treats specially ($ variable expansion, # comment, quotes,
+# backslash itself, and spaces, which it would otherwise trim at the ends).
+cnf_escape() {
+	printf '%s' "$1" | sed 's/[\\$#"'\'' ]/\\&/g'
+}
+
+# Split the certificates sscep getca wrote (ca.crt for a lone CA, ca.crt-N
+# for a CA/RA bundle) into the trust anchor ($W/anchor.pem) and the
+# intermediate CAs ($W/inter.pem). RA certificates (no CA:TRUE) are left out
+# of both: they only matter to sscep itself, which reads them from ca.crt-N.
+classify_ca() {
+	W=$1
+	: > "$W/inter.pem"
+	rm -f "$W/anchor.pem"
+	first_ca=""
+	for c in "$W"/ca.crt "$W"/ca.crt-*; do
+		[ -f "$c" ] || continue
+		if ! openssl x509 -in "$c" -noout -ext basicConstraints 2>/dev/null | grep -q 'CA:TRUE'; then
+			continue
+		fi
+		[ -z "$first_ca" ] && first_ca=$c
+		subj=$(openssl x509 -in "$c" -noout -subject -nameopt RFC2253)
+		iss=$(openssl x509 -in "$c" -noout -issuer -nameopt RFC2253)
+		if [ "${subj#subject=}" = "${iss#issuer=}" ]; then
+			cp "$c" "$W/anchor.pem"
+		else
+			cat "$c" >> "$W/inter.pem"
+		fi
+	done
+	# Server sent only intermediates: anchor on the first CA it gave us.
+	# A lone certificate without basicConstraints (old v1 CA): anchor on it.
+	if [ ! -f "$W/anchor.pem" ]; then
+		if [ -n "$first_ca" ]; then
+			cp "$first_ca" "$W/anchor.pem"
+		elif [ -f "$W/ca.crt" ]; then
+			cp "$W/ca.crt" "$W/anchor.pem"
+		else
+			return 1
+		fi
+	fi
+	return 0
+}
+
+# Many SCEP servers (older routers, micromdm) still encrypt their reply with
+# single DES, which OpenSSL 3 only has in its legacy provider. Write an
+# OpenSSL config that loads it next to the default one, used by sscep alone
+# (OPENSSL_CONF in its environment), never by maia-httpd or mosquitto.
+write_sscep_cnf() {
+	mdir=$(openssl version -m 2>/dev/null | sed -n 's/^MODULESDIR: "\(.*\)"$/\1/p')
+	[ -n "$mdir" ] && [ -f "$mdir/legacy.so" ] || return 1
+	cat > "$1" <<-EOF
+	openssl_conf = openssl_init
+	[openssl_init]
+	providers = provider_sect
+	[provider_sect]
+	default = default_sect
+	legacy = legacy_sect
+	[default_sect]
+	activate = 1
+	[legacy_sect]
+	activate = 1
+	EOF
+}
+
+# $1 timeout in seconds, then the sscep arguments
+run_sscep() {
+	t=$1
+	shift
+	if [ -f "$SSCEP_CNF" ]; then
+		OPENSSL_CONF=$SSCEP_CNF timeout "$t" sscep "$@"
+	else
+		timeout "$t" sscep "$@"
+	fi
+}
+
+# $1 work dir (holds new.key), $2 CN, $3 subjectAltName, $4 challenge or
+# empty. The request config holds the challenge: it lives in the 700 work
+# dir and is removed with it. Removes the work dir on failure.
+make_csr() {
+	{
+		echo "[req]"
+		echo "prompt = no"
+		echo "distinguished_name = dn"
+		echo "req_extensions = ext"
+		[ -n "$4" ] && echo "attributes = attrs"
+		echo "[dn]"
+		echo "CN = $(cnf_escape "$2")"
+		echo "[ext]"
+		echo "subjectAltName = $3"
+		echo "keyUsage = critical,digitalSignature,keyEncipherment"
+		echo "extendedKeyUsage = serverAuth"
+		if [ -n "$4" ]; then
+			echo "[attrs]"
+			echo "challengePassword = $(cnf_escape "$4")"
+		fi
+	} > "$1/req.cnf"
+	if ! openssl req -new -key "$1/new.key" -config "$1/req.cnf" \
+			-out "$1/new.csr" > "$1/req.log" 2>&1; then
+		set_state error "CSR generation failed: $(tail -n 1 "$1/req.log")"
+		rm -rf "$1"
+		return 1
+	fi
+	rm -f "$1/req.cnf"
+}
+
+cert_valid() {
+	[ -f "$1" ] && openssl x509 -in "$1" -noout -checkend 0 >/dev/null 2>&1
+}
+
+# 0 when less than a third of the certificate lifetime is left
+needs_renewal() {
+	nb=$(cert_epoch "$DEV_CRT" startdate) || return 0
+	na=$(cert_epoch "$DEV_CRT" enddate) || return 0
+	now=$(date +%s)
+	[ $((na - now)) -lt $(((na - nb) / 3)) ]
+}
+
+restart_services() {
+	[ -x /etc/init.d/S60maia-httpd ] && /etc/init.d/S60maia-httpd restart >/dev/null 2>&1
+	# SIGHUP makes mosquitto reload its listener certificates without
+	# dropping the connected clients (api_controller.sh, the Dashboard)
+	[ -x /etc/init.d/S50mosquitto ] && /etc/init.d/S50mosquitto reload >/dev/null 2>&1
+}
+
+# Put the issued certificate where maia-httpd and mosquitto read theirs.
+install_active() {
+	cert_valid "$DEV_CRT" || return 1
+	if [ ! -d "$BACKUP_DIR" ]; then
+		mkdir -p "$BACKUP_DIR" && chmod 700 "$BACKUP_DIR" || return 1
+		for f in "$ACTIVE_CRT" "$ACTIVE_KEY" "$ACTIVE_CA"; do
+			[ -f "$f" ] && cp -p "$f" "$BACKUP_DIR/"
+		done
+	fi
+	(
+		umask 077
+		cat "$DEV_CRT" "$DEV_CHAIN" > "$ACTIVE_CRT.new" &&
+			cp "$DEV_KEY" "$ACTIVE_KEY.new" &&
+			cp "$DEV_CA" "$ACTIVE_CA.new" &&
+			chmod 644 "$ACTIVE_CRT.new" "$ACTIVE_CA.new"
+	) || return 1
+	mv "$ACTIVE_KEY.new" "$ACTIVE_KEY"
+	mv "$ACTIVE_CRT.new" "$ACTIVE_CRT"
+	mv "$ACTIVE_CA.new" "$ACTIVE_CA"
+	sync
+	restart_services
+	log "installed certificate $(openssl x509 -in "$DEV_CRT" -noout -subject -nameopt RFC2253 2>/dev/null)"
+}
+
+# 0 when the active files are not the ones built from our issued cert
+install_needed() {
+	[ -d "$BACKUP_DIR" ] || return 0
+	cmp -s "$DEV_KEY" "$ACTIVE_KEY" || return 0
+	cat "$DEV_CRT" "$DEV_CHAIN" 2>/dev/null | cmp -s - "$ACTIVE_CRT" || return 0
+	return 1
+}
+
+do_disable() {
+	[ -d "$BACKUP_DIR" ] || return 0
+	for f in "$ACTIVE_CRT" "$ACTIVE_KEY" "$ACTIVE_CA"; do
+		b="$BACKUP_DIR/$(basename "$f")"
+		[ -f "$b" ] && cp -p "$b" "$f.new" && mv "$f.new" "$f"
+	done
+	rm -rf "$BACKUP_DIR"
+	sync
+	restart_services
+	set_state disabled "self-signed certificate restored"
+	log "self-signed certificate restored"
+}
+
+# One enrollment (initial, or renewal signed with the current certificate).
+# Returns 0 on success.
+enroll() {
+	url=$(conf_get url)
+	if [ -z "$url" ]; then
+		set_state unconfigured "no SCEP URL configured"
+		return 2
+	fi
+	if ! command -v sscep >/dev/null 2>&1; then
+		set_state error "sscep is not installed in this firmware"
+		return 1
+	fi
+	if ! wait_for_clock 120; then
+		set_state error "system clock not set (no NTP/GPS time yet)"
+		return 1
+	fi
+
+	W=$(mktemp -d /tmp/scep.XXXXXX) || return 1
+	chmod 700 "$W"
+	SSCEP_CNF=$W/sscep.cnf
+	write_sscep_cnf "$SSCEP_CNF" || rm -f "$SSCEP_CNF"
+
+	set_state enrolling "fetching CA certificate"
+	if ! run_sscep 60 getca -u "$url" -c "$W/ca.crt" > "$W/getca.log" 2>&1; then
+		set_state error "GetCACert failed: $(tail -n 1 "$W/getca.log")"
+		rm -rf "$W"
+		return 1
+	fi
+	if ! classify_ca "$W"; then
+		set_state error "server returned no usable CA certificate"
+		rm -rf "$W"
+		return 1
+	fi
+
+	fp=$(fingerprint "$W/anchor.pem")
+	pin=$(conf_get ca_fingerprint)
+	if [ -n "$pin" ] && [ "$pin" != "$fp" ]; then
+		set_state error "CA fingerprint mismatch: server presented $fp, pinned $pin"
+		rm -rf "$W"
+		return 1
+	fi
+
+	bits=$(conf_get key_bits)
+	bits=${bits:-2048}
+	pt=$(conf_get pending_timeout)
+	pt=${pt:-3600}
+	cn=$(conf_get cn)
+	[ -z "$cn" ] && cn=$(hostname)
+	san=$(conf_get san)
+	[ -z "$san" ] || [ "$san" = auto ] && san=$(auto_san)
+	challenge=$(conf_get challenge)
+
+	set_state enrolling "generating $bits-bit RSA key"
+	if ! openssl genpkey -algorithm RSA -pkeyopt "rsa_keygen_bits:$bits" \
+			-out "$W/new.key" > "$W/key.log" 2>&1; then
+		set_state error "key generation failed: $(tail -n 1 "$W/key.log")"
+		rm -rf "$W"
+		return 1
+	fi
+
+	# A renewal is signed with the current certificate (RFC 8894 3.3.1.2).
+	# Servers disagree on the challenge there: some want none (a one-time
+	# challenge is spent by now), some (micromdm) still check it. So try,
+	# moving on only when the CA refuses: renewal without the challenge,
+	# renewal with it, then a fresh enrollment with it.
+	if cert_valid "$DEV_CRT" && [ -f "$DEV_KEY" ]; then
+		attempts=renewal
+		[ -n "$challenge" ] && attempts="renewal renewal+challenge enrollment"
+	else
+		attempts=enrollment
+	fi
+	rc=1
+	for mode in $attempts; do
+		case $mode in
+		renewal) chal="" ;;
+		*) chal=$challenge ;;
+		esac
+		make_csr "$W" "$cn" "$san" "$chal" || return 1
+		# sscep picks the strongest cipher/digest the server lists in
+		# GetCACaps
+		set -- enroll -u "$url" -c "$W/ca.crt" -k "$W/new.key" -r "$W/new.csr" \
+			-l "$W/new.crt" -t 60 -T "$pt" -n $((pt / 60 + 1))
+		case $mode in renewal*) set -- "$@" -K "$DEV_KEY" -O "$DEV_CRT" ;; esac
+		set_state enrolling "$mode request sent, waiting for the CA"
+		run_sscep $((pt + 120)) "$@" > "$W/enroll.log" 2>&1
+		rc=$?
+		# 2 = FAILURE, 70..74 = FAILURE with a failInfo (badAlg,
+		# badMessageCheck, badRequest - e.g. a wrong challenge -, badTime,
+		# badCertId): the CA said no, the next attempt may suit it
+		case $rc in
+		2|7[0-4]) log "$mode refused: $(tail -n 1 "$W/enroll.log")" ;;
+		*) break ;;
+		esac
+	done
+	case $rc in
+	0) ;;
+	2|7[0-4]) set_state error "CA rejected the $mode: $(tail -n 1 "$W/enroll.log")" ;;
+	3) set_state pending "request still pending after ${pt}s; approve it on the router, then Enroll now" ;;
+	*) set_state error "sscep enroll failed ($rc): $(tail -n 1 "$W/enroll.log")" ;;
+	esac
+	if [ $rc -ne 0 ]; then
+		rm -rf "$W"
+		return 1
+	fi
+
+	# The issued cert must chain to the anchor and carry our new key
+	if ! openssl verify -partial_chain -CAfile "$W/anchor.pem" \
+			-untrusted "$W/inter.pem" "$W/new.crt" > "$W/verify.log" 2>&1; then
+		# an empty -untrusted file is an error on some OpenSSL builds
+		if [ -s "$W/inter.pem" ] || ! openssl verify -partial_chain \
+				-CAfile "$W/anchor.pem" "$W/new.crt" > "$W/verify.log" 2>&1; then
+			set_state error "issued certificate does not verify: $(tail -n 1 "$W/verify.log")"
+			rm -rf "$W"
+			return 1
+		fi
+	fi
+	if [ "$(openssl x509 -in "$W/new.crt" -noout -pubkey)" != \
+			"$(openssl pkey -in "$W/new.key" -pubout)" ]; then
+		set_state error "issued certificate does not match the generated key"
+		rm -rf "$W"
+		return 1
+	fi
+
+	(
+		umask 077
+		mkdir -p "$SCEP_DIR"
+		cp "$W/new.key" "$DEV_KEY.new" &&
+			cp "$W/new.crt" "$DEV_CRT.new" &&
+			cp "$W/inter.pem" "$DEV_CHAIN.new" &&
+			cp "$W/anchor.pem" "$DEV_CA.new"
+	) || { set_state error "cannot write $SCEP_DIR"; rm -rf "$W"; return 1; }
+	mv "$DEV_KEY.new" "$DEV_KEY"
+	mv "$DEV_CRT.new" "$DEV_CRT"
+	mv "$DEV_CHAIN.new" "$DEV_CHAIN"
+	mv "$DEV_CA.new" "$DEV_CA"
+	rm -rf "$W"
+
+	# Trust on first use: pin the CA we just enrolled against
+	[ -z "$pin" ] && conf_set ca_fingerprint "$fp"
+
+	if [ "${PROVISION:-0}" = 1 ] || enabled; then
+		install_active || { set_state error "cannot install the certificate"; return 1; }
+	fi
+	set_state enrolled "$mode OK, CA $fp"
+	return 0
+}
+
+# The Provision button: enroll with the saved config and put the result in
+# use, whatever scep_enabled said before.
+provision() {
+	lock || { set_state error "another enrollment is running, try again when it ends"; return 1; }
+	PROVISION=1 enroll
+	rc=$?
+	unlock
+	[ $rc -eq 0 ] || return $rc
+	fw_setenv scep_enabled 1 2>/dev/null
+	[ -x /etc/init.d/S55scep ] && /etc/init.d/S55scep start >/dev/null 2>&1
+	write_status
+	return 0
+}
+
+# One daemon pass. $1 = 1 forces a renewal.
+cycle() {
+	lock || { log "another enrollment is running"; return 1; }
+	rc=0
+	if [ -z "$(conf_get url)" ]; then
+		set_state unconfigured "no SCEP URL configured"
+		rc=2
+	elif [ "$1" != 1 ] && [ ! -f "$DEV_CRT" ]; then
+		# nothing to renew: a first certificate is only provisioned on request
+		set_state configured "no certificate yet, use Provision"
+		rc=2
+	elif [ "$1" != 1 ] && cert_valid "$DEV_CRT" && ! needs_renewal; then
+		if enabled && install_needed; then
+			install_active || rc=1
+		fi
+		[ $rc -eq 0 ] && set_state enrolled "certificate valid"
+	elif [ "$(date +%Y)" -lt 2025 ] && [ "$1" != 1 ] && [ -f "$DEV_CRT" ]; then
+		# clock not set yet: can't judge expiry, try again shortly
+		rc=1
+	else
+		enroll
+		rc=$?
+	fi
+	unlock
+	return $rc
+}
+
+daemon() {
+	WAKE=0
+	SLEEP_PID=""
+	trap 'WAKE=1' USR1
+	trap 'WAKE=2' USR2
+	trap '[ -n "$SLEEP_PID" ] && kill "$SLEEP_PID" 2>/dev/null; unlock; exit 0' TERM INT
+	backoff=300
+	boot=1
+	while :; do
+		# A signal that lands while cycle runs is kept in WAKE and skips
+		# the sleep, so an "Enroll now" during a renewal is not lost
+		force=0
+		[ "$WAKE" = 1 ] && force=1
+		[ "$WAKE" != 0 ] && boot=0
+		WAKE=0
+		if [ $boot = 1 ]; then
+			# No network at boot: only make sure the certificate we
+			# have is the one in use, then wait before the first check
+			boot=0
+			if lock; then
+				if enabled && cert_valid "$DEV_CRT" && install_needed; then
+					install_active
+				fi
+				write_status
+				unlock
+			fi
+			delay=900
+		else
+			cycle "$force"
+			case $? in
+			0|2) delay=21600; backoff=300 ;;
+			*) delay=$backoff
+			   backoff=$((backoff * 2))
+			   [ $backoff -gt 3600 ] && backoff=3600 ;;
+			esac
+		fi
+		[ "$WAKE" = 0 ] || continue
+		sleep "$delay" &
+		SLEEP_PID=$!
+		wait "$SLEEP_PID"
+		kill "$SLEEP_PID" 2>/dev/null
+		SLEEP_PID=""
+	done
+}
+
+daemon_pid() {
+	pid=$(cat "$PIDFILE" 2>/dev/null)
+	[ -n "$pid" ] && kill -0 "$pid" 2>/dev/null && echo "$pid"
+}
+
+# ------------------------------------------------------------------
+# Probe
+# ------------------------------------------------------------------
+
+# Gateways, plus the DNS servers that are on a private network (the router
+# is often both; a public resolver like 8.8.8.8 is never probed)
+probe_hosts() {
+	{
+		ip -4 route show default 2>/dev/null |
+			awk '{ for (i = 1; i < NF; i++) if ($i == "via") print $(i + 1) }'
+		sed -n 's/^nameserver[[:space:]]*\([0-9.]*\)[[:space:]]*$/\1/p' /etc/resolv.conf 2>/dev/null |
+			grep -E '^(10\.|192\.168\.|172\.(1[6-9]|2[0-9]|3[01])\.)'
+	} | awk 'NF && !seen[$0]++'
+}
+
+# $1 url, $2 empty work dir: a GetCACert that yields a parseable CA
+# certificate makes it a SCEP server. Leaves "url<TAB>subject<TAB>fp" in
+# $2/result.
+probe_one() {
+	run_sscep 8 getca -u "$1" -c "$2/ca.crt" > "$2/log" 2>&1
+	classify_ca "$2" 2>/dev/null || return 1
+	fp=$(fingerprint "$2/anchor.pem")
+	[ -n "$fp" ] || return 1
+	subj=$(openssl x509 -in "$2/anchor.pem" -noout -subject -nameopt RFC2253 2>/dev/null)
+	printf '%s\t%s\t%s\n' "$1" "${subj#subject=}" "$fp" > "$2/result"
+}
+
+write_probe() {
+	tmp="$PROBE.$$"
+	cat > "$tmp" && mv "$tmp" "$PROBE"
+}
+
+# $1 optional host or host:port typed in the Dashboard
+probe() {
+	if ! mkdir "$PROBE_LOCK" 2>/dev/null; then
+		# one probe at a time; take over the lock of a probe that died
+		pid=$(cat "$PROBE_LOCK/pid" 2>/dev/null)
+		[ -n "$pid" ] && kill -0 "$pid" 2>/dev/null && return 1
+		rm -rf "$PROBE_LOCK"
+		mkdir "$PROBE_LOCK" 2>/dev/null || return 1
+	fi
+	echo $$ > "$PROBE_LOCK/pid"
+	if [ -n "$1" ]; then
+		if ! matches "$1" '^[A-Za-z0-9.-]+(:[0-9]{1,5})?$'; then
+			printf '{"state":"error","message":"invalid host","hosts":[],"results":[],"updated":%s}\n' \
+				"$(date +%s)" | write_probe
+			rm -rf "$PROBE_LOCK"
+			return 1
+		fi
+		hosts=$1
+	else
+		hosts=$(probe_hosts)
+	fi
+	hjson=""
+	for h in $hosts; do hjson="$hjson${hjson:+,}\"$(json_str "$h")\""; done
+	printf '{"state":"running","message":"","hosts":[%s],"results":[],"updated":%s}\n' \
+		"$hjson" "$(date +%s)" | write_probe
+
+	P=$(mktemp -d /tmp/scep_probe.XXXXXX) || { rm -rf "$PROBE_LOCK"; return 1; }
+	SSCEP_CNF=$P/sscep.cnf
+	write_sscep_cnf "$SSCEP_CNF" || rm -f "$SSCEP_CNF"
+	n=0
+	order=""
+	for h in $hosts; do
+		case $h in
+		*:*) ports=${h##*:}; h=${h%:*} ;;
+		*) ports=$PROBE_PORTS ;;
+		esac
+		for port in $ports; do
+			hp=$h
+			[ "$port" != 80 ] && hp="$h:$port"
+			for path in $PROBE_PATHS; do
+				n=$((n + 1))
+				mkdir "$P/$n"
+				order="$order $n"
+				probe_one "http://$hp$path" "$P/$n" &
+			done
+		done
+	done
+	wait
+
+	# One row per server: the first path (in PROBE_PATHS order) that
+	# answered for a given host:port and CA
+	seen=""
+	rows=""
+	for i in $order; do
+		[ -f "$P/$i/result" ] || continue
+		IFS='	' read -r url subj fp < "$P/$i/result"
+		hostport=${url#http://}
+		key="${hostport%%/*}/$fp"
+		case " $seen " in *" $key "*) continue ;; esac
+		seen="$seen $key"
+		rows="$rows${rows:+,}{\"url\":\"$(json_str "$url")\",\"ca_subject\":\"$(json_str "$subj")\",\"ca_fingerprint\":\"$fp\"}"
+	done
+	rm -rf "$P"
+	if [ -z "$hosts" ]; then
+		msg="no gateway or LAN DNS server to probe, enter a host"
+	elif [ -z "$rows" ]; then
+		msg="no SCEP server found on the usual paths, enter the URL"
+	else
+		msg=""
+	fi
+	printf '{"state":"done","message":"%s","hosts":[%s],"results":[%s],"updated":%s}\n' \
+		"$msg" "$hjson" "$rows" "$(date +%s)" | write_probe
+	rm -rf "$PROBE_LOCK"
+}
+
+case "$1" in
+daemon)
+	daemon ;;
+probe)
+	probe "$2" ;;
+provision)
+	provision ;;
+enroll)
+	cycle 1 ;;
+renew-now)
+	pid=$(daemon_pid)
+	if [ -n "$pid" ]; then kill -USR1 "$pid"; else cycle 1; fi ;;
+recheck)
+	pid=$(daemon_pid)
+	[ -n "$pid" ] && kill -USR2 "$pid"
+	write_status ;;
+set-config)
+	set_config
+	rc=$?
+	write_status
+	exit $rc ;;
+disable)
+	do_disable ;;
+status)
+	write_status
+	cat "$STATUS" ;;
+*)
+	echo "Usage: $0 {probe [host[:port]]|provision|daemon|enroll|renew-now|recheck|set-config|disable|status}" >&2
+	exit 1 ;;
+esac
